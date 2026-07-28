@@ -1,38 +1,60 @@
 # Axxam Workspace
 
-Nouvelle interface de gestion compacte construite avec React, Vinext et
-Lucide Icons.
+Interface de gestion locale construite avec Next.js, React et SQLite.
 
-## Pages
+## Installation sur une autre machine
 
-- Tableau de bord résumé avec indicateurs et deux graphiques
-- Clients
-- Fournisseurs
-- Achats
-- Ventes
+Installer uniquement :
 
-Les pages métier affichent une ligne fine de statistiques puis directement le
-tableau. Dans Achats et Ventes, les devis, commandes, BL/réceptions, factures
-et bons de retour sont des catégories indépendantes.
+- Node.js 22.13 ou une version plus récente ;
+- pnpm 11.9.0.
 
-## Démarrage
+SQLite, Python, Docker et Cloudflare ne sont pas nécessaires. SQLite est fourni
+directement par Node.js et la base locale est créée automatiquement.
 
-Prérequis : Node.js 22.13 ou plus récent et pnpm.
+Après avoir copié le dossier du projet sur la nouvelle machine :
 
 ```bash
+corepack enable
+corepack prepare pnpm@11.9.0 --activate
 pnpm install
 pnpm dev
 ```
 
 Ouvrir ensuite `http://localhost:3000`.
 
-## Validation
+Si Corepack n’est pas disponible :
 
 ```bash
-pnpm build
-pnpm lint
-pnpm test
+npm install -g pnpm@11.9.0
 ```
 
-Les données actuelles sont des données de démonstration locales, prêtes à être
-remplacées par une API ou une base de données.
+## Base de données hors ligne
+
+Au premier accès à la page Articles, Axxam crée automatiquement :
+
+```text
+data/axxam.sqlite
+```
+
+Ce fichier contient les données SQLite. Pour déplacer ou sauvegarder les
+données, arrêter Axxam puis copier ce fichier avec le projet.
+
+## Exécution en mode production local
+
+```bash
+pnpm install
+pnpm build
+pnpm start
+```
+
+## Pages
+
+- Tableau de bord
+- Clients
+- Fournisseurs
+- Articles
+- Achats
+- Ventes
+- Documents
+- Paramètres

@@ -2,12 +2,12 @@
   "name": "axxam-workspace",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.9.0",
   "engines": {
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "vite dev --port 3000",
-    "dev:next": "next dev --webpack",
+    "dev": "next dev --webpack",
     "build": "next build --webpack",
     "build:sites": "vite build",
     "start": "next start",

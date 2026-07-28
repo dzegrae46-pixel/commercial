@@ -193,7 +193,7 @@ const topStats: Record<PageKey, { label: string; value: string; trend: string; i
     { label: "Reste à payer", value: "96,4 k DA", trend: "12 factures", icon: WalletCards },
   ],
   articles: [
-    { label: "Articles", value: "2", trend: "Base SQL", icon: Boxes },
+    { label: "Articles", value: "2", trend: "SQLite local", icon: Boxes },
     { label: "Valeur du stock", value: "2,21 M DA", trend: "25 unités", icon: Package },
     { label: "Stock faible", value: "1", trend: "À surveiller", icon: ShoppingBag },
   ],
@@ -713,7 +713,7 @@ function ArticlesTable({
       })
       .catch((requestError: Error) => {
         if (active && requestError.name !== "AbortError") {
-          setRequest({ rows: [], error: "Impossible de charger les articles depuis la base SQL.", loadedKey: reloadKey });
+          setRequest({ rows: [], error: "Impossible de charger la base SQLite locale.", loadedKey: reloadKey });
         }
       });
 
@@ -730,11 +730,11 @@ function ArticlesTable({
   const money = (value: number) => `${new Intl.NumberFormat("fr-FR").format(value)} DA`;
 
   return (
-    <TableCard title="Tous les articles" count={loading ? "Connexion à la base…" : `${filtered.length} articles`} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode}>
+    <TableCard title="Tous les articles" count={loading ? "Connexion à SQLite…" : `${filtered.length} articles`} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode}>
       <table>
         <thead><tr><th>Article</th><th>Référence</th><th>Catégorie</th><th>Prix d’achat</th><th>Prix de vente</th><th>Stock</th><th>Statut</th><th /></tr></thead>
         <tbody>
-          {loading && <tr><td className="empty-row" colSpan={8}>Chargement de la base SQL…</td></tr>}
+          {loading && <tr><td className="empty-row" colSpan={8}>Chargement de SQLite…</td></tr>}
           {!loading && request.error && (
             <tr><td className="empty-row" colSpan={8}><span>{request.error}</span><button className="text-button" onClick={() => setReloadKey((value) => value + 1)}>Réessayer</button></td></tr>
           )}

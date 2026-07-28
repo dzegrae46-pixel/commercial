@@ -39,7 +39,7 @@ test("contains the compact workspace views and company settings", async () => {
   assert.match(page, /ArticleBrandLogo/);
   assert.match(page, /ArticlesTable/);
   assert.match(page, /\/api\/articles/);
-  assert.match(page, /Base SQL/);
+  assert.match(page, /SQLite local/);
   assert.match(page, /DocumentLogo/);
   assert.match(page, /LibraryFormat/);
   assert.match(page, /clientDetailsOpen/);
@@ -92,20 +92,25 @@ test("keeps the visual system compact and production-ready", async () => {
   ]);
 });
 
-test("persists articles in the SQLite-compatible D1 database", async () => {
-  const [schema, migration, worker, hosting] = await Promise.all([
+test("persists articles in an offline SQLite file", async () => {
+  const [schema, sqlite, route, worker, hosting, gitignore] = await Promise.all([
     readFile(new URL("db/schema.ts", root), "utf8"),
-    readFile(new URL("drizzle/0000_articles.sql", root), "utf8"),
+    readFile(new URL("lib/sqlite.ts", root), "utf8"),
+    readFile(new URL("app/api/articles/route.ts", root), "utf8"),
     readFile(new URL("worker/index.ts", root), "utf8"),
     readFile(new URL(".openai/hosting.json", root), "utf8"),
+    readFile(new URL(".gitignore", root), "utf8"),
   ]);
 
-  assert.match(hosting, /"d1":\s*"DB"/);
+  assert.match(hosting, /"d1":\s*null/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS articles/);
   assert.match(schema, /Google Pixel 9 Pro/);
   assert.match(schema, /Amazon Echo Dot/);
-  assert.match(migration, /CREATE UNIQUE INDEX IF NOT EXISTS articles_sku_idx/);
-  assert.match(worker, /env\.DB/);
-  assert.match(worker, /\.batch\(/);
-  assert.match(worker, /\/api\/articles/);
+  assert.match(sqlite, /node:sqlite/);
+  assert.match(sqlite, /data\/axxam\.sqlite/);
+  assert.match(sqlite, /DatabaseSync/);
+  assert.match(route, /listArticles/);
+  assert.doesNotMatch(worker, /D1Database|env\.DB/);
+  assert.match(gitignore, /data\/\*\.sqlite/);
+  await access(new URL("data/.gitkeep", root));
 });
