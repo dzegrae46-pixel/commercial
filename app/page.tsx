@@ -52,7 +52,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-type PageKey = "dashboard" | "clients" | "suppliers" | "purchases" | "sales" | "documents" | "settings";
+type PageKey = "dashboard" | "clients" | "suppliers" | "articles" | "purchases" | "sales" | "documents" | "settings";
 type BusinessPage = "clients" | "suppliers" | "purchases" | "sales";
 type DocType = "all" | "quotes" | "orders" | "delivery" | "invoices" | "returns";
 type LibraryCategory = DocType;
@@ -112,6 +112,20 @@ type LibraryRecord = DocumentRecord & {
   size: string;
 };
 
+type ArticleRecord = {
+  id: number;
+  name: string;
+  sku: string;
+  brand: string;
+  brand_logo: string;
+  category: string;
+  purchase_price: number;
+  sale_price: number;
+  stock: number;
+  status: string;
+  updated_at: string;
+};
+
 type CreatePayload = {
   target: BusinessPage;
   name: string;
@@ -129,6 +143,7 @@ const pageMeta: Record<PageKey, { label: string; subtitle: string; icon: LucideI
   dashboard: { label: "Tableau de bord", subtitle: "Vue synthétique de votre activité", icon: Home },
   clients: { label: "Clients", subtitle: "Relations et soldes clients", icon: Users },
   suppliers: { label: "Fournisseurs", subtitle: "Partenaires et achats", icon: Truck },
+  articles: { label: "Articles", subtitle: "Catalogue et niveaux de stock", icon: Boxes },
   purchases: { label: "Achats", subtitle: "Documents, réceptions et retours", icon: ShoppingBag },
   sales: { label: "Ventes", subtitle: "Devis, commandes et factures", icon: Store },
   documents: { label: "Documents", subtitle: "Tous vos fichiers commerciaux", icon: Files },
@@ -142,6 +157,7 @@ const navGroups: { label: string; items: { label: string; icon: LucideIcon; key?
       { key: "dashboard", label: "Tableau de bord", icon: Home },
       { key: "clients", label: "Clients", icon: Users },
       { key: "suppliers", label: "Fournisseurs", icon: Truck },
+      { key: "articles", label: "Articles", icon: Boxes },
       { key: "purchases", label: "Achats", icon: ShoppingBag },
       { key: "sales", label: "Ventes", icon: Store },
     ],
@@ -175,6 +191,11 @@ const topStats: Record<PageKey, { label: string; value: string; trend: string; i
     { label: "Fournisseurs", value: "42", trend: "+4", icon: Truck },
     { label: "Total achats", value: "824,3 k DA", trend: "+5,2%", icon: ShoppingBag },
     { label: "Reste à payer", value: "96,4 k DA", trend: "12 factures", icon: WalletCards },
+  ],
+  articles: [
+    { label: "Articles", value: "2", trend: "Base SQL", icon: Boxes },
+    { label: "Valeur du stock", value: "2,21 M DA", trend: "25 unités", icon: Package },
+    { label: "Stock faible", value: "1", trend: "À surveiller", icon: ShoppingBag },
   ],
   purchases: [
     { label: "Achats du mois", value: "184,6 k DA", trend: "+11,6%", icon: ShoppingBag },
@@ -408,6 +429,27 @@ function DocumentLogo({
   );
 }
 
+function ArticleBrandLogo({
+  brand,
+  logo,
+}: {
+  brand: string;
+  logo: string;
+}) {
+  const safeLogo = logo.startsWith("/brands/") ? logo : "";
+
+  return (
+    <span
+      className="article-brand-logo"
+      style={safeLogo ? { backgroundImage: `url("${safeLogo}")` } : undefined}
+      role="img"
+      aria-label={`Logo ${brand}`}
+    >
+      {!safeLogo && <Package size={16} />}
+    </span>
+  );
+}
+
 function CompanyLogo({
   company,
   className = "",
@@ -626,6 +668,89 @@ function SuppliersTable({
             </tr>
           ))}
           {!filtered.length && <EmptyRow columns={7} />}
+        </tbody>
+      </table>
+    </TableCard>
+  );
+}
+
+function ArticlesTable({
+  search,
+  setSearch,
+  filterActive,
+  setFilterActive,
+  viewMode,
+  setViewMode,
+  notify,
+}: {
+  search: string;
+  setSearch: (value: string) => void;
+  filterActive: boolean;
+  setFilterActive: (value: boolean) => void;
+  viewMode: ViewMode;
+  setViewMode: (value: ViewMode) => void;
+  notify: (message: string) => void;
+}) {
+  const [request, setRequest] = useState<{ rows: ArticleRecord[]; error: string; loadedKey: number }>({
+    rows: [],
+    error: "",
+    loadedKey: -1,
+  });
+  const [reloadKey, setReloadKey] = useState(0);
+  const loading = request.loadedKey !== reloadKey;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+
+    fetch("/api/articles", { signal: controller.signal, cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error("Base indisponible");
+        return response.json() as Promise<{ articles: ArticleRecord[] }>;
+      })
+      .then(({ articles }) => {
+        if (active) setRequest({ rows: articles, error: "", loadedKey: reloadKey });
+      })
+      .catch((requestError: Error) => {
+        if (active && requestError.name !== "AbortError") {
+          setRequest({ rows: [], error: "Impossible de charger les articles depuis la base SQL.", loadedKey: reloadKey });
+        }
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [reloadKey]);
+
+  const filtered = request.rows.filter((article) => {
+    const matchesSearch = `${article.name} ${article.sku} ${article.brand} ${article.category}`.toLowerCase().includes(search.toLowerCase());
+    return matchesSearch && (!filterActive || article.stock <= 10);
+  });
+  const money = (value: number) => `${new Intl.NumberFormat("fr-FR").format(value)} DA`;
+
+  return (
+    <TableCard title="Tous les articles" count={loading ? "Connexion à la base…" : `${filtered.length} articles`} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode}>
+      <table>
+        <thead><tr><th>Article</th><th>Référence</th><th>Catégorie</th><th>Prix d’achat</th><th>Prix de vente</th><th>Stock</th><th>Statut</th><th /></tr></thead>
+        <tbody>
+          {loading && <tr><td className="empty-row" colSpan={8}>Chargement de la base SQL…</td></tr>}
+          {!loading && request.error && (
+            <tr><td className="empty-row" colSpan={8}><span>{request.error}</span><button className="text-button" onClick={() => setReloadKey((value) => value + 1)}>Réessayer</button></td></tr>
+          )}
+          {!loading && !request.error && filtered.map((article) => (
+            <tr key={article.id}>
+              <td><div className="identity-cell"><ArticleBrandLogo brand={article.brand} logo={article.brand_logo} /><div><strong>{article.name}</strong><small>{article.brand}</small></div></div></td>
+              <td><span className="sku-code">{article.sku}</span></td>
+              <td><span className="soft-label">{article.category}</span></td>
+              <td className="number">{money(article.purchase_price)}</td>
+              <td className="number">{money(article.sale_price)}</td>
+              <td><span className={`stock-value ${article.stock <= 10 ? "low" : ""}`}>{article.stock}</span></td>
+              <td><StatusBadge label={article.status} tone={article.stock <= 10 ? "orange" : "green"} /></td>
+              <td><RowActions label={article.name} notify={notify} /></td>
+            </tr>
+          ))}
+          {!loading && !request.error && !filtered.length && <EmptyRow columns={8} />}
         </tbody>
       </table>
     </TableCard>
@@ -1245,6 +1370,7 @@ export default function WorkspaceApp() {
           {page === "dashboard" && <Dashboard notify={notify} onViewSales={() => navigate("sales")} />}
           {page === "clients" && <ClientsTable rows={clients} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onDelete={(name) => { setClients((rows) => rows.filter((row) => row.name !== name)); notify(`${name} supprimé`); }} />}
           {page === "suppliers" && <SuppliersTable rows={suppliers} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onDelete={(name) => { setSuppliers((rows) => rows.filter((row) => row.name !== name)); notify(`${name} supprimé`); }} />}
+          {page === "articles" && <ArticlesTable search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} />}
           {page === "purchases" && <DocumentsTable page="purchases" rows={purchases} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onDelete={(number) => { setPurchases((rows) => rows.filter((row) => row.number !== number)); notify(`${number} supprimé`); }} />}
           {page === "sales" && <DocumentsTable page="sales" rows={sales} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onDelete={(number) => { setSales((rows) => rows.filter((row) => row.number !== number)); notify(`${number} supprimé`); }} />}
           {page === "documents" && <DocumentsLibrary purchases={purchases} sales={sales} search={search} setSearch={setSearch} viewMode={viewMode} setViewMode={setViewMode} />}

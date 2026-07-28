@@ -152,6 +152,10 @@ td small { color: var(--subtle); display: block; font-size: 11px; margin-top: 2p
 .negative-number { color: #c65460; }
 .identity-cell, .document-cell { align-items: center; display: flex; gap: 10px; }
 .entity-logo, .document-logo { align-items: center; border: 1px solid rgba(25,25,32,.06); border-radius: 8px; box-shadow: inset 0 1px 0 rgba(255,255,255,.42), 0 2px 5px rgba(28,28,35,.06); display: inline-flex; flex: 0 0 auto; height: 30px; justify-content: center; width: 30px; }
+.article-brand-logo { align-items: center; background-color: #fff; background-position: center; background-repeat: no-repeat; background-size: contain; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 2px 6px rgba(24,24,31,.06); display: inline-flex; flex: 0 0 auto; height: 32px; justify-content: center; padding: 5px; width: 42px; }
+.sku-code { background: #f3f3f5; border-radius: 5px; color: #5e5e67; display: inline-flex; font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; font-weight: 600; padding: 4px 7px; }
+.stock-value { align-items: center; background: var(--green-soft); border-radius: 5px; color: var(--green); display: inline-flex; font-size: 12px; font-weight: 700; height: 24px; justify-content: center; min-width: 30px; padding: 0 7px; }
+.stock-value.low { background: var(--coral-soft); color: #c65b3a; }
 .entity-sun { background: linear-gradient(145deg,#fff0bd,#ffc66a); color: #a75d16; }
 .entity-violet { background: linear-gradient(145deg,#eee7ff,#c8b4ff); color: #6748ca; }
 .entity-blue { background: linear-gradient(145deg,#e2efff,#a9c9ff); color: #456ac0; }
@@ -177,6 +181,7 @@ td small { color: var(--subtle); display: block; font-size: 11px; margin-top: 2p
 .row-menu button:hover { background: #f4f4f6; color: var(--ink); }
 .row-menu .danger-action { color: #c34f56; }
 .empty-row { color: var(--subtle); height: 110px; text-align: center; }
+.empty-row .text-button { margin-left: 8px; }
 
 .view-grid .table-scroll { background: #f7f7f8; border: 1px solid var(--line); padding: 12px; }
 .view-grid table, .view-grid tbody { display: block; min-width: 0; }

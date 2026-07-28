@@ -11,6 +11,7 @@ test("contains the compact workspace views and company settings", async () => {
     "Tableau de bord",
     "Clients",
     "Fournisseurs",
+    "Articles",
     "Achats",
     "Ventes",
     "Documents",
@@ -35,6 +36,10 @@ test("contains the compact workspace views and company settings", async () => {
   assert.match(page, /SettingsPage/);
   assert.match(page, /DocumentsLibrary/);
   assert.match(page, /EntityLogo/);
+  assert.match(page, /ArticleBrandLogo/);
+  assert.match(page, /ArticlesTable/);
+  assert.match(page, /\/api\/articles/);
+  assert.match(page, /Base SQL/);
   assert.match(page, /DocumentLogo/);
   assert.match(page, /LibraryFormat/);
   assert.match(page, /clientDetailsOpen/);
@@ -68,6 +73,8 @@ test("keeps the visual system compact and production-ready", async () => {
   assert.match(css, /\.company-logo/);
   assert.match(css, /\.settings-card/);
   assert.match(css, /\.entity-logo/);
+  assert.match(css, /\.article-brand-logo/);
+  assert.match(css, /\.stock-value/);
   assert.match(css, /\.document-logo/);
   assert.match(css, /\.documents-library/);
   assert.match(css, /\.expandable-form-section/);
@@ -80,5 +87,25 @@ test("keeps the visual system compact and production-ready", async () => {
     access(new URL(".next/server", root)),
     access(new URL(".openai/hosting.json", root)),
     access(new URL("public/og.png", root)),
+    access(new URL("public/brands/google.png", root)),
+    access(new URL("public/brands/amazon.svg", root)),
   ]);
+});
+
+test("persists articles in the SQLite-compatible D1 database", async () => {
+  const [schema, migration, worker, hosting] = await Promise.all([
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("drizzle/0000_articles.sql", root), "utf8"),
+    readFile(new URL("worker/index.ts", root), "utf8"),
+    readFile(new URL(".openai/hosting.json", root), "utf8"),
+  ]);
+
+  assert.match(hosting, /"d1":\s*"DB"/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS articles/);
+  assert.match(schema, /Google Pixel 9 Pro/);
+  assert.match(schema, /Amazon Echo Dot/);
+  assert.match(migration, /CREATE UNIQUE INDEX IF NOT EXISTS articles_sku_idx/);
+  assert.match(worker, /env\.DB/);
+  assert.match(worker, /\.batch\(/);
+  assert.match(worker, /\/api\/articles/);
 });
