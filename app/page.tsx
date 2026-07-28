@@ -101,6 +101,7 @@ type DocumentRecord = {
   amount: string;
   status: string;
   tone: string;
+  summary?: string;
 };
 
 type LibraryRecord = DocumentRecord & {
@@ -137,6 +138,13 @@ type CreatePayload = {
   nif?: string;
   nis?: string;
   rc?: string;
+  articleName?: string;
+  quantity?: number;
+  unitPrice?: number;
+  discount?: number;
+  taxRate?: number;
+  documentDate?: string;
+  total?: number;
 };
 
 const pageMeta: Record<PageKey, { label: string; subtitle: string; icon: LucideIcon }> = {
@@ -220,6 +228,8 @@ const topStats: Record<PageKey, { label: string; value: string; trend: string; i
 };
 
 const initialClients: ClientRecord[] = [
+  { name: "Google", initials: "GO", color: "blue", contact: "+213 21 00 10 01", email: "achats@google.dz", billed: "119 900 DA", balance: "0 DA", status: "À jour", activity: "Aujourd’hui, 10:30" },
+  { name: "Amazon", initials: "AM", color: "sun", contact: "+213 21 00 10 02", email: "business@amazon.dz", billed: "17 800 DA", balance: "8 900 DA", status: "À régler", activity: "Aujourd’hui, 10:12" },
   { name: "Café Gourmand", initials: "CG", color: "sun", contact: "0550 12 34 56", email: "contact@cafegourmand.dz", billed: "248 000 DA", balance: "42 000 DA", status: "À régler", activity: "Aujourd’hui, 09:24" },
   { name: "Maison Noura", initials: "MN", color: "violet", contact: "0555 45 21 90", email: "hello@maisonnoura.dz", billed: "184 500 DA", balance: "0 DA", status: "À jour", activity: "Hier, 16:10" },
   { name: "Hôtel El Bahia", initials: "EB", color: "blue", contact: "0561 20 81 12", email: "achats@elbahia.dz", billed: "156 800 DA", balance: "18 700 DA", status: "À régler", activity: "Lun., 11:42" },
@@ -231,6 +241,8 @@ const initialClients: ClientRecord[] = [
 ];
 
 const initialSuppliers: SupplierRecord[] = [
+  { name: "Google", initials: "GO", color: "blue", contact: "+213 21 00 20 01", category: "Électronique", purchases: "95 000 DA", balance: "0 DA", status: "À jour" },
+  { name: "Amazon", initials: "AM", color: "sun", contact: "+213 21 00 20 02", category: "Maison connectée", purchases: "12 400 DA", balance: "6 200 DA", status: "En attente" },
   { name: "Emballages Gouraya", initials: "EG", color: "blue", contact: "0551 35 67 20", category: "Emballages", purchases: "312 000 DA", balance: "74 000 DA", status: "En attente" },
   { name: "Matières Premières DZ", initials: "MP", color: "sun", contact: "0660 22 19 84", category: "Ingrédients", purchases: "284 500 DA", balance: "0 DA", status: "À jour" },
   { name: "ProClean Services", initials: "PS", color: "mint", contact: "0771 04 18 32", category: "Entretien", purchases: "84 200 DA", balance: "18 200 DA", status: "En attente" },
@@ -240,6 +252,8 @@ const initialSuppliers: SupplierRecord[] = [
 ];
 
 const initialPurchases: DocumentRecord[] = [
+  { number: "FAC-TEST-GOOGLE", party: "Google", type: "Facture", date: "Aujourd’hui, 10:30", amount: "95 000 DA", status: "Payée", tone: "green", summary: "1 × Google Pixel 9 Pro" },
+  { number: "BC-TEST-AMAZON", party: "Amazon", type: "Bon de commande", date: "Aujourd’hui, 10:12", amount: "12 400 DA", status: "En attente", tone: "yellow", summary: "2 × Amazon Echo Dot" },
   { number: "FAC-2024-012", party: "Matières Premières DZ", type: "Facture", date: "Aujourd’hui, 10:12", amount: "84 500 DA", status: "Payée", tone: "green" },
   { number: "BR-2024-031", party: "Emballages Gouraya", type: "Bon de réception", date: "Hier, 15:46", amount: "42 800 DA", status: "Reçu", tone: "blue" },
   { number: "BC-2024-044", party: "ProClean Services", type: "Bon de commande", date: "Lun., 09:18", amount: "18 200 DA", status: "En attente", tone: "yellow" },
@@ -250,6 +264,8 @@ const initialPurchases: DocumentRecord[] = [
 ];
 
 const initialSales: DocumentRecord[] = [
+  { number: "FAC-TEST-GOOGLE", party: "Google", type: "Facture", date: "Aujourd’hui, 10:30", amount: "119 900 DA", status: "Payée", tone: "green", summary: "1 × Google Pixel 9 Pro" },
+  { number: "DEV-TEST-AMAZON", party: "Amazon", type: "Devis", date: "Aujourd’hui, 10:12", amount: "17 800 DA", status: "Brouillon", tone: "gray", summary: "2 × Amazon Echo Dot" },
   { number: "FAC-2024-109", party: "Café Gourmand", type: "Facture", date: "Aujourd’hui, 09:24", amount: "32 400 DA", status: "Payée", tone: "green" },
   { number: "DEV-2024-088", party: "Hôtel El Bahia", type: "Devis", date: "Hier, 16:10", amount: "68 000 DA", status: "Brouillon", tone: "gray" },
   { number: "BC-2024-076", party: "Maison Noura", type: "Bon de commande", date: "Lun., 11:42", amount: "41 500 DA", status: "En cours", tone: "blue" },
@@ -388,6 +404,9 @@ function EntityLogo({
 }) {
   const normalized = normalizeLabel(name);
   let Icon: LucideIcon = kind === "client" ? Building2 : Boxes;
+
+  if (normalized.includes("google")) return <ArticleBrandLogo brand="Google" logo="/brands/google.png" />;
+  if (normalized.includes("amazon")) return <ArticleBrandLogo brand="Amazon" logo="/brands/amazon.svg" />;
 
   if (normalized.includes("cafe")) Icon = Coffee;
   else if (normalized.includes("hotel")) Icon = Hotel;
@@ -804,7 +823,7 @@ function DocumentsTable({
           {filtered.map((row) => (
             <tr key={row.number}>
               <td><div className="document-cell"><DocumentLogo type={row.type} tone={row.tone} /><strong>{row.number}</strong></div></td>
-              <td>{row.party}</td>
+              <td><div className="identity-cell"><EntityLogo name={row.party} tone={row.tone} kind={page === "purchases" ? "supplier" : "client"} /><div><strong>{row.party}</strong>{row.summary && <small>{row.summary}</small>}</div></div></td>
               <td><span className="soft-label">{row.type}</span></td>
               <td>{row.date}</td>
               <td className={`number ${row.amount.startsWith("-") ? "negative-number" : ""}`}>{row.amount}</td>
@@ -993,7 +1012,7 @@ function Dashboard({ notify, onViewSales }: { notify: (message: string) => void;
         </section>
         <section className="table-card dashboard-table">
           <div className="table-header"><div className="table-title"><h1>Activité récente</h1><span>Dernières mises à jour</span></div><button className="text-button" onClick={onViewSales}>Tout voir</button></div>
-          <div className="table-scroll"><table><thead><tr><th>Activité</th><th>Espace</th><th>Date</th><th>Statut</th></tr></thead><tbody>{[["Facture FAC-2024-109", "Ventes", "Il y a 2 min", "Terminé"], ["Commande BC-2024-044", "Achats", "Il y a 18 min", "En attente"], ["Nouveau client · Café Gourmand", "Clients", "Il y a 1 heure", "Terminé"], ["Retour RET-2024-004", "Achats", "Hier", "Vérifié"]].map(([activity, workspace, when, status]) => <tr key={activity}><td><strong>{activity}</strong></td><td>{workspace}</td><td>{when}</td><td><StatusBadge label={status} tone={status === "Terminé" ? "green" : status === "En attente" ? "yellow" : "blue"} /></td></tr>)}</tbody></table></div>
+          <div className="table-scroll"><table><thead><tr><th>Activité</th><th>Espace</th><th>Date</th><th>Statut</th></tr></thead><tbody>{[["Facture test · Google", "Ventes", "À l’instant", "Terminé"], ["Commande test · Amazon", "Achats", "Il y a 2 min", "En attente"], ["Facture FAC-2024-109", "Ventes", "Il y a 8 min", "Terminé"], ["Nouveau client · Café Gourmand", "Clients", "Il y a 1 heure", "Terminé"]].map(([activity, workspace, when, status]) => <tr key={activity}><td><strong>{activity}</strong></td><td>{workspace}</td><td>{when}</td><td><StatusBadge label={status} tone={status === "Terminé" ? "green" : status === "En attente" ? "yellow" : "blue"} /></td></tr>)}</tbody></table></div>
         </section>
       </div>
     </div>
@@ -1138,17 +1157,16 @@ function SettingsPage({
 
 function CreateModal({
   initialTarget,
+  parties,
   onClose,
   onSubmit,
 }: {
-  initialTarget: PageKey;
+  initialTarget: BusinessPage;
+  parties: string[];
   onClose: () => void;
   onSubmit: (payload: CreatePayload) => void;
 }) {
-  const initialBusinessTarget: BusinessPage = ["clients", "suppliers", "purchases", "sales"].includes(initialTarget)
-    ? initialTarget as BusinessPage
-    : initialTarget === "documents" ? "sales" : "clients";
-  const [target, setTarget] = useState<BusinessPage>(initialBusinessTarget);
+  const target = initialTarget;
   const [name, setName] = useState("");
   const [detail, setDetail] = useState("");
   const [documentType, setDocumentType] = useState("Facture");
@@ -1159,32 +1177,188 @@ function CreateModal({
   const [nif, setNif] = useState("");
   const [nis, setNis] = useState("");
   const [rc, setRc] = useState("");
+  const [articleQuery, setArticleQuery] = useState("");
+  const [selectedArticle, setSelectedArticle] = useState<ArticleRecord | null>(null);
+  const [quantity, setQuantity] = useState(1);
+  const [unitPrice, setUnitPrice] = useState(0);
+  const [discount, setDiscount] = useState(0);
+  const [taxRate, setTaxRate] = useState(19);
+  const [documentDate, setDocumentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const isDocument = target === "purchases" || target === "sales";
   const isClient = target === "clients";
+  const [articleRequest, setArticleRequest] = useState<{ rows: ArticleRecord[]; loading: boolean; error: string }>({
+    rows: [],
+    loading: isDocument,
+    error: "",
+  });
+
+  useEffect(() => {
+    if (!isDocument) return;
+    const controller = new AbortController();
+    let active = true;
+
+    fetch("/api/articles", { signal: controller.signal, cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error("SQLite indisponible");
+        return response.json() as Promise<{ articles: ArticleRecord[] }>;
+      })
+      .then(({ articles }) => {
+        if (active) setArticleRequest({ rows: articles, loading: false, error: "" });
+      })
+      .catch((requestError: Error) => {
+        if (active && requestError.name !== "AbortError") {
+          setArticleRequest({ rows: [], loading: false, error: "Impossible de lire les articles SQLite." });
+        }
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [isDocument]);
+
+  const filteredArticles = articleRequest.rows.filter((article) =>
+    `${article.name} ${article.sku} ${article.brand} ${article.category}`
+      .toLowerCase()
+      .includes(articleQuery.toLowerCase()),
+  );
+  const subtotal = Math.max(0, quantity) * Math.max(0, unitPrice);
+  const discountAmount = subtotal * Math.min(100, Math.max(0, discount)) / 100;
+  const netBeforeTax = subtotal - discountAmount;
+  const taxAmount = netBeforeTax * Math.min(100, Math.max(0, taxRate)) / 100;
+  const grandTotal = netBeforeTax + taxAmount;
+  const money = (value: number) => `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(value)} DA`;
+  const modalTitle = target === "clients"
+    ? "Nouveau client"
+    : target === "suppliers"
+      ? "Nouveau fournisseur"
+      : target === "purchases"
+        ? "Nouveau document d’achat"
+        : "Nouveau document de vente";
+
+  const selectArticle = (article: ArticleRecord) => {
+    setSelectedArticle(article);
+    setArticleQuery(article.name);
+    setUnitPrice(target === "purchases" ? article.purchase_price : article.sale_price);
+  };
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <form className={`modal-card ${isClient && clientDetailsOpen ? "expanded-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="create-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); onSubmit({ target, name, detail, documentType, contactName, email, address, nif, nis, rc }); }}>
-        <div className="modal-header"><div><h2 id="create-title">Nouvel élément</h2><p>Ajoutez rapidement un élément à votre espace.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
-        <label className="field-label">Type
-          <select value={target} onChange={(event) => setTarget(event.target.value as BusinessPage)}>
-            <option value="clients">Client</option>
-            <option value="suppliers">Fournisseur</option>
-            <option value="purchases">Document d’achat</option>
-            <option value="sales">Document de vente</option>
-          </select>
-        </label>
+      <form
+        className={`modal-card ${(isDocument || (isClient && clientDetailsOpen)) ? "expanded-modal" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-title"
+        onMouseDown={(event) => event.stopPropagation()}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (isDocument && !selectedArticle) return;
+          onSubmit({
+            target,
+            name,
+            detail,
+            documentType,
+            contactName,
+            email,
+            address,
+            nif,
+            nis,
+            rc,
+            articleName: selectedArticle?.name,
+            quantity,
+            unitPrice,
+            discount,
+            taxRate,
+            documentDate,
+            total: grandTotal,
+          });
+        }}
+      >
+        <div className="modal-header"><div><h2 id="create-title">{modalTitle}</h2><p>Le formulaire correspond uniquement à la page actuelle.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
         <label className="field-label">{isDocument ? (target === "purchases" ? "Fournisseur" : "Client") : "Nom"}
-          <input autoFocus required value={name} onChange={(event) => setName(event.target.value)} placeholder={isDocument ? "Nom du partenaire" : "Nom complet"} />
+          <input autoFocus required list={isDocument ? `party-options-${target}` : undefined} value={name} onChange={(event) => setName(event.target.value)} placeholder={isDocument ? "Rechercher ou saisir le partenaire" : "Nom complet"} />
+          {isDocument && <datalist id={`party-options-${target}`}>{parties.map((party) => <option value={party} key={party} />)}</datalist>}
         </label>
-        {isDocument && <label className="field-label">Document
-          <select value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
-            <option>Devis</option><option>Bon de commande</option><option>{target === "purchases" ? "Bon de réception" : "Bon de livraison"}</option><option>Facture</option><option>Bon de retour</option>
-          </select>
-        </label>}
-        <label className="field-label">{isDocument ? "Montant" : target === "clients" ? "Téléphone" : "Catégorie"}
-          <input inputMode={isClient ? "tel" : undefined} value={detail} onChange={(event) => setDetail(event.target.value)} placeholder={isDocument ? "0 DA" : target === "clients" ? "0550 00 00 00" : "Catégorie"} />
-        </label>
+        {isDocument && (
+          <>
+            <div className="form-grid">
+              <label className="field-label">Document
+                <select value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
+                  <option>Devis</option><option>Bon de commande</option><option>{target === "purchases" ? "Bon de réception" : "Bon de livraison"}</option><option>Facture</option><option>Bon de retour</option>
+                </select>
+              </label>
+              <label className="field-label">Date
+                <input type="date" required value={documentDate} onChange={(event) => setDocumentDate(event.target.value)} />
+              </label>
+            </div>
+
+            <div className="field-label article-picker">
+              <span>Article de la base SQLite</span>
+              <label className="article-search-control">
+                <Search size={16} />
+                <input
+                  value={articleQuery}
+                  onChange={(event) => {
+                    setArticleQuery(event.target.value);
+                    if (selectedArticle?.name !== event.target.value) setSelectedArticle(null);
+                  }}
+                  placeholder="Rechercher par nom, marque ou référence…"
+                  aria-label="Rechercher un article existant"
+                />
+                {articleQuery && <button type="button" onClick={() => { setArticleQuery(""); setSelectedArticle(null); }} aria-label="Effacer"><X size={14} /></button>}
+              </label>
+              {!selectedArticle && (
+                <div className="article-search-results" role="listbox" aria-label="Articles disponibles">
+                  {articleRequest.loading && <span className="article-search-message">Chargement des articles…</span>}
+                  {!articleRequest.loading && articleRequest.error && <span className="article-search-message error">{articleRequest.error}</span>}
+                  {!articleRequest.loading && !articleRequest.error && filteredArticles.map((article) => (
+                    <button type="button" role="option" aria-selected="false" key={article.id} onClick={() => selectArticle(article)}>
+                      <ArticleBrandLogo brand={article.brand} logo={article.brand_logo} />
+                      <span><strong>{article.name}</strong><small>{article.sku} · Stock {article.stock}</small></span>
+                      <b>{money(target === "purchases" ? article.purchase_price : article.sale_price)}</b>
+                    </button>
+                  ))}
+                  {!articleRequest.loading && !articleRequest.error && !filteredArticles.length && <span className="article-search-message">Aucun article trouvé.</span>}
+                </div>
+              )}
+            </div>
+
+            {selectedArticle && (
+              <div className="selected-article">
+                <ArticleBrandLogo brand={selectedArticle.brand} logo={selectedArticle.brand_logo} />
+                <span><strong>{selectedArticle.name}</strong><small>{selectedArticle.sku} · {selectedArticle.category}</small></span>
+                <button type="button" className="text-button" onClick={() => { setSelectedArticle(null); setArticleQuery(""); }}>Changer</button>
+              </div>
+            )}
+
+            <div className="form-grid form-grid-four">
+              <label className="field-label">Quantité
+                <input type="number" min="1" step="1" required value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} />
+              </label>
+              <label className="field-label">Prix unitaire
+                <input type="number" min="0" step="0.01" required value={unitPrice} onChange={(event) => setUnitPrice(Number(event.target.value))} />
+              </label>
+              <label className="field-label">Remise %
+                <input type="number" min="0" max="100" step="0.01" value={discount} onChange={(event) => setDiscount(Number(event.target.value))} />
+              </label>
+              <label className="field-label">TVA %
+                <input type="number" min="0" max="100" step="0.01" value={taxRate} onChange={(event) => setTaxRate(Number(event.target.value))} />
+              </label>
+            </div>
+
+            <section className="document-total-card" aria-live="polite">
+              <div><span>Sous-total</span><strong>{money(subtotal)}</strong></div>
+              <div><span>Remise</span><strong>- {money(discountAmount)}</strong></div>
+              <div><span>TVA ({taxRate || 0}%)</span><strong>{money(taxAmount)}</strong></div>
+              <div className="grand-total"><span>Total TTC</span><strong>{money(grandTotal)}</strong></div>
+            </section>
+          </>
+        )}
+        {!isDocument && (
+          <label className="field-label">{target === "clients" ? "Téléphone" : "Catégorie"}
+            <input inputMode={isClient ? "tel" : undefined} value={detail} onChange={(event) => setDetail(event.target.value)} placeholder={target === "clients" ? "0550 00 00 00" : "Catégorie"} />
+          </label>
+        )}
         {isClient && (
           <section className={`expandable-form-section ${clientDetailsOpen ? "open" : ""}`}>
             <button type="button" className="expand-form-button" aria-expanded={clientDetailsOpen} onClick={() => setClientDetailsOpen((value) => !value)}>
@@ -1221,7 +1395,7 @@ function CreateModal({
             )}
           </section>
         )}
-        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" type="submit"><Plus size={16} /> Ajouter</button></div>
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" type="submit" disabled={isDocument && !selectedArticle}><Plus size={16} /> Ajouter</button></div>
       </form>
     </div>
   );
@@ -1276,7 +1450,7 @@ export default function WorkspaceApp() {
     setViewMode("list");
   };
 
-  const createItem = ({ target, name, detail, documentType, contactName, email, address, nif, nis, rc }: CreatePayload) => {
+  const createItem = ({ target, name, detail, documentType, contactName, email, address, nif, nis, rc, articleName, quantity, unitPrice, discount, taxRate, documentDate, total }: CreatePayload) => {
     const cleanName = name.trim();
     if (target === "clients") {
       setClients((rows) => [{
@@ -1299,7 +1473,23 @@ export default function WorkspaceApp() {
       setSuppliers((rows) => [{ name: cleanName, initials: initials(cleanName), color: "mint", contact: "—", category: detail || "Général", purchases: "0 DA", balance: "0 DA", status: "À jour" }, ...rows]);
     } else {
       const prefix = documentType === "Devis" ? "DEV" : documentType === "Facture" ? "FAC" : documentType.includes("retour") ? "RET" : documentType.includes("livraison") ? "BL" : documentType.includes("réception") ? "BR" : "BC";
-      const record: DocumentRecord = { number: `${prefix}-2024-${String(Date.now()).slice(-3)}`, party: cleanName, type: documentType, date: "À l’instant", amount: detail || "0 DA", status: "Brouillon", tone: "gray" };
+      const displayDate = documentDate
+        ? new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${documentDate}T12:00:00`))
+        : "À l’instant";
+      const amount = `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(total ?? 0)} DA`;
+      const lineSummary = articleName
+        ? `${quantity ?? 1} × ${articleName} · PU ${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(unitPrice ?? 0)} DA${discount ? ` · Remise ${discount}%` : ""}${taxRate ? ` · TVA ${taxRate}%` : ""}`
+        : undefined;
+      const record: DocumentRecord = {
+        number: `${prefix}-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`,
+        party: cleanName,
+        type: documentType,
+        date: displayDate,
+        amount,
+        status: "Brouillon",
+        tone: "gray",
+        summary: lineSummary,
+      };
       if (target === "purchases") setPurchases((rows) => [record, ...rows]);
       else setSales((rows) => [record, ...rows]);
     }
@@ -1307,6 +1497,15 @@ export default function WorkspaceApp() {
     navigate(target);
     notify("Élément ajouté avec succès");
   };
+
+  const createTarget: BusinessPage | null = ["clients", "suppliers", "purchases", "sales"].includes(page)
+    ? page as BusinessPage
+    : null;
+  const createParties = createTarget === "purchases"
+    ? suppliers.map((supplier) => supplier.name)
+    : createTarget === "sales"
+      ? clients.map((client) => client.name)
+      : [];
 
   return (
     <div className="app-shell">
@@ -1362,7 +1561,7 @@ export default function WorkspaceApp() {
               {notificationsOpen && <div className="notification-panel"><div><strong>Notifications</strong><button onClick={() => setNotificationsOpen(false)}><X size={15} /></button></div><p><span className="notification-dot coral" />3 factures arrivent à échéance.</p><p><span className="notification-dot blue" />La commande BC-2024-076 est en cours.</p><button className="text-button" onClick={() => { setNotificationsOpen(false); notify("Notifications marquées comme lues"); }}>Tout marquer comme lu</button></div>}
             </div>
             <button className="help-button" onClick={() => setHelpOpen(true)}><CircleHelp size={17} /> Aide</button>
-            <button className="top-new-button" onClick={() => setCreateOpen(true)}><Plus size={17} /> Nouveau</button>
+            {createTarget && <button className="top-new-button" onClick={() => setCreateOpen(true)}><Plus size={17} /> Nouveau</button>}
           </div>
         </header>
 
@@ -1378,7 +1577,7 @@ export default function WorkspaceApp() {
         </main>
       </div>
 
-      {createOpen && <CreateModal initialTarget={page} onClose={() => setCreateOpen(false)} onSubmit={createItem} />}
+      {createOpen && createTarget && <CreateModal initialTarget={createTarget} parties={createParties} onClose={() => setCreateOpen(false)} onSubmit={createItem} />}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
       {toast && <div className="toast" role="status"><Check size={17} />{toast}<button onClick={() => setToast("")} aria-label="Fermer"><X size={14} /></button></div>}
     </div>
