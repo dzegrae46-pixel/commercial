@@ -38,7 +38,13 @@ test("contains the compact workspace views and company settings", async () => {
   assert.match(page, /EntityLogo/);
   assert.match(page, /ArticleBrandLogo/);
   assert.match(page, /ArticlesTable/);
+  assert.match(page, /ArticleFormModal/);
+  assert.match(page, /ProductVisual/);
+  assert.match(page, /createPortal/);
+  assert.match(page, /ReturnModal/);
   assert.match(page, /\/api\/articles/);
+  assert.match(page, /\/api\/documents/);
+  assert.match(page, /\/api\/parties/);
   assert.match(page, /SQLite local/);
   assert.match(page, /Nouveau client/);
   assert.match(page, /Nouveau fournisseur/);
@@ -49,8 +55,8 @@ test("contains the compact workspace views and company settings", async () => {
   assert.match(page, /Remise %/);
   assert.match(page, /TVA %/);
   assert.match(page, /Total TTC/);
-  assert.match(page, /Google Pixel 9 Pro/);
-  assert.match(page, /Amazon Echo Dot/);
+  assert.match(page, /toDocumentRecord/);
+  assert.match(page, /withReturnedQuantities/);
   assert.doesNotMatch(page, /setTarget/);
   assert.doesNotMatch(page, /<option value="clients">Client<\/option>/);
   assert.match(page, /DocumentLogo/);
@@ -95,6 +101,14 @@ test("keeps the visual system compact and production-ready", async () => {
   assert.match(css, /\.document-logo/);
   assert.match(css, /\.documents-library/);
   assert.match(css, /\.expandable-form-section/);
+  assert.match(css, /\.articles-catalog/);
+  assert.match(css, /\.article-grid/);
+  assert.match(css, /\.article-product-card/);
+  assert.match(css, /\.article-card-image/);
+  assert.match(css, /\.article-category-editor/);
+  assert.match(css, /\.description-toggle/);
+  assert.match(css, /\.return-source/);
+  assert.match(css, /\.return-stock-note/);
   assert.match(css, /font-family:\s*"Inter"/);
   assert.match(packageJson, /"lucide-react"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
@@ -106,10 +120,14 @@ test("keeps the visual system compact and production-ready", async () => {
     access(new URL("public/og.png", root)),
     access(new URL("public/brands/google.png", root)),
     access(new URL("public/brands/amazon.svg", root)),
+    access(new URL("public/products/macbook-pro-14.png", root)),
+    access(new URL("public/products/imac-24.png", root)),
+    access(new URL("public/products/macbook-air-13.png", root)),
+    access(new URL("public/products/macbook-pro-16.png", root)),
   ]);
 });
 
-test("persists articles in an offline SQLite file", async () => {
+test("persists the three-level catalog and clean seeds in offline SQLite", async () => {
   const [schema, sqlite, route, worker, hosting, gitignore] = await Promise.all([
     readFile(new URL("db/schema.ts", root), "utf8"),
     readFile(new URL("lib/sqlite.ts", root), "utf8"),
@@ -121,13 +139,123 @@ test("persists articles in an offline SQLite file", async () => {
 
   assert.match(hosting, /"d1":\s*null/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS articles/);
+  assert.match(schema, /subcategory TEXT NOT NULL/);
+  assert.match(schema, /subsubcategory TEXT NOT NULL/);
+  assert.match(schema, /description TEXT NOT NULL/);
+  assert.match(schema, /unit TEXT NOT NULL/);
+  assert.match(schema, /image_url TEXT NOT NULL/);
+  assert.match(schema, /is_deleted INTEGER NOT NULL/);
+  assert.match(schema, /articles_category_idx/);
   assert.match(schema, /Google Pixel 9 Pro/);
   assert.match(schema, /Amazon Echo Dot/);
+  assert.match(schema, /MacBook Pro M1 Pro 14/);
+  assert.match(schema, /iMac M1 24/);
+  assert.match(schema, /MacBook Air M1 13/);
+  assert.match(schema, /MacBook Pro M3 Max 16/);
   assert.match(sqlite, /node:sqlite/);
   assert.match(sqlite, /data\/axxam\.sqlite/);
   assert.match(sqlite, /DatabaseSync/);
   assert.match(route, /listArticles/);
+  assert.match(route, /export async function DELETE/);
+  assert.match(sqlite, /deleteArticle/);
   assert.doesNotMatch(worker, /D1Database|env\.DB/);
   assert.match(gitignore, /data\/\*\.sqlite/);
   await access(new URL("data/.gitkeep", root));
+
+  const partySeedSource = schema.slice(
+    schema.indexOf("export const PARTY_SEEDS"),
+    schema.indexOf("export const ARTICLE_SEEDS"),
+  );
+  const partySeedNames = [...partySeedSource.matchAll(/name:\s*"([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(partySeedNames, ["Google", "Amazon", "Google", "Amazon"]);
+
+  const articleSeedSource = schema.slice(schema.indexOf("export const ARTICLE_SEEDS"));
+  const articleSeedNames = [...articleSeedSource.matchAll(/name:\s*"([^"]+)"/g)].map((match) => match[1]);
+  assert.equal(articleSeedNames.length, 6);
+  assert.deepEqual(articleSeedNames.slice(0, 2), ["Google Pixel 9 Pro", "Amazon Echo Dot"]);
+  assert.equal(articleSeedNames.slice(2).length, 4);
+});
+
+test("supports detailed article organization and the dedicated product grid", async () => {
+  const [page, schema, css] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(page, /subcategory: string/);
+  assert.match(page, /subsubcategory: string/);
+  assert.match(page, /description: string/);
+  assert.match(page, /unit: string/);
+  assert.match(page, /image_url: string/);
+  assert.match(page, /Arborescence catalogue/);
+  assert.match(page, /Sous-catégorie/);
+  assert.match(page, /Niveau 3/);
+  assert.match(page, /Description complète/);
+  assert.match(page, /Mètre \(M\)/);
+  assert.match(page, /Bobine/);
+  assert.match(page, /\/products\/macbook-pro-14\.png/);
+  assert.match(page, /\/products\/imac-24\.png/);
+  assert.match(page, /\/products\/macbook-air-13\.png/);
+  assert.match(page, /\/products\/macbook-pro-16\.png/);
+  assert.match(page, /article-product-card/);
+  assert.match(page, /article-card-image/);
+  assert.match(page, /article-hierarchy/);
+  assert.match(page, /article-category-select/);
+  assert.match(page, /article-category-options/);
+  assert.match(page, /article-subcategory-options/);
+  assert.match(page, /article-third-category-options/);
+  assert.match(page, /method: "DELETE"/);
+  assert.match(schema, /CREATE_ARTICLES_CATEGORY_INDEX_SQL/);
+  assert.match(css, /grid-template-columns:\s*repeat\(4,minmax\(0,1fr\)\)/);
+  assert.match(css, /\.article-product-card:hover/);
+  assert.match(css, /\.article-card-prices/);
+});
+
+test("persists party location details and documents from quotes through returns", async () => {
+  const [page, schema, sqlite, documentsRoute, returnsRoute, partiesRoute] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("lib/sqlite.ts", root), "utf8"),
+    readFile(new URL("app/api/documents/route.ts", root), "utf8"),
+    readFile(new URL("app/api/documents/[id]/return/route.ts", root), "utf8"),
+    readFile(new URL("app/api/parties/route.ts", root), "utf8"),
+  ]);
+
+  assert.match(page, /clientDetailsOpen/);
+  assert.match(page, /supplierDetailsOpen/);
+  assert.match(page, /Adresse/);
+  assert.match(page, /Ville/);
+  assert.match(page, /headOffice/);
+  assert.match(page, /Siège social/);
+  assert.match(page, /postParty/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS parties/);
+  assert.match(schema, /address TEXT NOT NULL/);
+  assert.match(schema, /city TEXT NOT NULL/);
+  assert.match(schema, /head_office TEXT NOT NULL/);
+  assert.match(partiesRoute, /createParty/);
+  assert.match(partiesRoute, /listParties/);
+
+  assert.match(page, /<option>Devis<\/option>/);
+  assert.match(page, /Créer la facture/);
+  assert.match(page, /Créer un retour/);
+  assert.match(page, /convertQuoteToInvoice/);
+  assert.match(page, /confirmReturn/);
+  assert.match(page, /Afficher la description complète/);
+  assert.match(page, /showFullDescription/);
+  assert.match(page, /\/api\/documents\/\$\{document\.id\}\/return/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS documents/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS document_lines/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS stock_movements/);
+  assert.match(schema, /source_document_id/);
+  assert.match(schema, /show_description/);
+  assert.match(sqlite, /createDocument/);
+  assert.match(sqlite, /createReturnFromDocument/);
+  assert.match(sqlite, /validateReturnLines/);
+  assert.match(sqlite, /returnQuantityAlreadyUsed/);
+  assert.match(sqlite, /shouldApplyStock/);
+  assert.match(sqlite, /updateStockInDatabase/);
+  assert.match(documentsRoute, /createDocument/);
+  assert.match(documentsRoute, /listDocuments/);
+  assert.match(returnsRoute, /createReturnFromDocument/);
 });

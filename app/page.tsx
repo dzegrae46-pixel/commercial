@@ -51,6 +51,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 
 type PageKey = "dashboard" | "clients" | "suppliers" | "articles" | "purchases" | "sales" | "documents" | "settings";
 type BusinessPage = "clients" | "suppliers" | "purchases" | "sales";
@@ -77,6 +78,7 @@ type ClientRecord = {
   activity: string;
   contactName?: string;
   address?: string;
+  city?: string;
   nif?: string;
   nis?: string;
   rc?: string;
@@ -91,6 +93,11 @@ type SupplierRecord = {
   purchases: string;
   balance: string;
   status: string;
+  contactName?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  headOffice?: string;
 };
 
 type DocumentRecord = {
@@ -102,9 +109,66 @@ type DocumentRecord = {
   status: string;
   tone: string;
   summary?: string;
+  id?: number;
+  articleId?: number;
+  articleName?: string;
+  quantity?: number;
+  unit?: string;
+  unitPrice?: number;
+  discountPercent?: number;
+  taxRate?: number;
+  description?: string;
+  sourceDocument?: string;
+  showFullDescription?: boolean;
+  returnedQuantity?: number;
+  sourceDocumentId?: number;
 };
 
-type LibraryRecord = DocumentRecord & {
+type ApiDocumentLine = {
+  article_id: number;
+  designation: string;
+  description: string;
+  unit: string;
+  quantity: number;
+  unit_price: number;
+  discount_percent: number;
+  tax_rate: number;
+  line_total: number;
+};
+
+type ApiDocumentRecord = {
+  id: number;
+  number: string;
+  direction: "purchases" | "sales";
+  type: "quote" | "order" | "delivery" | "invoice" | "return";
+  type_label: string;
+  party_name: string;
+  source_document_id: number | null;
+  source_document_number: string;
+  document_date: string;
+  status: string;
+  show_description: number;
+  total: number;
+  lines?: ApiDocumentLine[];
+};
+
+type ApiPartyRecord = {
+  id: number;
+  kind: "client" | "supplier";
+  name: string;
+  contact_phone: string;
+  contact_name: string;
+  email: string;
+  address: string;
+  city: string;
+  head_office: string;
+  category: string;
+  nif: string;
+  nis: string;
+  rc: string;
+};
+
+type LibraryRecord = Omit<DocumentRecord, "id"> & {
   id: string;
   source: "Achats" | "Ventes";
   direction: "purchases" | "sales";
@@ -120,11 +184,24 @@ type ArticleRecord = {
   brand: string;
   brand_logo: string;
   category: string;
+  subcategory: string;
+  subsubcategory: string;
+  description: string;
+  unit: string;
+  image_url: string;
   purchase_price: number;
   sale_price: number;
   stock: number;
   status: string;
   updated_at: string;
+};
+
+type CategoryTree = {
+  name: string;
+  subcategories: {
+    name: string;
+    subcategories: string[];
+  }[];
 };
 
 type CreatePayload = {
@@ -135,10 +212,16 @@ type CreatePayload = {
   contactName?: string;
   email?: string;
   address?: string;
+  city?: string;
+  headOffice?: string;
   nif?: string;
   nis?: string;
   rc?: string;
   articleName?: string;
+  articleId?: number;
+  articleDescription?: string;
+  unit?: string;
+  showFullDescription?: boolean;
   quantity?: number;
   unitPrice?: number;
   discount?: number;
@@ -173,9 +256,7 @@ const navGroups: { label: string; items: { label: string; icon: LucideIcon; key?
   {
     label: "Espace de travail",
     items: [
-      { key: "dashboard", label: "Vue d’ensemble", icon: Grid2X2 },
       { key: "documents", label: "Documents", icon: Folder },
-      { label: "Rapports", icon: BarChart3 },
     ],
   },
   {
@@ -186,19 +267,19 @@ const navGroups: { label: string; items: { label: string; icon: LucideIcon; key?
 
 const topStats: Record<PageKey, { label: string; value: string; trend: string; icon: LucideIcon }[]> = {
   dashboard: [
-    { label: "Chiffre d’affaires", value: "1,24 M DA", trend: "+12,6%", icon: BarChart3 },
-    { label: "Ventes", value: "248,9 k DA", trend: "+14,8%", icon: Store },
-    { label: "Achats", value: "184,6 k DA", trend: "+11,6%", icon: ShoppingBag },
+    { label: "Catalogue", value: "6 articles", trend: "SQLite local", icon: BarChart3 },
+    { label: "Ventes", value: "2 tests", trend: "Google + Amazon", icon: Store },
+    { label: "Achats", value: "2 tests", trend: "Google + Amazon", icon: ShoppingBag },
   ],
   clients: [
-    { label: "Clients", value: "128", trend: "+12", icon: Users },
-    { label: "Total facturé", value: "1,24 M DA", trend: "+8,4%", icon: FileText },
-    { label: "À recevoir", value: "184,2 k DA", trend: "24 ouverts", icon: WalletCards },
+    { label: "Clients", value: "2", trend: "Google + Amazon", icon: Users },
+    { label: "Factures", value: "1", trend: "Test", icon: FileText },
+    { label: "À recevoir", value: "8 900 DA", trend: "1 ouvert", icon: WalletCards },
   ],
   suppliers: [
-    { label: "Fournisseurs", value: "42", trend: "+4", icon: Truck },
-    { label: "Total achats", value: "824,3 k DA", trend: "+5,2%", icon: ShoppingBag },
-    { label: "Reste à payer", value: "96,4 k DA", trend: "12 factures", icon: WalletCards },
+    { label: "Fournisseurs", value: "2", trend: "Google + Amazon", icon: Truck },
+    { label: "Total achats", value: "107 400 DA", trend: "Tests", icon: ShoppingBag },
+    { label: "Reste à payer", value: "6 200 DA", trend: "1 facture", icon: WalletCards },
   ],
   articles: [
     { label: "Articles", value: "2", trend: "SQLite local", icon: Boxes },
@@ -206,19 +287,19 @@ const topStats: Record<PageKey, { label: string; value: string; trend: string; i
     { label: "Stock faible", value: "1", trend: "À surveiller", icon: ShoppingBag },
   ],
   purchases: [
-    { label: "Achats du mois", value: "184,6 k DA", trend: "+11,6%", icon: ShoppingBag },
-    { label: "Factures", value: "24", trend: "18 payées", icon: FileCheck2 },
-    { label: "Commandes", value: "8", trend: "3 à recevoir", icon: ClipboardList },
+    { label: "Achats", value: "2 docs", trend: "Tests", icon: ShoppingBag },
+    { label: "Factures", value: "1", trend: "Amazon", icon: FileCheck2 },
+    { label: "Réceptions", value: "1", trend: "Google", icon: ClipboardList },
   ],
   sales: [
-    { label: "Ventes du mois", value: "248,9 k DA", trend: "+14,8%", icon: Store },
-    { label: "Factures", value: "46", trend: "38 payées", icon: FileCheck2 },
-    { label: "À encaisser", value: "52,6 k DA", trend: "8 clients", icon: WalletCards },
+    { label: "Ventes", value: "2 docs", trend: "Tests", icon: Store },
+    { label: "Factures", value: "1", trend: "Amazon", icon: FileCheck2 },
+    { label: "Livraisons", value: "1", trend: "Google", icon: WalletCards },
   ],
   documents: [
-    { label: "Documents", value: "14", trend: "Achats + ventes", icon: Files },
-    { label: "Fichiers PDF", value: "9", trend: "Classés", icon: FileText },
-    { label: "Images", value: "5", trend: "JPG / PNG", icon: FileImage },
+    { label: "Documents", value: "4", trend: "Achats + ventes", icon: Files },
+    { label: "Fichiers PDF", value: "2", trend: "Factures", icon: FileText },
+    { label: "Images", value: "2", trend: "BL / réception", icon: FileImage },
   ],
   settings: [
     { label: "Profil", value: "Entreprise", trend: "Actif", icon: Store },
@@ -227,53 +308,13 @@ const topStats: Record<PageKey, { label: string; value: string; trend: string; i
   ],
 };
 
-const initialClients: ClientRecord[] = [
-  { name: "Google", initials: "GO", color: "blue", contact: "+213 21 00 10 01", email: "achats@google.dz", billed: "119 900 DA", balance: "0 DA", status: "À jour", activity: "Aujourd’hui, 10:30" },
-  { name: "Amazon", initials: "AM", color: "sun", contact: "+213 21 00 10 02", email: "business@amazon.dz", billed: "17 800 DA", balance: "8 900 DA", status: "À régler", activity: "Aujourd’hui, 10:12" },
-  { name: "Café Gourmand", initials: "CG", color: "sun", contact: "0550 12 34 56", email: "contact@cafegourmand.dz", billed: "248 000 DA", balance: "42 000 DA", status: "À régler", activity: "Aujourd’hui, 09:24" },
-  { name: "Maison Noura", initials: "MN", color: "violet", contact: "0555 45 21 90", email: "hello@maisonnoura.dz", billed: "184 500 DA", balance: "0 DA", status: "À jour", activity: "Hier, 16:10" },
-  { name: "Hôtel El Bahia", initials: "EB", color: "blue", contact: "0561 20 81 12", email: "achats@elbahia.dz", billed: "156 800 DA", balance: "18 700 DA", status: "À régler", activity: "Lun., 11:42" },
-  { name: "Pâtisserie Lina", initials: "PL", color: "coral", contact: "0770 06 18 44", email: "lina@patisserie.dz", billed: "96 400 DA", balance: "0 DA", status: "À jour", activity: "Ven., 13:08" },
-  { name: "Le Comptoir Central", initials: "LC", color: "mint", contact: "0553 90 11 27", email: "contact@comptoir.dz", billed: "72 900 DA", balance: "12 900 DA", status: "À régler", activity: "Jeu., 10:24" },
-  { name: "Boulangerie Atlas", initials: "BA", color: "pink", contact: "0662 13 41 28", email: "atlas@boulangerie.dz", billed: "64 250 DA", balance: "0 DA", status: "À jour", activity: "Mer., 17:36" },
-  { name: "Marché Saint-Honoré", initials: "MS", color: "blue", contact: "0554 28 31 80", email: "contact@marche-sh.dz", billed: "52 600 DA", balance: "9 600 DA", status: "À régler", activity: "Mar., 15:18" },
-  { name: "Dar Djeddi", initials: "DD", color: "mint", contact: "0772 18 09 51", email: "gestion@dardjeddi.dz", billed: "48 300 DA", balance: "0 DA", status: "À jour", activity: "Lun., 08:44" },
-];
-
-const initialSuppliers: SupplierRecord[] = [
-  { name: "Google", initials: "GO", color: "blue", contact: "+213 21 00 20 01", category: "Électronique", purchases: "95 000 DA", balance: "0 DA", status: "À jour" },
-  { name: "Amazon", initials: "AM", color: "sun", contact: "+213 21 00 20 02", category: "Maison connectée", purchases: "12 400 DA", balance: "6 200 DA", status: "En attente" },
-  { name: "Emballages Gouraya", initials: "EG", color: "blue", contact: "0551 35 67 20", category: "Emballages", purchases: "312 000 DA", balance: "74 000 DA", status: "En attente" },
-  { name: "Matières Premières DZ", initials: "MP", color: "sun", contact: "0660 22 19 84", category: "Ingrédients", purchases: "284 500 DA", balance: "0 DA", status: "À jour" },
-  { name: "ProClean Services", initials: "PS", color: "mint", contact: "0771 04 18 32", category: "Entretien", purchases: "84 200 DA", balance: "18 200 DA", status: "En attente" },
-  { name: "Cartons & Co", initials: "CC", color: "violet", contact: "0558 72 14 09", category: "Emballages", purchases: "56 800 DA", balance: "0 DA", status: "À jour" },
-  { name: "Café Select", initials: "CS", color: "coral", contact: "0560 40 20 16", category: "Boissons", purchases: "41 600 DA", balance: "7 600 DA", status: "En attente" },
-  { name: "Froid Express", initials: "FE", color: "pink", contact: "0661 25 47 12", category: "Logistique", purchases: "38 400 DA", balance: "0 DA", status: "À jour" },
-];
-
-const initialPurchases: DocumentRecord[] = [
-  { number: "FAC-TEST-GOOGLE", party: "Google", type: "Facture", date: "Aujourd’hui, 10:30", amount: "95 000 DA", status: "Payée", tone: "green", summary: "1 × Google Pixel 9 Pro" },
-  { number: "BC-TEST-AMAZON", party: "Amazon", type: "Bon de commande", date: "Aujourd’hui, 10:12", amount: "12 400 DA", status: "En attente", tone: "yellow", summary: "2 × Amazon Echo Dot" },
-  { number: "FAC-2024-012", party: "Matières Premières DZ", type: "Facture", date: "Aujourd’hui, 10:12", amount: "84 500 DA", status: "Payée", tone: "green" },
-  { number: "BR-2024-031", party: "Emballages Gouraya", type: "Bon de réception", date: "Hier, 15:46", amount: "42 800 DA", status: "Reçu", tone: "blue" },
-  { number: "BC-2024-044", party: "ProClean Services", type: "Bon de commande", date: "Lun., 09:18", amount: "18 200 DA", status: "En attente", tone: "yellow" },
-  { number: "RET-2024-008", party: "Cartons & Co", type: "Bon de retour", date: "Ven., 14:22", amount: "-3 400 DA", status: "Traité", tone: "pink" },
-  { number: "FAC-2024-011", party: "Café Select", type: "Facture", date: "Jeu., 11:05", amount: "24 600 DA", status: "Partielle", tone: "orange" },
-  { number: "BC-2024-040", party: "Matières Premières DZ", type: "Bon de commande", date: "Mer., 16:30", amount: "62 900 DA", status: "En attente", tone: "yellow" },
-  { number: "DEV-2024-021", party: "Froid Express", type: "Devis", date: "Mar., 09:50", amount: "31 500 DA", status: "Brouillon", tone: "gray" },
-];
-
-const initialSales: DocumentRecord[] = [
-  { number: "FAC-TEST-GOOGLE", party: "Google", type: "Facture", date: "Aujourd’hui, 10:30", amount: "119 900 DA", status: "Payée", tone: "green", summary: "1 × Google Pixel 9 Pro" },
-  { number: "DEV-TEST-AMAZON", party: "Amazon", type: "Devis", date: "Aujourd’hui, 10:12", amount: "17 800 DA", status: "Brouillon", tone: "gray", summary: "2 × Amazon Echo Dot" },
-  { number: "FAC-2024-109", party: "Café Gourmand", type: "Facture", date: "Aujourd’hui, 09:24", amount: "32 400 DA", status: "Payée", tone: "green" },
-  { number: "DEV-2024-088", party: "Hôtel El Bahia", type: "Devis", date: "Hier, 16:10", amount: "68 000 DA", status: "Brouillon", tone: "gray" },
-  { number: "BC-2024-076", party: "Maison Noura", type: "Bon de commande", date: "Lun., 11:42", amount: "41 500 DA", status: "En cours", tone: "blue" },
-  { number: "BL-2024-062", party: "Pâtisserie Lina", type: "Bon de livraison", date: "Ven., 13:08", amount: "18 900 DA", status: "Livré", tone: "green" },
-  { number: "RET-2024-004", party: "Le Comptoir Central", type: "Bon de retour", date: "Jeu., 10:24", amount: "-2 100 DA", status: "Traité", tone: "pink" },
-  { number: "FAC-2024-108", party: "Boulangerie Atlas", type: "Facture", date: "Mer., 17:36", amount: "27 250 DA", status: "À encaisser", tone: "orange" },
-  { number: "BL-2024-060", party: "Dar Djeddi", type: "Bon de livraison", date: "Mar., 14:05", amount: "14 800 DA", status: "Livré", tone: "green" },
-];
+// All displayed records are loaded from the offline SQLite API.  The database
+// itself starts with the requested Google/Amazon examples; no front-end mock
+// rows are kept here.
+const initialClients: ClientRecord[] = [];
+const initialSuppliers: SupplierRecord[] = [];
+const initialPurchases: DocumentRecord[] = [];
+const initialSales: DocumentRecord[] = [];
 
 const docTabs: { value: DocType; label: string; icon: LucideIcon }[] = [
   { value: "all", label: "Tous", icon: List },
@@ -290,6 +331,14 @@ const documentTabsFor = (page: "purchases" | "sales") =>
       ? { ...tab, label: page === "purchases" ? "Réceptions" : "Bons de livraison" }
       : tab,
   );
+
+const documentTypeForTab = (tab: DocType, page: "purchases" | "sales") => {
+  if (tab === "quotes") return "Devis";
+  if (tab === "orders") return "Bon de commande";
+  if (tab === "delivery") return page === "purchases" ? "Bon de réception" : "Bon de livraison";
+  if (tab === "invoices") return "Facture";
+  return "";
+};
 
 const libraryTabs: { value: LibraryCategory; label: string; icon: LucideIcon }[] = [
   { value: "all", label: "Tous", icon: Files },
@@ -393,6 +442,105 @@ const initials = (name: string) => {
 const normalizeLabel = (value: string) =>
   value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
+const formatDa = (value: number) =>
+  `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(value)} DA`;
+
+const formatDocumentDate = (value: string) => {
+  const date = new Date(`${value}T12:00:00`);
+  return Number.isNaN(date.valueOf())
+    ? value
+    : new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric" }).format(date);
+};
+
+const documentTone = (document: ApiDocumentRecord): string => {
+  if (document.type === "return") return "pink";
+  if (document.type === "quote") return "gray";
+  if (document.type === "delivery") return document.direction === "purchases" ? "blue" : "green";
+  if (document.type === "invoice") return "green";
+  return "blue";
+};
+
+const displayDocumentType = (document: ApiDocumentRecord) =>
+  document.type === "delivery" && document.direction === "purchases"
+    ? "Bon de réception"
+    : document.type_label;
+
+const toDocumentRecord = (document: ApiDocumentRecord): DocumentRecord => {
+  const line = document.lines?.[0];
+  const type = displayDocumentType(document);
+  const summary = line
+    ? `${line.quantity} ${line.unit || "unité"} × ${line.designation}${document.show_description && line.description ? ` · ${line.description}` : ""}`
+    : undefined;
+
+  return {
+    id: document.id,
+    number: document.number,
+    party: document.party_name,
+    type,
+    date: formatDocumentDate(document.document_date),
+    amount: `${document.type === "return" ? "-" : ""}${formatDa(document.total)}`,
+    status: document.type === "return" ? "Traité" : document.status,
+    tone: documentTone(document),
+    summary,
+    articleId: line?.article_id,
+    articleName: line?.designation,
+    quantity: line?.quantity,
+    unit: line?.unit,
+    unitPrice: line?.unit_price,
+    discountPercent: line?.discount_percent,
+    taxRate: line?.tax_rate,
+    description: line?.description,
+    sourceDocument: document.source_document_number || undefined,
+    sourceDocumentId: document.source_document_id ?? undefined,
+    showFullDescription: Boolean(document.show_description),
+  };
+};
+
+const withReturnedQuantities = (rows: DocumentRecord[]) => {
+  const quantities = new Map<number, number>();
+  for (const row of rows) {
+    if (row.type !== "Bon de retour" || !row.sourceDocumentId) continue;
+    quantities.set(row.sourceDocumentId, (quantities.get(row.sourceDocumentId) ?? 0) + (row.quantity ?? 0));
+  }
+  return rows.map((row) => row.id
+    ? { ...row, returnedQuantity: quantities.get(row.id) ?? row.returnedQuantity }
+    : row);
+};
+
+const toClientRecord = (party: ApiPartyRecord): ClientRecord => ({
+  name: party.name,
+  initials: initials(party.name),
+  color: normalizeLabel(party.name).includes("amazon") ? "sun" : "blue",
+  contact: party.contact_phone || "—",
+  email: party.email || "E-mail non renseigné",
+  contactName: party.contact_name || undefined,
+  address: party.address || undefined,
+  city: party.city || undefined,
+  nif: party.nif || undefined,
+  nis: party.nis || undefined,
+  rc: party.rc || undefined,
+  billed: "0 DA",
+  balance: "0 DA",
+  status: "À jour",
+  activity: "Dans SQLite",
+});
+
+const toSupplierRecord = (party: ApiPartyRecord): SupplierRecord => ({
+  name: party.name,
+  initials: initials(party.name),
+  color: normalizeLabel(party.name).includes("amazon") ? "sun" : "blue",
+  contact: party.contact_phone || "—",
+  contactName: party.contact_name || undefined,
+  email: party.email || undefined,
+  address: party.address || undefined,
+  city: party.city || undefined,
+  headOffice: party.head_office || undefined,
+  category: party.category || "Général",
+  purchases: "0 DA",
+  balance: "0 DA",
+  status: "À jour",
+});
+
 function EntityLogo({
   name,
   tone,
@@ -469,6 +617,18 @@ function ArticleBrandLogo({
   );
 }
 
+function ProductVisual({ article, className = "" }: { article: ArticleRecord; className?: string }) {
+  const safeImage = article.image_url && (article.image_url.startsWith("/products/") || article.image_url.startsWith("/brands/"))
+    ? article.image_url
+    : "";
+
+  return safeImage ? (
+    <img className={`product-visual ${className}`.trim()} src={safeImage} alt={article.name} loading="lazy" />
+  ) : (
+    <span className={`product-visual product-visual-fallback ${className}`.trim()}><ArticleBrandLogo brand={article.brand} logo={article.brand_logo} /></span>
+  );
+}
+
 function CompanyLogo({
   company,
   className = "",
@@ -498,30 +658,94 @@ function RowActions({
   label,
   notify,
   onDelete,
+  onEdit,
+  extraActions = [],
 }: {
   label: string;
   notify: (message: string) => void;
   onDelete?: () => void;
+  onEdit?: () => void;
+  extraActions?: { label: string; icon: LucideIcon; onClick: () => void }[];
 }) {
   const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ left: 0, top: 0 });
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const action = (message: string) => {
     setOpen(false);
     notify(message);
   };
 
+  useEffect(() => {
+    if (!open) return;
+
+    const placeMenu = () => {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      const menuWidth = menuRef.current?.offsetWidth ?? 145;
+      const menuHeight = menuRef.current?.offsetHeight ?? 180;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const top = spaceBelow >= menuHeight + 12
+        ? rect.bottom + 4
+        : Math.max(8, rect.top - menuHeight - 4);
+      const left = Math.min(
+        window.innerWidth - menuWidth - 8,
+        Math.max(8, rect.right - menuWidth),
+      );
+      setPosition({ left, top });
+    };
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!triggerRef.current?.contains(target) && !menuRef.current?.contains(target)) {
+        setOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+
+    placeMenu();
+    const frame = window.requestAnimationFrame(placeMenu);
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", placeMenu);
+    window.addEventListener("scroll", placeMenu, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", placeMenu);
+      window.removeEventListener("scroll", placeMenu, true);
+    };
+  }, [open]);
+
   return (
     <div className="row-actions">
-      <button className="row-more" aria-label={`Actions pour ${label}`} onClick={() => setOpen((value) => !value)}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="row-more"
+        aria-label={`Actions pour ${label}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
         <MoreHorizontal size={18} />
       </button>
-      {open && (
-        <div className="row-menu" role="menu">
+      {open && createPortal(
+        <div ref={menuRef} className="row-menu" role="menu" style={position}>
           <button onClick={() => action(`Ouverture de ${label}`)}><Eye size={15} /> Ouvrir</button>
-          <button onClick={() => action(`Modification de ${label}`)}><Pencil size={15} /> Modifier</button>
+          <button onClick={() => { setOpen(false); if (onEdit) onEdit(); else action(`Modification de ${label}`); }}><Pencil size={15} /> Modifier</button>
           <button onClick={() => action(`${label} dupliqué`)}><Copy size={15} /> Dupliquer</button>
+          {extraActions.map(({ label: actionLabel, icon: Icon, onClick }) => <button key={actionLabel} onClick={() => { setOpen(false); onClick(); }}><Icon size={15} /> {actionLabel}</button>)}
           {onDelete && <button className="danger-action" onClick={() => { setOpen(false); onDelete(); }}><Trash2 size={15} /> Supprimer</button>}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -629,7 +853,7 @@ function ClientsTable({
           {filtered.map((client) => (
             <tr key={client.name}>
               <td><div className="identity-cell"><EntityLogo name={client.name} tone={client.color} kind="client" /><div><strong>{client.name}</strong><small>{client.email}</small></div></div></td>
-              <td>{client.contactName ? <><strong>{client.contactName}</strong><small>{client.contact}</small></> : client.contact}</td>
+              <td>{client.contactName ? <><strong>{client.contactName}</strong><small>{client.contact}{client.city ? ` · ${client.city}` : ""}</small></> : <><span>{client.contact}</span>{client.city && <small>{client.city}</small>}</>}</td>
               <td className="number">{client.billed}</td>
               <td className="number">{client.balance}</td>
               <td><StatusBadge label={client.status} tone={client.balance === "0 DA" ? "green" : "orange"} /></td>
@@ -678,7 +902,7 @@ function SuppliersTable({
           {filtered.map((supplier) => (
             <tr key={supplier.name}>
               <td><div className="identity-cell"><EntityLogo name={supplier.name} tone={supplier.color} kind="supplier" /><strong>{supplier.name}</strong></div></td>
-              <td>{supplier.contact}</td>
+              <td>{supplier.contactName ? <><strong>{supplier.contactName}</strong><small>{supplier.contact}{supplier.city ? ` · ${supplier.city}` : ""}</small></> : <><span>{supplier.contact}</span>{supplier.city && <small>{supplier.city}</small>}</>}</td>
               <td><span className="soft-label">{supplier.category}</span></td>
               <td className="number">{supplier.purchases}</td>
               <td className="number">{supplier.balance}</td>
@@ -701,6 +925,8 @@ function ArticlesTable({
   viewMode,
   setViewMode,
   notify,
+  onEdit,
+  refreshKey,
 }: {
   search: string;
   setSearch: (value: string) => void;
@@ -709,6 +935,8 @@ function ArticlesTable({
   viewMode: ViewMode;
   setViewMode: (value: ViewMode) => void;
   notify: (message: string) => void;
+  onEdit: (article: ArticleRecord) => void;
+  refreshKey: number;
 }) {
   const [request, setRequest] = useState<{ rows: ArticleRecord[]; error: string; loadedKey: number }>({
     rows: [],
@@ -716,6 +944,7 @@ function ArticlesTable({
     loadedKey: -1,
   });
   const [reloadKey, setReloadKey] = useState(0);
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const loading = request.loadedKey !== reloadKey;
 
   useEffect(() => {
@@ -740,39 +969,71 @@ function ArticlesTable({
       active = false;
       controller.abort();
     };
-  }, [reloadKey]);
+  }, [reloadKey, refreshKey]);
+
+  const deleteArticle = async (article: ArticleRecord) => {
+    if (!window.confirm(`Supprimer « ${article.name} » du catalogue ?`)) return;
+    try {
+      const response = await fetch("/api/articles", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: article.id }),
+      });
+      const payload = await response.json() as { article?: ArticleRecord; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Impossible de supprimer l’article.");
+      setReloadKey((value) => value + 1);
+      notify(`${article.name} supprimé`);
+    } catch (requestError) {
+      notify(requestError instanceof Error ? requestError.message : "Impossible de supprimer l’article.");
+    }
+  };
 
   const filtered = request.rows.filter((article) => {
-    const matchesSearch = `${article.name} ${article.sku} ${article.brand} ${article.category}`.toLowerCase().includes(search.toLowerCase());
-    return matchesSearch && (!filterActive || article.stock <= 10);
+    const matchesSearch = `${article.name} ${article.sku} ${article.brand} ${article.category} ${article.subcategory ?? ""} ${article.subsubcategory ?? ""} ${article.description ?? ""} ${article.unit ?? ""}`.toLowerCase().includes(search.toLowerCase());
+    const matchesCategory = categoryFilter === "all" || article.category === categoryFilter;
+    return matchesSearch && matchesCategory && (!filterActive || article.stock <= 10);
   });
+  const categories = Array.from(new Set(request.rows.map((article) => article.category).filter(Boolean))).sort();
   const money = (value: number) => `${new Intl.NumberFormat("fr-FR").format(value)} DA`;
 
   return (
-    <TableCard title="Tous les articles" count={loading ? "Connexion à SQLite…" : `${filtered.length} articles`} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode}>
-      <table>
-        <thead><tr><th>Article</th><th>Référence</th><th>Catégorie</th><th>Prix d’achat</th><th>Prix de vente</th><th>Stock</th><th>Statut</th><th /></tr></thead>
-        <tbody>
-          {loading && <tr><td className="empty-row" colSpan={8}>Chargement de SQLite…</td></tr>}
-          {!loading && request.error && (
-            <tr><td className="empty-row" colSpan={8}><span>{request.error}</span><button className="text-button" onClick={() => setReloadKey((value) => value + 1)}>Réessayer</button></td></tr>
-          )}
-          {!loading && !request.error && filtered.map((article) => (
-            <tr key={article.id}>
-              <td><div className="identity-cell"><ArticleBrandLogo brand={article.brand} logo={article.brand_logo} /><div><strong>{article.name}</strong><small>{article.brand}</small></div></div></td>
-              <td><span className="sku-code">{article.sku}</span></td>
-              <td><span className="soft-label">{article.category}</span></td>
-              <td className="number">{money(article.purchase_price)}</td>
-              <td className="number">{money(article.sale_price)}</td>
-              <td><span className={`stock-value ${article.stock <= 10 ? "low" : ""}`}>{article.stock}</span></td>
-              <td><StatusBadge label={article.status} tone={article.stock <= 10 ? "orange" : "green"} /></td>
-              <td><RowActions label={article.name} notify={notify} /></td>
-            </tr>
+    <section className={`table-card articles-catalog view-${viewMode}`}>
+      <div className="table-header">
+        <div className="table-title"><h1>Catalogue articles</h1><span>{loading ? "Connexion à SQLite…" : `${filtered.length} articles`}</span></div>
+        <div className="table-actions">
+          <label className="search-control"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nom, référence, catégorie…" aria-label="Rechercher dans le catalogue" />{search && <button type="button" aria-label="Effacer la recherche" onClick={() => setSearch("")}><X size={14} /></button>}</label>
+          <label className="compact-select article-category-select"><span>Catégorie</span><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} aria-label="Filtrer par catégorie"><option value="all">Toutes</option>{categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
+          <button className={`filter-button ${filterActive ? "active" : ""}`} onClick={() => setFilterActive(!filterActive)} aria-pressed={filterActive}><SlidersHorizontal size={16} /><span>{filterActive ? "Stock faible" : "Filtrer"}</span></button>
+          <div className="view-toggle" aria-label="Mode d’affichage"><button className={viewMode === "grid" ? "active" : ""} onClick={() => setViewMode("grid")} aria-pressed={viewMode === "grid"}><Grid2X2 size={15} /> Grille</button><button className={viewMode === "list" ? "active" : ""} onClick={() => setViewMode("list")} aria-pressed={viewMode === "list"}><List size={15} /> Liste</button></div>
+        </div>
+      </div>
+      {loading && <div className="article-catalog-message">Chargement de SQLite…</div>}
+      {!loading && request.error && <div className="article-catalog-message"><span>{request.error}</span><button className="text-button" onClick={() => setReloadKey((value) => value + 1)}>Réessayer</button></div>}
+      {!loading && !request.error && viewMode === "grid" && (
+        <div className="article-grid">
+          {filtered.map((article) => (
+            <article className="article-product-card" key={article.id}>
+              <div className="article-card-top"><input type="checkbox" aria-label={`Sélectionner ${article.name}`} /><span className="article-card-brand"><ArticleBrandLogo brand={article.brand} logo={article.brand_logo} />{article.brand}</span><RowActions label={article.name} notify={notify} onEdit={() => onEdit(article)} onDelete={() => void deleteArticle(article)} /></div>
+              <div className="article-card-image"><ProductVisual article={article} /></div>
+              <div className="article-card-body">
+                <div className="article-card-title"><span className="sku-code">{article.sku}</span><h2>{article.name}</h2></div>
+                <p>{article.description || "Description non renseignée."}</p>
+                <div className="article-hierarchy"><span>{article.category || "Sans catégorie"}</span>{article.subcategory && <><i>›</i><span>{article.subcategory}</span></>}{article.subsubcategory && <><i>›</i><span>{article.subsubcategory}</span></>}</div>
+                <div className="article-card-prices"><div><small>Prix achat</small><strong>{money(article.purchase_price)}</strong></div><div><small>Prix vente</small><strong>{money(article.sale_price)}</strong></div></div>
+              </div>
+              <footer><span className={`stock-value ${article.stock <= 10 ? "low" : ""}`}>{article.stock} {article.unit || "unité"}{article.stock > 1 && article.unit === "unité" ? "s" : ""}</span><button type="button" className="secondary-button" onClick={() => onEdit(article)}><Pencil size={14} /> Organiser</button></footer>
+            </article>
           ))}
-          {!loading && !request.error && !filtered.length && <EmptyRow columns={8} />}
-        </tbody>
-      </table>
-    </TableCard>
+          {!filtered.length && <div className="article-catalog-message">Aucun article pour ces critères.</div>}
+        </div>
+      )}
+      {!loading && !request.error && viewMode === "list" && (
+        <div className="table-scroll"><table><thead><tr><th>Article</th><th>Catégorisation</th><th>Unité</th><th>Prix d’achat</th><th>Prix de vente</th><th>Stock</th><th>Statut</th><th /></tr></thead><tbody>
+          {filtered.map((article) => <tr key={article.id}><td><div className="identity-cell"><ProductVisual article={article} className="table-product-visual" /><div><strong>{article.name}</strong><small>{article.description || article.brand}</small></div></div></td><td><div className="article-hierarchy"><span>{article.category || "Sans catégorie"}</span>{article.subcategory && <><i>›</i><span>{article.subcategory}</span></>}{article.subsubcategory && <><i>›</i><span>{article.subsubcategory}</span></>}</div></td><td><span className="soft-label">{article.unit || "unité"}</span></td><td className="number">{money(article.purchase_price)}</td><td className="number">{money(article.sale_price)}</td><td><span className={`stock-value ${article.stock <= 10 ? "low" : ""}`}>{article.stock}</span></td><td><StatusBadge label={article.status} tone={article.stock <= 10 ? "orange" : "green"} /></td><td><RowActions label={article.name} notify={notify} onEdit={() => onEdit(article)} onDelete={() => void deleteArticle(article)} /></td></tr>)}
+          {!filtered.length && <EmptyRow columns={8} />}
+        </tbody></table></div>
+      )}
+    </section>
   );
 }
 
@@ -789,6 +1050,8 @@ function DocumentsTable({
   setViewMode,
   notify,
   onDelete,
+  onReturn,
+  onConvertQuote,
 }: {
   page: "purchases" | "sales";
   rows: DocumentRecord[];
@@ -802,8 +1065,10 @@ function DocumentsTable({
   setViewMode: (value: ViewMode) => void;
   notify: (message: string) => void;
   onDelete: (number: string) => void;
+  onReturn: (row: DocumentRecord) => void;
+  onConvertQuote: (row: DocumentRecord) => Promise<void> | void;
 }) {
-  const closedStatuses = ["Payée", "Livré", "Reçu", "Traité"];
+  const closedStatuses = ["Payée", "Livré", "Reçu", "Traité", "Validé"];
   const filtered = rows.filter((row) => {
     const matchesSearch = `${row.number} ${row.party} ${row.type}`.toLowerCase().includes(search.toLowerCase());
     const matchesTab = activeTab === "all"
@@ -828,7 +1093,10 @@ function DocumentsTable({
               <td>{row.date}</td>
               <td className={`number ${row.amount.startsWith("-") ? "negative-number" : ""}`}>{row.amount}</td>
               <td><StatusBadge label={row.status} tone={row.tone} /></td>
-              <td><RowActions label={row.number} notify={notify} onDelete={() => onDelete(row.number)} /></td>
+              <td><RowActions label={row.number} notify={notify} onDelete={() => onDelete(row.number)} extraActions={[
+                ...(row.type === "Devis" ? [{ label: "Créer la facture", icon: FileCheck2, onClick: () => { void Promise.resolve(onConvertQuote(row)).catch((error) => notify(error instanceof Error ? error.message : "Impossible de créer la facture.")); } }] : []),
+                ...((row.type === "Bon de livraison" || row.type === "Bon de réception" || row.type === "Facture") && row.articleId && (row.quantity ?? 1) > (row.returnedQuantity ?? 0) ? [{ label: "Créer un retour", icon: RotateCcw, onClick: () => onReturn(row) }] : []),
+              ]} /></td>
             </tr>
           ))}
           {!filtered.length && <EmptyRow columns={7} />}
@@ -989,30 +1257,134 @@ function DocumentsLibrary({
   );
 }
 
-function Dashboard({ notify, onViewSales }: { notify: (message: string) => void; onViewSales: () => void }) {
-  const [period, setPeriod] = useState<6 | 12>(6);
+function Dashboard({
+  onViewSales,
+  purchases,
+  sales,
+}: {
+  onViewSales: () => void;
+  purchases: DocumentRecord[];
+  sales: DocumentRecord[];
+}) {
+  const [productDirection, setProductDirection] = useState<"sales" | "purchases">("purchases");
+  const [partyDirection, setPartyDirection] = useState<"clients" | "suppliers">("clients");
+  const activities = [
+    ...sales.map((row) => ({ ...row, workspace: "Ventes" })),
+    ...purchases.map((row) => ({ ...row, workspace: "Achats" })),
+  ].slice(0, 2);
+  const productDocuments = productDirection === "sales" ? sales : purchases;
+  const amountOf = (row: DocumentRecord) => {
+    const quantity = Math.max(Number(row.quantity) || 0, 0);
+    const unitPrice = Math.max(Number(row.unitPrice) || 0, 0);
+    if (quantity && unitPrice) {
+      const discounted = quantity * unitPrice * (1 - Math.max(Number(row.discountPercent) || 0, 0) / 100);
+      return discounted * (1 + Math.max(Number(row.taxRate) || 0, 0) / 100);
+    }
+    return Number(row.amount.replace(/[^0-9,.-]/g, "").replace(",", ".")) || 0;
+  };
+  const productTotals = new Map<string, number>();
+  productDocuments.forEach((row) => {
+    const product = row.articleName?.trim() || "Article non renseigné";
+    productTotals.set(product, (productTotals.get(product) ?? 0) + amountOf(row));
+  });
+  const sortedProducts = Array.from(productTotals, ([label, value]) => ({ label, value }))
+    .sort((first, second) => second.value - first.value);
+  const otherProductsValue = sortedProducts.slice(4).reduce((total, product) => total + product.value, 0);
+  const productRanking = otherProductsValue > 0
+    ? [...sortedProducts.slice(0, 4), { label: "Autres produits", value: otherProductsValue }]
+    : sortedProducts.slice(0, 5);
+  const productTotalAmount = productRanking.reduce((total, product) => total + product.value, 0);
+  const productColors = ["#4361ee", "#4cc9f0", "#f72585", "#7209b7", "#10b981"];
+  let productCursor = 0;
+  const productDonutSegments = productRanking.map(({ value }, index) => {
+    const start = productCursor;
+    productCursor += productTotalAmount > 0 ? value / productTotalAmount * 100 : 0;
+    return `${productColors[index]} ${start}% ${productCursor}%`;
+  });
+  const productDonutBackground = productDonutSegments.length
+    ? `conic-gradient(${productDonutSegments.join(", ")})`
+    : "conic-gradient(#eef2ff 0 100%)";
+  const partyDocuments = partyDirection === "clients" ? sales : purchases;
+  const partyTotals = new Map<string, number>();
+  partyDocuments.forEach((row) => {
+    partyTotals.set(row.party, (partyTotals.get(row.party) ?? 0) + amountOf(row));
+  });
+  const partyRanking = Array.from(partyTotals, ([label, value]) => ({ label, value }))
+    .sort((first, second) => second.value - first.value)
+    .slice(0, 5);
+  const maximumPartyAmount = Math.max(...partyRanking.map(({ value }) => value), 1);
+  const dashboardKpis: { value: string; label: string; trend: string; tone: string; icon: LucideIcon; direction: "up" | "down" }[] = [
+    { value: "€124,850", label: "Chiffre d'Affaires", trend: "+12.5% ce mois", tone: "primary", icon: WalletCards, direction: "up" },
+    { value: "347", label: "Ventes ce mois", trend: "+8.2%", tone: "success", icon: ShoppingBasket, direction: "up" },
+    { value: "42", label: "Nouveaux clients", trend: "-3.1%", tone: "warning", icon: Users, direction: "down" },
+    { value: "78.4%", label: "Taux de conversion", trend: "+5.3%", tone: "danger", icon: BarChart3, direction: "up" },
+  ];
   return (
     <div className="dashboard">
       <div className="dashboard-heading">
         <div><h1>Vue d’ensemble</h1><p>Les chiffres essentiels de votre activité.</p></div>
-        <button className="period-button" onClick={() => setPeriod((value) => value === 6 ? 12 : 6)}>
-          {period} derniers mois <ChevronDown size={16} />
-        </button>
+        <StatusBadge label="Données enregistrées" tone="blue" />
+      </div>
+      <div className="dashboard-kpis" aria-label="Indicateurs commerciaux">
+        {dashboardKpis.map(({ value, label, trend, tone, icon: Icon, direction }) => (
+          <section className={`dashboard-kpi dashboard-kpi-${tone}`} key={label}>
+            <span className="dashboard-kpi-icon"><Icon size={24} /></span>
+            <strong>{value}</strong>
+            <p>{label}</p>
+            <span className={`dashboard-kpi-trend ${direction}`}>
+              <ArrowDownRight size={14} />
+              {trend}
+            </span>
+          </section>
+        ))}
       </div>
       <div className="dashboard-grid">
-        <section className="chart-card main-chart">
-          <div className="card-heading"><div><h2>Activité</h2><p>Revenus et coûts</p></div><StatusBadge label="+12,6%" tone="green" /></div>
-          <div className="chart-legend"><span><i className="legend-dot coral" />Revenus</span><span><i className="legend-dot blue" />Coûts</span></div>
-          <div className="bar-chart" aria-label="Graphique des revenus et des coûts">{[66, 51, 74, 57, 86, 68, 92, 74, 82, 63, 96, 79].map((height, index) => <div className="bar-group" key={index}><span className={index % 2 ? "bar blue" : "bar coral"} style={{ height: `${height}%` }} /><span className={index % 2 ? "bar coral faded" : "bar blue faded"} style={{ height: `${Math.max(22, height - 24)}%` }} /></div>)}</div>
-          <div className="chart-axis"><span>Jan</span><span>Fév</span><span>Mar</span><span>Avr</span><span>Mai</span><span>Juin</span></div>
+        <section className="chart-card main-chart ranking-card product-donut-card">
+          <div className="card-heading">
+            <div><h2>Répartition par produits</h2><p>{productDirection === "purchases" ? "Part du total des achats par produit" : "Part du chiffre des ventes par produit"}</p></div>
+            <div className="chart-segmented" aria-label="Choisir les ventes ou les achats">
+              <button className={productDirection === "sales" ? "active" : ""} onClick={() => setProductDirection("sales")} aria-pressed={productDirection === "sales"}>Vendus</button>
+              <button className={productDirection === "purchases" ? "active" : ""} onClick={() => setProductDirection("purchases")} aria-pressed={productDirection === "purchases"}>Achetés</button>
+            </div>
+          </div>
+          <div className="product-donut-layout" aria-label={`Répartition du montant des produits ${productDirection === "sales" ? "vendus" : "achetés"}`}>
+            <div className="product-donut" style={{ background: productDonutBackground }}>
+              <div><strong>{formatDa(productTotalAmount)}</strong><span>{productDirection === "purchases" ? "total achats" : "total ventes"}</span></div>
+            </div>
+            <div className="product-donut-legend">
+              {productRanking.map(({ label, value }, index) => (
+                <div key={label}>
+                  <i style={{ background: productColors[index] }} />
+                  <span><strong>{label}</strong><small>{productTotalAmount > 0 ? Math.round(value / productTotalAmount * 100) : 0}% du total</small></span>
+                  <b>{formatDa(value)}</b>
+                </div>
+              ))}
+              {!productRanking.length && <div className="chart-empty">Aucun montant produit enregistré.</div>}
+            </div>
+          </div>
         </section>
-        <section className="chart-card">
-          <div className="card-heading"><div><h2>Ventes par canal</h2><p>Mois en cours</p></div><RowActions label="graphique des ventes" notify={notify} /></div>
-          <div className="donut-wrap"><div className="donut"><div><strong>248k</strong><span>DA au total</span></div></div><div className="donut-list"><span><i className="legend-dot coral" />Comptoir <b>54%</b></span><span><i className="legend-dot blue" />Livraison <b>29%</b></span><span><i className="legend-dot mint" />B2B <b>17%</b></span></div></div>
+        <section className="chart-card ranking-card">
+          <div className="card-heading">
+            <div><h2>Répartition par tiers</h2><p>Montants cumulés par partenaire</p></div>
+            <div className="chart-segmented" aria-label="Choisir les clients ou les fournisseurs">
+              <button className={partyDirection === "clients" ? "active" : ""} onClick={() => setPartyDirection("clients")} aria-pressed={partyDirection === "clients"}>Clients</button>
+              <button className={partyDirection === "suppliers" ? "active" : ""} onClick={() => setPartyDirection("suppliers")} aria-pressed={partyDirection === "suppliers"}>Fournisseurs</button>
+            </div>
+          </div>
+          <div className="ranking-chart party-ranking" aria-label={`Répartition des montants par ${partyDirection}`}>
+            {partyRanking.map(({ label, value }, index) => (
+              <div className="ranking-row" key={label}>
+                <span className="ranking-index">{index + 1}</span>
+                <div className="ranking-copy"><strong>{label}</strong><div className="ranking-track"><i style={{ width: `${value / maximumPartyAmount * 100}%` }} /></div></div>
+                <b>{formatDa(value)}</b>
+              </div>
+            ))}
+            {!partyRanking.length && <div className="chart-empty">Aucun montant enregistré pour cette sélection.</div>}
+          </div>
         </section>
         <section className="table-card dashboard-table">
           <div className="table-header"><div className="table-title"><h1>Activité récente</h1><span>Dernières mises à jour</span></div><button className="text-button" onClick={onViewSales}>Tout voir</button></div>
-          <div className="table-scroll"><table><thead><tr><th>Activité</th><th>Espace</th><th>Date</th><th>Statut</th></tr></thead><tbody>{[["Facture test · Google", "Ventes", "À l’instant", "Terminé"], ["Commande test · Amazon", "Achats", "Il y a 2 min", "En attente"], ["Facture FAC-2024-109", "Ventes", "Il y a 8 min", "Terminé"], ["Nouveau client · Café Gourmand", "Clients", "Il y a 1 heure", "Terminé"]].map(([activity, workspace, when, status]) => <tr key={activity}><td><strong>{activity}</strong></td><td>{workspace}</td><td>{when}</td><td><StatusBadge label={status} tone={status === "Terminé" ? "green" : status === "En attente" ? "yellow" : "blue"} /></td></tr>)}</tbody></table></div>
+          <div className="table-scroll"><table><thead><tr><th>Activité</th><th>Espace</th><th>Date</th><th>Statut</th></tr></thead><tbody>{activities.map((row) => <tr key={`${row.workspace}-${row.number}`}><td><strong>{row.type} · {row.articleName || row.party}</strong></td><td>{row.workspace}</td><td>{row.date}</td><td><StatusBadge label={row.status} tone={row.tone} /></td></tr>)}{!activities.length && <EmptyRow columns={4} />}</tbody></table></div>
         </section>
       </div>
     </div>
@@ -1157,23 +1529,28 @@ function SettingsPage({
 
 function CreateModal({
   initialTarget,
+  initialDocumentType,
   parties,
   onClose,
   onSubmit,
 }: {
   initialTarget: BusinessPage;
+  initialDocumentType?: string;
   parties: string[];
   onClose: () => void;
-  onSubmit: (payload: CreatePayload) => void;
+  onSubmit: (payload: CreatePayload) => Promise<void> | void;
 }) {
   const target = initialTarget;
   const [name, setName] = useState("");
   const [detail, setDetail] = useState("");
-  const [documentType, setDocumentType] = useState("Facture");
+  const [documentType, setDocumentType] = useState(initialDocumentType ?? "");
   const [clientDetailsOpen, setClientDetailsOpen] = useState(false);
+  const [supplierDetailsOpen, setSupplierDetailsOpen] = useState(false);
   const [contactName, setContactName] = useState("");
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [headOffice, setHeadOffice] = useState("");
   const [nif, setNif] = useState("");
   const [nis, setNis] = useState("");
   const [rc, setRc] = useState("");
@@ -1183,9 +1560,13 @@ function CreateModal({
   const [unitPrice, setUnitPrice] = useState(0);
   const [discount, setDiscount] = useState(0);
   const [taxRate, setTaxRate] = useState(19);
+  const [showFullDescription, setShowFullDescription] = useState(false);
   const [documentDate, setDocumentDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const isDocument = target === "purchases" || target === "sales";
   const isClient = target === "clients";
+  const isSupplier = target === "suppliers";
   const [articleRequest, setArticleRequest] = useState<{ rows: ArticleRecord[]; loading: boolean; error: string }>({
     rows: [],
     loading: isDocument,
@@ -1218,10 +1599,15 @@ function CreateModal({
   }, [isDocument]);
 
   const filteredArticles = articleRequest.rows.filter((article) =>
-    `${article.name} ${article.sku} ${article.brand} ${article.category}`
+    `${article.name} ${article.sku} ${article.brand} ${article.category} ${article.subcategory ?? ""} ${article.subsubcategory ?? ""}`
       .toLowerCase()
       .includes(articleQuery.toLowerCase()),
   );
+  const normalizedPartyQuery = normalizeLabel(name.trim());
+  const selectedParty = parties.find((party) => normalizeLabel(party) === normalizedPartyQuery);
+  const filteredParties = parties
+    .filter((party) => normalizeLabel(party).includes(normalizedPartyQuery))
+    .slice(0, 2);
   const subtotal = Math.max(0, quantity) * Math.max(0, unitPrice);
   const discountAmount = subtotal * Math.min(100, Math.max(0, discount)) / 100;
   const netBeforeTax = subtotal - discountAmount;
@@ -1245,46 +1631,96 @@ function CreateModal({
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <form
-        className={`modal-card ${(isDocument || (isClient && clientDetailsOpen)) ? "expanded-modal" : ""}`}
+        className={`modal-card ${(isDocument || (isClient && clientDetailsOpen) || (isSupplier && supplierDetailsOpen)) ? "expanded-modal" : ""}`}
+        autoComplete="off"
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-title"
         onMouseDown={(event) => event.stopPropagation()}
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
-          if (isDocument && !selectedArticle) return;
-          onSubmit({
-            target,
-            name,
-            detail,
-            documentType,
-            contactName,
-            email,
-            address,
-            nif,
-            nis,
-            rc,
-            articleName: selectedArticle?.name,
-            quantity,
-            unitPrice,
-            discount,
-            taxRate,
-            documentDate,
-            total: grandTotal,
-          });
+          if (isDocument && (!selectedArticle || !documentType)) return;
+          setSaving(true);
+          setSubmitError("");
+          try {
+            await onSubmit({
+              target,
+              name,
+              detail,
+              documentType,
+              contactName,
+              email,
+              address,
+              city,
+              headOffice,
+              nif,
+              nis,
+              rc,
+              articleName: selectedArticle?.name,
+              articleId: selectedArticle?.id,
+              articleDescription: selectedArticle?.description,
+              unit: selectedArticle?.unit,
+              showFullDescription,
+              quantity,
+              unitPrice,
+              discount,
+              taxRate,
+              documentDate,
+              total: grandTotal,
+            });
+          } catch (submitError) {
+            setSubmitError(submitError instanceof Error ? submitError.message : "Impossible d’enregistrer cet élément.");
+            setSaving(false);
+          }
         }}
       >
         <div className="modal-header"><div><h2 id="create-title">{modalTitle}</h2><p>Le formulaire correspond uniquement à la page actuelle.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
-        <label className="field-label">{isDocument ? (target === "purchases" ? "Fournisseur" : "Client") : "Nom"}
-          <input autoFocus required list={isDocument ? `party-options-${target}` : undefined} value={name} onChange={(event) => setName(event.target.value)} placeholder={isDocument ? "Rechercher ou saisir le partenaire" : "Nom complet"} />
-          {isDocument && <datalist id={`party-options-${target}`}>{parties.map((party) => <option value={party} key={party} />)}</datalist>}
-        </label>
+        {isDocument ? (
+          <div className="field-label party-picker">
+            <span>{target === "purchases" ? "Fournisseur de la base SQLite" : "Client de la base SQLite"}</span>
+            <label className="article-search-control party-search-control">
+              <Search size={16} />
+              <input
+                autoFocus
+                required
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Rechercher ou saisir le partenaire…"
+                aria-label={target === "purchases" ? "Rechercher un fournisseur" : "Rechercher un client"}
+              />
+              {name && <button type="button" onClick={() => setName("")} aria-label="Effacer"><X size={14} /></button>}
+            </label>
+            {!selectedParty && (
+              <div className="article-search-results party-search-results" role="listbox" aria-label={target === "purchases" ? "Fournisseurs disponibles" : "Clients disponibles"}>
+                {filteredParties.map((party, index) => (
+                  <button type="button" role="option" aria-selected="false" key={party} onClick={() => setName(party)}>
+                    <div className="party-result-avatar"><EntityLogo name={party} tone={index === 0 ? "violet" : "blue"} kind={target === "purchases" ? "supplier" : "client"} /></div>
+                    <span><strong>{party}</strong><small>{target === "purchases" ? "Fournisseur enregistré" : "Client enregistré"}</small></span>
+                  </button>
+                ))}
+                {!filteredParties.length && <span className="article-search-message">{name.trim() ? "Nouveau partenaire — vous pouvez poursuivre la saisie." : "Aucun partenaire enregistré."}</span>}
+              </div>
+            )}
+            {selectedParty && (
+              <div className="selected-article selected-party">
+                <div className="party-result-avatar"><EntityLogo name={selectedParty} tone="violet" kind={target === "purchases" ? "supplier" : "client"} /></div>
+                <span><strong>{selectedParty}</strong><small>{target === "purchases" ? "Fournisseur sélectionné" : "Client sélectionné"}</small></span>
+                <button type="button" className="text-button" onClick={() => setName("")}>Changer</button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <label className="field-label">Nom
+            <input autoFocus required value={name} onChange={(event) => setName(event.target.value)} placeholder="Nom complet" />
+          </label>
+        )}
         {isDocument && (
           <>
             <div className="form-grid">
               <label className="field-label">Document
-                <select value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
-                  <option>Devis</option><option>Bon de commande</option><option>{target === "purchases" ? "Bon de réception" : "Bon de livraison"}</option><option>Facture</option><option>Bon de retour</option>
+                <select required value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
+                  <option value="" disabled>Choisir le type de document</option>
+                  <option>Devis</option><option>Bon de commande</option><option>{target === "purchases" ? "Bon de réception" : "Bon de livraison"}</option><option>Facture</option>
                 </select>
               </label>
               <label className="field-label">Date
@@ -1314,7 +1750,7 @@ function CreateModal({
                   {!articleRequest.loading && !articleRequest.error && filteredArticles.map((article) => (
                     <button type="button" role="option" aria-selected="false" key={article.id} onClick={() => selectArticle(article)}>
                       <ArticleBrandLogo brand={article.brand} logo={article.brand_logo} />
-                      <span><strong>{article.name}</strong><small>{article.sku} · Stock {article.stock}</small></span>
+                      <span><strong>{article.name}</strong><small>{article.sku} · Stock {article.stock} {article.unit || "unité"}</small></span>
                       <b>{money(target === "purchases" ? article.purchase_price : article.sale_price)}</b>
                     </button>
                   ))}
@@ -1326,14 +1762,14 @@ function CreateModal({
             {selectedArticle && (
               <div className="selected-article">
                 <ArticleBrandLogo brand={selectedArticle.brand} logo={selectedArticle.brand_logo} />
-                <span><strong>{selectedArticle.name}</strong><small>{selectedArticle.sku} · {selectedArticle.category}</small></span>
+                <span><strong>{selectedArticle.name}</strong><small>{selectedArticle.sku} · {selectedArticle.category} · {selectedArticle.unit || "unité"}{selectedArticle.description ? ` · ${selectedArticle.description}` : ""}</small></span>
                 <button type="button" className="text-button" onClick={() => { setSelectedArticle(null); setArticleQuery(""); }}>Changer</button>
               </div>
             )}
 
             <div className="form-grid form-grid-four">
-              <label className="field-label">Quantité
-                <input type="number" min="1" step="1" required value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} />
+              <label className="field-label">Quantité ({selectedArticle?.unit || "unité"})
+                <input type="number" min="0.001" step="0.001" required value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} />
               </label>
               <label className="field-label">Prix unitaire
                 <input type="number" min="0" step="0.01" required value={unitPrice} onChange={(event) => setUnitPrice(Number(event.target.value))} />
@@ -1345,6 +1781,10 @@ function CreateModal({
                 <input type="number" min="0" max="100" step="0.01" value={taxRate} onChange={(event) => setTaxRate(Number(event.target.value))} />
               </label>
             </div>
+
+            {documentType === "Bon de commande" && (
+              <label className="description-toggle"><input type="checkbox" checked={showFullDescription} onChange={(event) => setShowFullDescription(event.target.checked)} /><span><strong>Afficher la description complète</strong><small>Sinon seule la désignation de l’article apparaîtra sur le bon de commande.</small></span></label>
+            )}
 
             <section className="document-total-card" aria-live="polite">
               <div><span>Sous-total</span><strong>{money(subtotal)}</strong></div>
@@ -1376,9 +1816,14 @@ function CreateModal({
                     <span className="input-with-icon"><Mail size={15} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="contact@entreprise.dz" /></span>
                   </label>
                 </div>
-                <label className="field-label">Adresse
-                  <span className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Adresse, ville" /></span>
-                </label>
+                <div className="form-grid">
+                  <label className="field-label">Adresse
+                    <span className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Rue, zone, bâtiment" /></span>
+                  </label>
+                  <label className="field-label">Ville
+                    <span className="input-with-icon"><MapPin size={15} /><input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Alger" /></span>
+                  </label>
+                </div>
                 <div className="form-section-label fiscal-label"><ReceiptText size={15} /><span>Informations fiscales</span><small>Facultatif</small></div>
                 <div className="form-grid form-grid-three">
                   <label className="field-label">NIF
@@ -1395,7 +1840,217 @@ function CreateModal({
             )}
           </section>
         )}
-        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" type="submit" disabled={isDocument && !selectedArticle}><Plus size={16} /> Ajouter</button></div>
+        {isSupplier && (
+          <section className={`expandable-form-section ${supplierDetailsOpen ? "open" : ""}`}>
+            <button type="button" className="expand-form-button" aria-expanded={supplierDetailsOpen} onClick={() => setSupplierDetailsOpen((value) => !value)}>
+              <span><ContactRound size={16} /> Contact, adresse et siège</span>
+              <ChevronDown size={16} />
+            </button>
+            {supplierDetailsOpen && (
+              <div className="expanded-fields">
+                <div className="form-section-label"><ContactRound size={15} /><span>Contact fournisseur</span></div>
+                <div className="form-grid">
+                  <label className="field-label">Nom du contact
+                    <span className="input-with-icon"><ContactRound size={15} /><input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Nom et prénom" /></span>
+                  </label>
+                  <label className="field-label">E-mail
+                    <span className="input-with-icon"><Mail size={15} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="contact@fournisseur.dz" /></span>
+                  </label>
+                </div>
+                <div className="form-grid">
+                  <label className="field-label">Adresse
+                    <span className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Rue, zone, bâtiment" /></span>
+                  </label>
+                  <label className="field-label">Ville
+                    <span className="input-with-icon"><MapPin size={15} /><input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Alger" /></span>
+                  </label>
+                </div>
+                <label className="field-label">Siège social
+                  <span className="input-with-icon"><Building2 size={15} /><input value={headOffice} onChange={(event) => setHeadOffice(event.target.value)} placeholder="Ville, pays ou adresse du siège" /></span>
+                </label>
+              </div>
+            )}
+          </section>
+        )}
+        {submitError && <p className="form-error" role="alert">{submitError}</p>}
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Annuler</button><button className="primary-button" type="submit" disabled={saving || (isDocument && (!selectedArticle || !documentType))}><Plus size={16} /> {saving ? "Enregistrement…" : "Ajouter"}</button></div>
+      </form>
+    </div>
+  );
+}
+
+function ArticleFormModal({
+  article,
+  onClose,
+  onSaved,
+}: {
+  article: ArticleRecord | null;
+  onClose: () => void;
+  onSaved: (article: ArticleRecord) => void;
+}) {
+  const [name, setName] = useState(article?.name ?? "");
+  const [sku, setSku] = useState(article?.sku ?? "");
+  const [brand, setBrand] = useState(article?.brand ?? "");
+  const [brandLogo, setBrandLogo] = useState(article?.brand_logo ?? "");
+  const [category, setCategory] = useState(article?.category ?? "");
+  const [subcategory, setSubcategory] = useState(article?.subcategory ?? "");
+  const [subsubcategory, setSubsubcategory] = useState(article?.subsubcategory ?? "");
+  const [categoryTree, setCategoryTree] = useState<CategoryTree[]>([]);
+  const [description, setDescription] = useState(article?.description ?? "");
+  const [unit, setUnit] = useState(article?.unit ?? "unité");
+  const [imageUrl, setImageUrl] = useState(article?.image_url ?? "/products/macbook-pro-14.png");
+  const [purchasePrice, setPurchasePrice] = useState(article?.purchase_price ?? 0);
+  const [salePrice, setSalePrice] = useState(article?.sale_price ?? 0);
+  const [stock, setStock] = useState(article?.stock ?? 0);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/articles", { signal: controller.signal, cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error("Catégories indisponibles");
+        return response.json() as Promise<{ categories?: CategoryTree[] }>;
+      })
+      .then((payload) => setCategoryTree(payload.categories ?? []))
+      .catch((requestError: Error) => {
+        if (requestError.name !== "AbortError") setCategoryTree([]);
+      });
+    return () => controller.abort();
+  }, []);
+
+  const normalizedCategory = category.trim().toLocaleLowerCase("fr");
+  const selectedCategory = categoryTree.find((item) => item.name.toLocaleLowerCase("fr") === normalizedCategory);
+  const subcategoryOptions = selectedCategory?.subcategories ?? [];
+  const normalizedSubcategory = subcategory.trim().toLocaleLowerCase("fr");
+  const selectedSubcategory = subcategoryOptions.find((item) => item.name.toLocaleLowerCase("fr") === normalizedSubcategory);
+  const thirdLevelOptions = selectedSubcategory?.subcategories ?? [];
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/articles", {
+        method: article ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: article?.id,
+          name: name.trim(),
+          sku: sku.trim(),
+          brand: brand.trim() || "Sans marque",
+          brand_logo: brandLogo.trim(),
+          category: category.trim(),
+          subcategory: subcategory.trim(),
+          subsubcategory: subsubcategory.trim(),
+          description: description.trim(),
+          unit,
+          image_url: imageUrl,
+          purchase_price: Number(purchasePrice),
+          sale_price: Number(salePrice),
+          stock: Number(stock),
+        }),
+      });
+      const payload = await response.json() as { article?: ArticleRecord; error?: string };
+      if (!response.ok || !payload.article) throw new Error(payload.error || "Impossible d’enregistrer l’article.");
+      onSaved(payload.article);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Impossible d’enregistrer l’article.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <form className="modal-card expanded-modal article-editor-modal" role="dialog" aria-modal="true" aria-labelledby="article-editor-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
+        <div className="modal-header"><div><h2 id="article-editor-title">{article ? "Organiser l’article" : "Nouvel article"}</h2><p>Catégorie, sous-catégories, unité, prix, stock et description.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+        <div className="form-grid">
+          <label className="field-label">Désignation<input autoFocus required value={name} onChange={(event) => setName(event.target.value)} placeholder="MacBook Pro 14 pouces" /></label>
+          <label className="field-label">Référence / SKU<input required value={sku} onChange={(event) => setSku(event.target.value)} placeholder="ART-INFO-001" /></label>
+        </div>
+        <div className="form-grid">
+          <label className="field-label">Marque<input value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="Apple" /></label>
+          <label className="field-label">Unité<select value={unit} onChange={(event) => setUnit(event.target.value)}><option value="unité">Unité</option><option value="M">Mètre (M)</option><option value="Bobine">Bobine</option><option value="kg">Kilogramme (kg)</option><option value="L">Litre (L)</option><option value="lot">Lot</option></select></label>
+        </div>
+        <section className="article-category-editor">
+          <div className="form-section-label"><Folder size={15} /><span>Arborescence catalogue — 3 niveaux</span></div>
+          <div className="form-grid form-grid-three">
+            <label className="field-label">Catégorie
+              <input required list="article-category-options" autoComplete="off" value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Choisir ou ajouter…" />
+              <datalist id="article-category-options">{categoryTree.map((item) => <option key={item.name} value={item.name} />)}</datalist>
+            </label>
+            <label className="field-label">Sous-catégorie
+              <input required list="article-subcategory-options" autoComplete="off" value={subcategory} onChange={(event) => setSubcategory(event.target.value)} placeholder="Choisir ou ajouter…" />
+              <datalist id="article-subcategory-options">{subcategoryOptions.map((item) => <option key={item.name} value={item.name} />)}</datalist>
+            </label>
+            <label className="field-label">Niveau 3
+              <input required list="article-third-category-options" autoComplete="off" value={subsubcategory} onChange={(event) => setSubsubcategory(event.target.value)} placeholder="Choisir ou ajouter…" />
+              <datalist id="article-third-category-options">{thirdLevelOptions.map((item) => <option key={item} value={item} />)}</datalist>
+            </label>
+          </div>
+          <p className="category-editor-hint"><Plus size={13} />Sélectionnez une valeur proposée ou saisissez un nouveau niveau.</p>
+        </section>
+        <label className="field-label">Description complète<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description affichée sur les commandes lorsque l’option est activée." rows={3} /></label>
+        <div className="form-grid form-grid-three">
+          <label className="field-label">Prix d’achat<input type="number" min="0" step="0.01" value={purchasePrice} onChange={(event) => setPurchasePrice(Number(event.target.value))} /></label>
+          <label className="field-label">Prix de vente<input type="number" min="0" step="0.01" value={salePrice} onChange={(event) => setSalePrice(Number(event.target.value))} /></label>
+          <label className="field-label">Stock initial / actuel<input type="number" min="0" step="0.01" value={stock} onChange={(event) => setStock(Number(event.target.value))} /></label>
+        </div>
+        <div className="form-grid">
+          <label className="field-label">Photo produit<select value={imageUrl} onChange={(event) => setImageUrl(event.target.value)}><option value="">Sans photo</option><option value="/products/macbook-pro-14.png">MacBook Pro 14</option><option value="/products/imac-24.png">iMac 24</option><option value="/products/macbook-air-13.png">MacBook Air 13</option><option value="/products/macbook-pro-16.png">MacBook Pro 16</option></select></label>
+          <label className="field-label">Logo marque (optionnel)<select value={brandLogo} onChange={(event) => setBrandLogo(event.target.value)}><option value="">Icône catalogue</option><option value="/brands/google.png">Google</option><option value="/brands/amazon.svg">Amazon</option></select></label>
+        </div>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button type="submit" className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div>
+      </form>
+    </div>
+  );
+}
+
+function ReturnModal({
+  document,
+  direction,
+  onClose,
+  onConfirm,
+}: {
+  document: DocumentRecord;
+  direction: "purchases" | "sales";
+  onClose: () => void;
+  onConfirm: (quantity: number, reason: string) => Promise<void>;
+}) {
+  const [quantity, setQuantity] = useState(Math.max(0.001, (document.quantity ?? 1) - (document.returnedQuantity ?? 0)));
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const maximum = Math.max(0, (document.quantity ?? 1) - (document.returnedQuantity ?? 0));
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (quantity <= 0 || quantity > maximum) {
+      setError(`La quantité doit être comprise entre 0,001 et ${maximum}.`);
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      await onConfirm(quantity, reason.trim());
+    } catch (returnError) {
+      setError(returnError instanceof Error ? returnError.message : "Impossible de créer le retour.");
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <form className="modal-card compact-modal" role="dialog" aria-modal="true" aria-labelledby="return-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
+        <div className="modal-header"><div><h2 id="return-title">Créer un bon de retour</h2><p>Retour depuis {document.number} · {direction === "sales" ? "vente" : "achat"}</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+        <div className="return-source"><DocumentLogo type={document.type} tone={document.tone} /><div><strong>{document.articleName || document.summary || document.party}</strong><small>{document.number} · {document.quantity ?? 1} {document.unit || "unité"}</small></div></div>
+        <label className="field-label">Quantité retournée ({document.unit || "unité"})<input type="number" min="0.001" max={maximum} step="0.001" value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} required /></label>
+        <label className="field-label">Motif (facultatif)<textarea rows={2} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Produit refusé, erreur de commande…" /></label>
+        <p className="return-stock-note"><RotateCcw size={15} />{direction === "sales" ? "Le stock sera réintégré automatiquement." : "Le stock sera déduit automatiquement."}</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" type="submit" disabled={submitting}><RotateCcw size={15} />{submitting ? "Création…" : "Valider le retour"}</button></div>
       </form>
     </div>
   );
@@ -1428,6 +2083,9 @@ export default function WorkspaceApp() {
   const [purchases, setPurchases] = useState(initialPurchases);
   const [sales, setSales] = useState(initialSales);
   const [createOpen, setCreateOpen] = useState(false);
+  const [articleEditor, setArticleEditor] = useState<ArticleRecord | "new" | null>(null);
+  const [catalogVersion, setCatalogVersion] = useState(0);
+  const [returnContext, setReturnContext] = useState<{ direction: "purchases" | "sales"; document: DocumentRecord } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -1435,11 +2093,79 @@ export default function WorkspaceApp() {
   const toastTimer = useRef<number | null>(null);
   const meta = pageMeta[page];
 
+  useEffect(() => {
+    if (page === "articles") setViewMode("grid");
+  }, [page]);
+
   const notify = (message: string) => {
     setToast(message);
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(""), 2600);
   };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+
+    Promise.all(["purchases", "sales"].map(async (direction) => {
+      const response = await fetch(`/api/documents?direction=${direction}`, {
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error("SQLite indisponible");
+      return response.json() as Promise<{ documents: ApiDocumentRecord[] }>;
+    }))
+      .then(([purchasePayload, salesPayload]) => {
+        if (!active) return;
+        setPurchases(withReturnedQuantities([
+          ...purchasePayload.documents.map(toDocumentRecord),
+          ...initialPurchases,
+        ]));
+        setSales(withReturnedQuantities([
+          ...salesPayload.documents.map(toDocumentRecord),
+          ...initialSales,
+        ]));
+      })
+      .catch((error: Error) => {
+        if (active && error.name !== "AbortError") {
+          console.error("Impossible de charger les documents SQLite", error);
+        }
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+
+    Promise.all(["client", "supplier"].map(async (kind) => {
+      const response = await fetch(`/api/parties?kind=${kind}`, {
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error("SQLite indisponible");
+      return response.json() as Promise<{ parties: ApiPartyRecord[] }>;
+    }))
+      .then(([clientPayload, supplierPayload]) => {
+        if (!active) return;
+        setClients(clientPayload.parties.map(toClientRecord));
+        setSuppliers(supplierPayload.parties.map(toSupplierRecord));
+      })
+      .catch((error: Error) => {
+        if (active && error.name !== "AbortError") {
+          console.error("Impossible de charger les tiers SQLite", error);
+        }
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, []);
 
   const navigate = (nextPage: PageKey) => {
     if (nextPage !== page) window.history.pushState(null, "", `#${nextPage}`);
@@ -1447,54 +2173,198 @@ export default function WorkspaceApp() {
     setSearch("");
     setActiveTab("all");
     setFilterActive(false);
-    setViewMode("list");
+    setViewMode(nextPage === "articles" ? "grid" : "list");
   };
 
-  const createItem = ({ target, name, detail, documentType, contactName, email, address, nif, nis, rc, articleName, quantity, unitPrice, discount, taxRate, documentDate, total }: CreatePayload) => {
-    const cleanName = name.trim();
-    if (target === "clients") {
-      setClients((rows) => [{
-        name: cleanName,
-        initials: initials(cleanName),
-        color: "blue",
-        contact: detail.trim() || "—",
-        email: email?.trim() || "E-mail non renseigné",
-        contactName: contactName?.trim() || undefined,
-        address: address?.trim() || undefined,
-        nif: nif?.trim() || undefined,
-        nis: nis?.trim() || undefined,
-        rc: rc?.trim() || undefined,
-        billed: "0 DA",
-        balance: "0 DA",
-        status: "À jour",
-        activity: "À l’instant",
-      }, ...rows]);
-    } else if (target === "suppliers") {
-      setSuppliers((rows) => [{ name: cleanName, initials: initials(cleanName), color: "mint", contact: "—", category: detail || "Général", purchases: "0 DA", balance: "0 DA", status: "À jour" }, ...rows]);
+  const adjustArticleStock = async (articleId: number, stockDelta: number, reason: string) => {
+    const response = await fetch("/api/articles", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: articleId, stock_delta: stockDelta, reason }),
+    });
+    const payload = await response.json() as { article?: ArticleRecord; error?: string };
+    if (!response.ok || !payload.article) throw new Error(payload.error || "Impossible de mettre à jour le stock.");
+    setCatalogVersion((value) => value + 1);
+    return payload.article;
+  };
+
+  const postDocument = async (body: Record<string, unknown>) => {
+    const response = await fetch("/api/documents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json() as { document?: ApiDocumentRecord; error?: string };
+    if (!response.ok || !payload.document) throw new Error(payload.error || "Impossible d’enregistrer le document.");
+    return toDocumentRecord(payload.document);
+  };
+
+  const postParty = async (body: Record<string, unknown>) => {
+    const response = await fetch("/api/parties", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json() as { party?: ApiPartyRecord; error?: string };
+    if (!response.ok || !payload.party) throw new Error(payload.error || "Impossible d’enregistrer le tiers.");
+    return payload.party;
+  };
+
+  const confirmReturn = async (quantity: number, reason: string) => {
+    if (!returnContext) throw new Error("Aucun document source sélectionné.");
+    const { direction, document } = returnContext;
+    const articleId = document.articleId;
+    if (!articleId) throw new Error("Cet article n’est pas lié au document source.");
+
+    if (document.id) {
+      const response = await fetch(`/api/documents/${document.id}/return`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reason,
+          lines: [{
+            articleId,
+            designation: document.articleName,
+            description: document.description,
+            unit: document.unit,
+            quantity,
+            unitPrice: document.unitPrice,
+            discountPercent: document.discountPercent,
+            taxRate: document.taxRate,
+          }],
+        }),
+      });
+      const payload = await response.json() as { document?: ApiDocumentRecord; error?: string };
+      if (!response.ok || !payload.document) throw new Error(payload.error || "Impossible de créer le retour.");
+      const returnRecord = toDocumentRecord(payload.document);
+      const updateRows = (rows: DocumentRecord[]) => withReturnedQuantities([returnRecord, ...rows]);
+      if (direction === "sales") setSales(updateRows);
+      else setPurchases(updateRows);
+      setCatalogVersion((value) => value + 1);
     } else {
-      const prefix = documentType === "Devis" ? "DEV" : documentType === "Facture" ? "FAC" : documentType.includes("retour") ? "RET" : documentType.includes("livraison") ? "BL" : documentType.includes("réception") ? "BR" : "BC";
-      const displayDate = documentDate
-        ? new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${documentDate}T12:00:00`))
-        : "À l’instant";
-      const amount = `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(total ?? 0)} DA`;
-      const lineSummary = articleName
-        ? `${quantity ?? 1} × ${articleName} · PU ${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(unitPrice ?? 0)} DA${discount ? ` · Remise ${discount}%` : ""}${taxRate ? ` · TVA ${taxRate}%` : ""}`
-        : undefined;
-      const record: DocumentRecord = {
-        number: `${prefix}-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`,
-        party: cleanName,
-        type: documentType,
-        date: displayDate,
-        amount,
+      // The two Google/Amazon rows remain lightweight local examples. Every new
+      // document uses the transactional SQLite route above.
+      const stockDelta = direction === "sales" ? quantity : -quantity;
+      await adjustArticleStock(articleId, stockDelta, `Retour ${document.number}${reason ? ` · ${reason}` : ""}`);
+      const rawAmount = Number(document.amount.replace(/[^0-9,.-]/g, "").replace(",", ".")) || 0;
+      const proportionalAmount = rawAmount * quantity / (document.quantity || 1);
+      const returnRecord: DocumentRecord = {
+        number: `RET-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`,
+        party: document.party,
+        type: "Bon de retour",
+        date: "À l’instant",
+        amount: `-${formatDa(proportionalAmount)}`,
+        status: "Traité",
+        tone: "pink",
+        summary: `${quantity} ${document.unit || "unité"} × ${document.articleName || "Article"}${reason ? ` · ${reason}` : ""}`,
+        articleId,
+        articleName: document.articleName,
+        quantity,
+        unit: document.unit,
+        unitPrice: document.unitPrice,
+        sourceDocument: document.number,
+      };
+      const markReturned = (rows: DocumentRecord[]) => rows.map((row) => row.number === document.number ? { ...row, returnedQuantity: (row.returnedQuantity ?? 0) + quantity } : row);
+      if (direction === "sales") setSales((rows) => [returnRecord, ...markReturned(rows)]);
+      else setPurchases((rows) => [returnRecord, ...markReturned(rows)]);
+    }
+
+    setReturnContext(null);
+    notify(`Retour créé · stock ${direction === "sales" ? "réintégré" : "déduit"}`);
+  };
+
+  const convertQuoteToInvoice = async (direction: "purchases" | "sales", quote: DocumentRecord) => {
+    if (quote.id && quote.articleId) {
+      const invoice = await postDocument({
+        direction,
+        type: "Facture",
+        partyName: quote.party,
+        sourceDocumentId: quote.id,
+        documentDate: new Date().toISOString().slice(0, 10),
+        showDescription: quote.showFullDescription,
+        lines: [{
+          articleId: quote.articleId,
+          designation: quote.articleName,
+          description: quote.description,
+          unit: quote.unit,
+          quantity: quote.quantity ?? 1,
+          unitPrice: quote.unitPrice,
+          discountPercent: quote.discountPercent,
+          taxRate: quote.taxRate,
+        }],
+      });
+      if (direction === "sales") setSales((rows) => [invoice, ...rows]);
+      else setPurchases((rows) => [invoice, ...rows]);
+    } else {
+      const invoice: DocumentRecord = {
+        ...quote,
+        number: `FAC-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`,
+        type: "Facture",
+        date: "À l’instant",
         status: "Brouillon",
         tone: "gray",
-        summary: lineSummary,
+        sourceDocument: quote.number,
       };
+      if (direction === "sales") setSales((rows) => [invoice, ...rows]);
+      else setPurchases((rows) => [invoice, ...rows]);
+    }
+    notify(`Facture créée depuis ${quote.number}`);
+  };
+
+  const createItem = async ({ target, name, detail, documentType, contactName, email, address, city, headOffice, nif, nis, rc, articleId, articleName, articleDescription, unit, showFullDescription, quantity, unitPrice, discount, taxRate, documentDate }: CreatePayload) => {
+    const cleanName = name.trim();
+    if (target === "clients") {
+      const party = await postParty({
+        kind: "client",
+        name: cleanName,
+        contact_phone: detail,
+        contact_name: contactName,
+        email,
+        address,
+        city,
+        nif,
+        nis,
+        rc,
+      });
+      setClients((rows) => [toClientRecord(party), ...rows]);
+    } else if (target === "suppliers") {
+      const party = await postParty({
+        kind: "supplier",
+        name: cleanName,
+        contact_name: contactName,
+        email,
+        address,
+        city,
+        head_office: headOffice,
+        category: detail,
+      });
+      setSuppliers((rows) => [toSupplierRecord(party), ...rows]);
+    } else {
+      if (!articleId) throw new Error("Sélectionnez un article existant.");
+      const record = await postDocument({
+        direction: target,
+        type: documentType,
+        partyName: cleanName,
+        documentDate,
+        discount,
+        taxRate,
+        showDescription: showFullDescription,
+        lines: [{
+          articleId,
+          designation: articleName,
+          description: articleDescription,
+          unit,
+          quantity,
+          unitPrice,
+          discountPercent: discount,
+          taxRate,
+        }],
+      });
       if (target === "purchases") setPurchases((rows) => [record, ...rows]);
       else setSales((rows) => [record, ...rows]);
+      setCatalogVersion((value) => value + 1);
     }
     setCreateOpen(false);
-    navigate(target);
     notify("Élément ajouté avec succès");
   };
 
@@ -1506,6 +2376,9 @@ export default function WorkspaceApp() {
     : createTarget === "sales"
       ? clients.map((client) => client.name)
       : [];
+  const createDocumentType = createTarget === "purchases" || createTarget === "sales"
+    ? documentTypeForTab(activeTab, createTarget)
+    : "";
 
   return (
     <div className="app-shell">
@@ -1548,36 +2421,53 @@ export default function WorkspaceApp() {
       </aside>
 
       <div className="main-shell">
-        <header className="topbar">
-          <div className="breadcrumb"><meta.icon size={18} /><strong>{meta.label}</strong></div>
-          <div className="quick-stats" aria-label="Indicateurs clés">
-            {topStats[page].map(({ label, value, trend, icon: Icon }, index) => (
-              <div className="top-stat" key={label}><Icon size={17} /><span><small>{label}</small><strong>{value}</strong></span><em className={index === 2 && page !== "dashboard" ? "neutral" : ""}>{trend}</em></div>
-            ))}
+        <header className={`topbar ${page === "dashboard" ? "dashboard-topbar" : ""}`}>
+          <div className="breadcrumb">
+            <meta.icon size={20} />
+            <span><strong>{meta.label}</strong><small>{meta.subtitle}</small></span>
           </div>
+          {page !== "dashboard" && (
+            <div className="quick-stats" aria-label="Indicateurs clés">
+              {topStats[page].map(({ label, value, trend, icon: Icon }, index) => (
+                <div className="top-stat" key={label}><Icon size={17} /><span><small>{label}</small><strong>{value}</strong></span><em className={index === 2 ? "neutral" : ""}>{trend}</em></div>
+              ))}
+            </div>
+          )}
           <div className="topbar-actions">
             <div className="notification-wrap">
               <button className={`icon-button ${notificationsOpen ? "active" : ""}`} aria-label="Notifications" onClick={() => setNotificationsOpen((value) => !value)}><Bell size={18} /><i /></button>
               {notificationsOpen && <div className="notification-panel"><div><strong>Notifications</strong><button onClick={() => setNotificationsOpen(false)}><X size={15} /></button></div><p><span className="notification-dot coral" />3 factures arrivent à échéance.</p><p><span className="notification-dot blue" />La commande BC-2024-076 est en cours.</p><button className="text-button" onClick={() => { setNotificationsOpen(false); notify("Notifications marquées comme lues"); }}>Tout marquer comme lu</button></div>}
             </div>
             <button className="help-button" onClick={() => setHelpOpen(true)}><CircleHelp size={17} /> Aide</button>
-            {createTarget && <button className="top-new-button" onClick={() => setCreateOpen(true)}><Plus size={17} /> Nouveau</button>}
+            {(createTarget || page === "articles") && <button className="top-new-button" onClick={() => {
+              if (page === "articles") {
+                setArticleEditor("new");
+                return;
+              }
+              if ((page === "purchases" || page === "sales") && activeTab === "returns") {
+                notify("Créez un retour depuis le menu d’une livraison ou d’une facture.");
+                return;
+              }
+              setCreateOpen(true);
+            }}><Plus size={17} /> Nouveau</button>}
           </div>
         </header>
 
         <main className="main-content">
-          {page === "dashboard" && <Dashboard notify={notify} onViewSales={() => navigate("sales")} />}
+          {page === "dashboard" && <Dashboard onViewSales={() => navigate("sales")} purchases={purchases} sales={sales} />}
           {page === "clients" && <ClientsTable rows={clients} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onDelete={(name) => { setClients((rows) => rows.filter((row) => row.name !== name)); notify(`${name} supprimé`); }} />}
           {page === "suppliers" && <SuppliersTable rows={suppliers} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onDelete={(name) => { setSuppliers((rows) => rows.filter((row) => row.name !== name)); notify(`${name} supprimé`); }} />}
-          {page === "articles" && <ArticlesTable search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} />}
-          {page === "purchases" && <DocumentsTable page="purchases" rows={purchases} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onDelete={(number) => { setPurchases((rows) => rows.filter((row) => row.number !== number)); notify(`${number} supprimé`); }} />}
-          {page === "sales" && <DocumentsTable page="sales" rows={sales} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onDelete={(number) => { setSales((rows) => rows.filter((row) => row.number !== number)); notify(`${number} supprimé`); }} />}
+          {page === "articles" && <ArticlesTable search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} refreshKey={catalogVersion} onEdit={(article) => setArticleEditor(article)} />}
+          {page === "purchases" && <DocumentsTable page="purchases" rows={purchases} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onDelete={(number) => { setPurchases((rows) => rows.filter((row) => row.number !== number)); notify(`${number} supprimé`); }} onReturn={(document) => setReturnContext({ direction: "purchases", document })} onConvertQuote={(quote) => convertQuoteToInvoice("purchases", quote)} />}
+          {page === "sales" && <DocumentsTable page="sales" rows={sales} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onDelete={(number) => { setSales((rows) => rows.filter((row) => row.number !== number)); notify(`${number} supprimé`); }} onReturn={(document) => setReturnContext({ direction: "sales", document })} onConvertQuote={(quote) => convertQuoteToInvoice("sales", quote)} />}
           {page === "documents" && <DocumentsLibrary purchases={purchases} sales={sales} search={search} setSearch={setSearch} viewMode={viewMode} setViewMode={setViewMode} />}
           {page === "settings" && <SettingsPage company={company} onSave={persistCompanySettings} notify={notify} />}
         </main>
       </div>
 
-      {createOpen && createTarget && <CreateModal initialTarget={createTarget} parties={createParties} onClose={() => setCreateOpen(false)} onSubmit={createItem} />}
+      {createOpen && createTarget && <CreateModal initialTarget={createTarget} initialDocumentType={createDocumentType} parties={createParties} onClose={() => setCreateOpen(false)} onSubmit={createItem} />}
+      {articleEditor && <ArticleFormModal article={articleEditor === "new" ? null : articleEditor} onClose={() => setArticleEditor(null)} onSaved={(article) => { setArticleEditor(null); setCatalogVersion((value) => value + 1); notify(`${article.name} enregistré dans le catalogue`); }} />}
+      {returnContext && <ReturnModal document={returnContext.document} direction={returnContext.direction} onClose={() => setReturnContext(null)} onConfirm={confirmReturn} />}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
       {toast && <div className="toast" role="status"><Check size={17} />{toast}<button onClick={() => setToast("")} aria-label="Fermer"><X size={14} /></button></div>}
     </div>
