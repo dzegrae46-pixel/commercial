@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
     cpus: 1,
     optimizePackageImports: ["lucide-react"],
     webpackBuildWorker: false,
-    workerThreads: false,
+    workerThreads: true,
   },
   webpack(config) {
     // Shared cPanel hosting enforces a very small process/thread quota.
