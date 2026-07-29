@@ -259,3 +259,35 @@ test("persists party location details and documents from quotes through returns"
   assert.match(documentsRoute, /listDocuments/);
   assert.match(returnsRoute, /createReturnFromDocument/);
 });
+
+test("persists settlements and the finance workspace", async () => {
+  const [page, schema, sqlite, partiesRoute, documentsRoute, paymentsRoute, financeRoute] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("lib/sqlite.ts", root), "utf8"),
+    readFile(new URL("app/api/parties/route.ts", root), "utf8"),
+    readFile(new URL("app/api/documents/route.ts", root), "utf8"),
+    readFile(new URL("app/api/payments/route.ts", root), "utf8"),
+    readFile(new URL("app/api/finance/route.ts", root), "utf8"),
+  ]);
+
+  assert.match(page, /Finance/);
+  assert.match(page, /Régler le solde/);
+  assert.match(page, /SettlementModal/);
+  assert.match(page, /FinanceEntryModal/);
+  assert.match(page, /PartyEditorModal/);
+  assert.match(page, /DocumentDetailsModal/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS payments/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS finance_entries/);
+  assert.match(sqlite, /settleParty/);
+  assert.match(sqlite, /createFinanceEntry/);
+  assert.match(sqlite, /deleteFinanceEntry/);
+  assert.match(sqlite, /updateParty/);
+  assert.match(sqlite, /deleteParty/);
+  assert.match(sqlite, /deleteDocument/);
+  assert.match(partiesRoute, /export async function PATCH/);
+  assert.match(partiesRoute, /export async function DELETE/);
+  assert.match(documentsRoute, /export async function DELETE/);
+  assert.match(paymentsRoute, /settleParty/);
+  assert.match(financeRoute, /createFinanceEntry/);
+});

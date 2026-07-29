@@ -1,8 +1,10 @@
 import {
   createParty,
+  deleteParty,
   listParties,
   SqliteValidationError,
   type PartyKind,
+  updateParty,
 } from "@/lib/sqlite";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +49,25 @@ export async function POST(request: Request) {
   try {
     const party = createParty(await request.json());
     return Response.json({ party }, { status: 201 });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const party = updateParty(await request.json());
+    return Response.json({ party });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const input = await request.json() as { id?: unknown };
+    const party = deleteParty(input.id);
+    return Response.json({ party });
   } catch (error) {
     return errorResponse(error);
   }

@@ -12,8 +12,12 @@ import {
   CREATE_DOCUMENT_LINES_TABLE_SQL,
   CREATE_DOCUMENTS_INDEX_SQL,
   CREATE_DOCUMENTS_TABLE_SQL,
+  CREATE_FINANCE_ENTRIES_DATE_INDEX_SQL,
+  CREATE_FINANCE_ENTRIES_TABLE_SQL,
   CREATE_PARTIES_KIND_NAME_INDEX_SQL,
   CREATE_PARTIES_TABLE_SQL,
+  CREATE_PAYMENTS_PARTY_INDEX_SQL,
+  CREATE_PAYMENTS_TABLE_SQL,
   CREATE_STOCK_MOVEMENTS_INDEX_SQL,
   CREATE_STOCK_MOVEMENTS_TABLE_SQL,
   PARTY_COLUMN_MIGRATIONS,
@@ -63,6 +67,35 @@ export type PartyRecord = {
   nif: string;
   nis: string;
   rc: string;
+  created_at: string;
+  updated_at: string;
+  billed: number;
+  balance: number;
+  status: string;
+};
+
+export type PaymentRecord = {
+  id: number;
+  party_id: number;
+  direction: "incoming" | "outgoing";
+  amount: number;
+  payment_date: string;
+  method: string;
+  note: string;
+  created_at: string;
+};
+
+export type FinanceEntryKind = "expense" | "charge";
+
+export type FinanceEntryRecord = {
+  id: number;
+  kind: FinanceEntryKind;
+  label: string;
+  category: string;
+  amount: number;
+  entry_date: string;
+  status: string;
+  note: string;
   created_at: string;
   updated_at: string;
 };
@@ -322,7 +355,13 @@ function toArticleRecord(row: Record<string, unknown>): ArticleRecord {
 }
 
 function toPartyRecord(row: Record<string, unknown>): PartyRecord {
-  return row as unknown as PartyRecord;
+  const party = row as unknown as Omit<PartyRecord, "billed" | "balance" | "status"> & {
+    billed?: unknown;
+    balance?: unknown;
+  };
+  const billed = rowNumber(party.billed);
+  const balance = Math.max(0, rowNumber(party.balance));
+  return { ...party, billed, balance, status: balance > 0 ? "À régler" : "À jour" };
 }
 
 function toDocumentRecord(row: Record<string, unknown>): DocumentRecord {
@@ -356,6 +395,10 @@ function openDatabase() {
   database.exec(CREATE_DOCUMENT_LINES_INDEX_SQL);
   database.exec(CREATE_STOCK_MOVEMENTS_TABLE_SQL);
   database.exec(CREATE_STOCK_MOVEMENTS_INDEX_SQL);
+  database.exec(CREATE_PAYMENTS_TABLE_SQL);
+  database.exec(CREATE_PAYMENTS_PARTY_INDEX_SQL);
+  database.exec(CREATE_FINANCE_ENTRIES_TABLE_SQL);
+  database.exec(CREATE_FINANCE_ENTRIES_DATE_INDEX_SQL);
   database.exec(CREATE_APP_META_TABLE_SQL);
   seedCatalogOnce(database);
   ensurePartyStorage(database);
@@ -859,12 +902,35 @@ function requiredPartyName(input: InputObject): string {
   return name;
 }
 
+const partyBalanceSql = `
+  COALESCE((
+    SELECT SUM(CASE
+      WHEN d.type = 'invoice' AND d.status NOT IN ('Payée', 'Réglée', 'Soldée') THEN d.total
+      WHEN d.type = 'return' THEN -d.total
+      ELSE 0
+    END)
+    FROM documents d
+    WHERE LOWER(d.party_name) = LOWER(p.name)
+      AND d.direction = CASE p.kind WHEN 'client' THEN 'sales' ELSE 'purchases' END
+  ), 0)
+`;
+
+const partyPaidSql = `
+  COALESCE((SELECT SUM(payment.amount) FROM payments payment WHERE payment.party_id = p.id), 0)
+`;
+
+const partySelectSql = `
+  p.id, p.kind, p.name, p.contact_phone, p.contact_name, p.email, p.address, p.city,
+  p.head_office, p.category, p.nif, p.nis, p.rc, p.created_at, p.updated_at,
+  ${partyBalanceSql} AS billed,
+  MAX(0, ${partyBalanceSql} - ${partyPaidSql}) AS balance
+`;
+
 function getPartyById(database: DatabaseSync, id: number): PartyRecord {
   const row = database.prepare(`
-    SELECT id, kind, name, contact_phone, contact_name, email, address, city,
-      head_office, category, nif, nis, rc, created_at, updated_at
-    FROM parties
-    WHERE id = ?
+    SELECT ${partySelectSql}
+    FROM parties p
+    WHERE p.id = ?
   `).get(id);
   if (!row) throw new SqliteValidationError("Tiers introuvable.");
   return toPartyRecord(row);
@@ -873,11 +939,10 @@ function getPartyById(database: DatabaseSync, id: number): PartyRecord {
 export function listParties(kind?: PartyKind): PartyRecord[] {
   const database = getDatabase();
   const statement = `
-    SELECT id, kind, name, contact_phone, contact_name, email, address, city,
-      head_office, category, nif, nis, rc, created_at, updated_at
-    FROM parties
-    ${kind ? "WHERE kind = ?" : ""}
-    ORDER BY name COLLATE NOCASE, id ASC
+    SELECT ${partySelectSql}
+    FROM parties p
+    ${kind ? "WHERE p.kind = ?" : ""}
+    ORDER BY p.name COLLATE NOCASE, p.id ASC
   `;
   const rows = kind
     ? database.prepare(statement).all(kind)
@@ -933,6 +998,138 @@ export function createParty(value: unknown): PartyRecord {
     rc,
   );
   return getPartyById(database, Number(result.lastInsertRowid));
+}
+
+export function updateParty(value: unknown): PartyRecord {
+  const input = asInputObject(value);
+  const id = requiredId(input.id, "Le tiers");
+  const database = getDatabase();
+  const existing = getPartyById(database, id);
+  const name = optionalPartyText(input, ["name"], "Le nom du tiers", 160) || existing.name;
+  const contactPhone = optionalPartyText(input, ["contact_phone", "contactPhone", "phone", "contact"], "Le téléphone", 64);
+  const contactName = optionalPartyText(input, ["contact_name", "contactName"], "Le contact", 160);
+  const email = optionalPartyText(input, ["email"], "L’e-mail", 254);
+  const address = optionalPartyText(input, ["address"], "L’adresse", 300);
+  const city = optionalPartyText(input, ["city"], "La ville", 120);
+  const headOffice = optionalPartyText(input, ["head_office", "headOffice"], "Le siège", 300);
+  const category = optionalPartyText(input, ["category"], "La catégorie", 120);
+  const nif = optionalPartyText(input, ["nif"], "Le NIF", 120);
+  const nis = optionalPartyText(input, ["nis"], "Le NIS", 120);
+  const rc = optionalPartyText(input, ["rc"], "Le RC", 120);
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new SqliteValidationError("L’e-mail est invalide.");
+
+  const duplicate = database.prepare("SELECT id FROM parties WHERE kind = ? AND name = ? COLLATE NOCASE AND id <> ?")
+    .get(existing.kind, name, id);
+  if (duplicate) throw new SqliteValidationError("Ce tiers existe déjà dans cette liste.");
+
+  database.prepare(`
+    UPDATE parties
+    SET name = ?, contact_phone = ?, contact_name = ?, email = ?, address = ?, city = ?,
+      head_office = ?, category = ?, nif = ?, nis = ?, rc = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(
+    name,
+    input.contact_phone === undefined && input.contactPhone === undefined && input.phone === undefined && input.contact === undefined ? existing.contact_phone : contactPhone,
+    input.contact_name === undefined && input.contactName === undefined ? existing.contact_name : contactName,
+    input.email === undefined ? existing.email : email,
+    input.address === undefined ? existing.address : address,
+    input.city === undefined ? existing.city : city,
+    input.head_office === undefined && input.headOffice === undefined ? existing.head_office : headOffice,
+    input.category === undefined ? existing.category : category,
+    input.nif === undefined ? existing.nif : nif,
+    input.nis === undefined ? existing.nis : nis,
+    input.rc === undefined ? existing.rc : rc,
+    id,
+  );
+  return getPartyById(database, id);
+}
+
+export function deleteParty(partyId: unknown): PartyRecord {
+  const id = requiredId(partyId, "Le tiers");
+  const database = getDatabase();
+  const party = getPartyById(database, id);
+  database.prepare("DELETE FROM parties WHERE id = ?").run(id);
+  return party;
+}
+
+export function settleParty(value: unknown): PaymentRecord {
+  const input = asInputObject(value);
+  const partyId = requiredId(input.party_id ?? input.partyId, "Le tiers");
+  const party = getPartyById(getDatabase(), partyId);
+  const amount = roundMoney(optionalNumber(input.amount) ?? 0);
+  if (amount <= 0) throw new SqliteValidationError("Le montant du règlement doit être supérieur à zéro.");
+  if (amount > party.balance + 0.009) throw new SqliteValidationError("Le règlement dépasse le solde restant.");
+  const paymentDate = normalizeDocumentDate(input.payment_date ?? input.paymentDate ?? input.date);
+  const method = cleanText(input.method, "Virement") || "Virement";
+  const note = cleanText(input.note);
+  const result = getDatabase().prepare(`
+    INSERT INTO payments (party_id, direction, amount, payment_date, method, note)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(party.id, party.kind === "client" ? "incoming" : "outgoing", amount, paymentDate, method, note);
+  const row = getDatabase().prepare(`
+    SELECT id, party_id, direction, amount, payment_date, method, note, created_at
+    FROM payments WHERE id = ?
+  `).get(Number(result.lastInsertRowid));
+  return row as unknown as PaymentRecord;
+}
+
+export function listPayments(partyId?: unknown): PaymentRecord[] {
+  const database = getDatabase();
+  const id = partyId === undefined ? undefined : requiredId(partyId, "Le tiers");
+  const rows = id
+    ? database.prepare("SELECT id, party_id, direction, amount, payment_date, method, note, created_at FROM payments WHERE party_id = ? ORDER BY payment_date DESC, id DESC").all(id)
+    : database.prepare("SELECT id, party_id, direction, amount, payment_date, method, note, created_at FROM payments ORDER BY payment_date DESC, id DESC").all();
+  return rows as unknown as PaymentRecord[];
+}
+
+function normalizeFinanceKind(value: unknown): FinanceEntryKind {
+  if (value === "expense" || value === "charge") return value;
+  throw new SqliteValidationError("Le type doit être dépense ou charge.");
+}
+
+export function listFinanceEntries(): FinanceEntryRecord[] {
+  return getDatabase().prepare(`
+    SELECT id, kind, label, category, amount, entry_date, status, note, created_at, updated_at
+    FROM finance_entries ORDER BY entry_date DESC, id DESC
+  `).all() as unknown as FinanceEntryRecord[];
+}
+
+export function createFinanceEntry(value: unknown): FinanceEntryRecord {
+  const input = asInputObject(value);
+  const kind = normalizeFinanceKind(input.kind);
+  const label = requiredText(input.label, "Le libellé");
+  const amount = roundMoney(optionalNumber(input.amount) ?? 0);
+  if (amount <= 0) throw new SqliteValidationError("Le montant doit être supérieur à zéro.");
+  const entryDate = normalizeDocumentDate(input.entry_date ?? input.entryDate ?? input.date);
+  const result = getDatabase().prepare(`
+    INSERT INTO finance_entries (kind, label, category, amount, entry_date, status, note)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    kind,
+    label,
+    cleanText(input.category),
+    amount,
+    entryDate,
+    cleanText(input.status, "Payée") || "Payée",
+    cleanText(input.note),
+  );
+  const row = getDatabase().prepare(`
+    SELECT id, kind, label, category, amount, entry_date, status, note, created_at, updated_at
+    FROM finance_entries WHERE id = ?
+  `).get(Number(result.lastInsertRowid));
+  return row as unknown as FinanceEntryRecord;
+}
+
+export function deleteFinanceEntry(entryId: unknown): FinanceEntryRecord {
+  const id = requiredId(entryId, "La dépense");
+  const database = getDatabase();
+  const row = database.prepare(`
+    SELECT id, kind, label, category, amount, entry_date, status, note, created_at, updated_at
+    FROM finance_entries WHERE id = ?
+  `).get(id);
+  if (!row) throw new SqliteValidationError("Dépense introuvable.");
+  database.prepare("DELETE FROM finance_entries WHERE id = ?").run(id);
+  return row as unknown as FinanceEntryRecord;
 }
 
 export function createArticle(value: unknown): ArticleRecord {
@@ -1074,6 +1271,33 @@ export function listDocuments(direction?: DocumentDirection): DocumentRecord[] {
   return rows.map((row) => {
     const document = toDocumentRecord(row);
     return { ...document, lines: listLinesForDocument(database, document.id) };
+  });
+}
+
+/** Deletes a document only when no later return depends on it and reverses the
+ * stock movement that the original delivery/return applied. */
+export function deleteDocument(documentId: unknown): DocumentRecord {
+  const id = requiredId(documentId, "Le document");
+  return inTransaction((database) => {
+    const document = getDocumentById(database, id);
+    const dependent = database.prepare("SELECT id FROM documents WHERE source_document_id = ? LIMIT 1").get(id);
+    if (dependent) throw new SqliteValidationError("Créez ou supprimez d’abord les retours liés à ce document.");
+    const lines = listLinesForDocument(database, id);
+    if (document.stock_applied) {
+      const stockSign = document.type === "return" ? -1 : 1;
+      const directionSign = document.direction === "purchases" ? 1 : -1;
+      for (const line of lines) {
+        updateStockInDatabase(
+          database,
+          line.article_id,
+          -line.quantity * stockSign * directionSign,
+          `Annulation ${document.number}`,
+          null,
+        );
+      }
+    }
+    database.prepare("DELETE FROM documents WHERE id = ?").run(id);
+    return { ...document, lines };
   });
 }
 

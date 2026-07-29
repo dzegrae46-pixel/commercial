@@ -1,5 +1,6 @@
 import {
   createDocument,
+  deleteDocument,
   listDocuments,
   SqliteValidationError,
   type DocumentDirection,
@@ -31,6 +32,16 @@ export async function POST(request: Request) {
   try {
     const document = createDocument(await request.json());
     return Response.json({ document }, { status: 201 });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const input = await request.json() as { id?: unknown };
+    const document = deleteDocument(input.id);
+    return Response.json({ document });
   } catch (error) {
     return errorResponse(error);
   }

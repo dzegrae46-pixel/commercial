@@ -53,7 +53,7 @@ import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 
-type PageKey = "dashboard" | "clients" | "suppliers" | "articles" | "purchases" | "sales" | "documents" | "settings";
+type PageKey = "dashboard" | "clients" | "suppliers" | "articles" | "purchases" | "sales" | "finance" | "documents" | "settings";
 type BusinessPage = "clients" | "suppliers" | "purchases" | "sales";
 type DocType = "all" | "quotes" | "orders" | "delivery" | "invoices" | "returns";
 type LibraryCategory = DocType;
@@ -67,6 +67,7 @@ type CompanySettings = {
 };
 
 type ClientRecord = {
+  id: number;
   name: string;
   initials: string;
   color: string;
@@ -85,6 +86,7 @@ type ClientRecord = {
 };
 
 type SupplierRecord = {
+  id: number;
   name: string;
   initials: string;
   color: string;
@@ -166,6 +168,20 @@ type ApiPartyRecord = {
   nif: string;
   nis: string;
   rc: string;
+  billed: number;
+  balance: number;
+  status: string;
+};
+
+type FinanceEntry = {
+  id: number;
+  kind: "expense" | "charge";
+  label: string;
+  category: string;
+  amount: number;
+  entry_date: string;
+  status: string;
+  note: string;
 };
 
 type LibraryRecord = Omit<DocumentRecord, "id"> & {
@@ -237,6 +253,7 @@ const pageMeta: Record<PageKey, { label: string; subtitle: string; icon: LucideI
   articles: { label: "Articles", subtitle: "Catalogue et niveaux de stock", icon: Boxes },
   purchases: { label: "Achats", subtitle: "Documents, réceptions et retours", icon: ShoppingBag },
   sales: { label: "Ventes", subtitle: "Devis, commandes et factures", icon: Store },
+  finance: { label: "Finance", subtitle: "Dépenses, charges et règlements", icon: WalletCards },
   documents: { label: "Documents", subtitle: "Tous vos fichiers commerciaux", icon: Files },
   settings: { label: "Paramètres", subtitle: "Identité de votre entreprise", icon: Settings2 },
 };
@@ -251,6 +268,7 @@ const navGroups: { label: string; items: { label: string; icon: LucideIcon; key?
       { key: "articles", label: "Articles", icon: Boxes },
       { key: "purchases", label: "Achats", icon: ShoppingBag },
       { key: "sales", label: "Ventes", icon: Store },
+      { key: "finance", label: "Finance", icon: WalletCards },
     ],
   },
   {
@@ -295,6 +313,11 @@ const topStats: Record<PageKey, { label: string; value: string; trend: string; i
     { label: "Ventes", value: "2 docs", trend: "Tests", icon: Store },
     { label: "Factures", value: "1", trend: "Amazon", icon: FileCheck2 },
     { label: "Livraisons", value: "1", trend: "Google", icon: WalletCards },
+  ],
+  finance: [
+    { label: "Dépenses", value: "0 DA", trend: "Ce mois", icon: ReceiptText },
+    { label: "Charges", value: "0 DA", trend: "À comptabiliser", icon: WalletCards },
+    { label: "Règlements", value: "À jour", trend: "Clients et fournisseurs", icon: Check },
   ],
   documents: [
     { label: "Documents", value: "4", trend: "Achats + ventes", icon: Files },
@@ -508,6 +531,7 @@ const withReturnedQuantities = (rows: DocumentRecord[]) => {
 };
 
 const toClientRecord = (party: ApiPartyRecord): ClientRecord => ({
+  id: party.id,
   name: party.name,
   initials: initials(party.name),
   color: normalizeLabel(party.name).includes("amazon") ? "sun" : "blue",
@@ -519,13 +543,14 @@ const toClientRecord = (party: ApiPartyRecord): ClientRecord => ({
   nif: party.nif || undefined,
   nis: party.nis || undefined,
   rc: party.rc || undefined,
-  billed: "0 DA",
-  balance: "0 DA",
-  status: "À jour",
-  activity: "Dans SQLite",
+  billed: formatDa(party.billed ?? 0),
+  balance: formatDa(party.balance ?? 0),
+  status: party.status ?? "À jour",
+  activity: party.balance > 0 ? "Règlement attendu" : "À jour",
 });
 
 const toSupplierRecord = (party: ApiPartyRecord): SupplierRecord => ({
+  id: party.id,
   name: party.name,
   initials: initials(party.name),
   color: normalizeLabel(party.name).includes("amazon") ? "sun" : "blue",
@@ -536,9 +561,9 @@ const toSupplierRecord = (party: ApiPartyRecord): SupplierRecord => ({
   city: party.city || undefined,
   headOffice: party.head_office || undefined,
   category: party.category || "Général",
-  purchases: "0 DA",
-  balance: "0 DA",
-  status: "À jour",
+  purchases: formatDa(party.billed ?? 0),
+  balance: formatDa(party.balance ?? 0),
+  status: party.status ?? "À jour",
 });
 
 function EntityLogo({
@@ -658,13 +683,17 @@ function RowActions({
   label,
   notify,
   onDelete,
+  onOpen,
   onEdit,
+  onDuplicate,
   extraActions = [],
 }: {
   label: string;
   notify: (message: string) => void;
   onDelete?: () => void;
+  onOpen?: () => void;
   onEdit?: () => void;
+  onDuplicate?: () => void;
   extraActions?: { label: string; icon: LucideIcon; onClick: () => void }[];
 }) {
   const [open, setOpen] = useState(false);
@@ -739,9 +768,9 @@ function RowActions({
       </button>
       {open && createPortal(
         <div ref={menuRef} className="row-menu" role="menu" style={position}>
-          <button onClick={() => action(`Ouverture de ${label}`)}><Eye size={15} /> Ouvrir</button>
-          <button onClick={() => { setOpen(false); if (onEdit) onEdit(); else action(`Modification de ${label}`); }}><Pencil size={15} /> Modifier</button>
-          <button onClick={() => action(`${label} dupliqué`)}><Copy size={15} /> Dupliquer</button>
+          {onOpen && <button onClick={() => { setOpen(false); onOpen(); }}><Eye size={15} /> Ouvrir</button>}
+          {onEdit && <button onClick={() => { setOpen(false); onEdit(); }}><Pencil size={15} /> Modifier</button>}
+          {onDuplicate && <button onClick={() => { setOpen(false); onDuplicate(); }}><Copy size={15} /> Dupliquer</button>}
           {extraActions.map(({ label: actionLabel, icon: Icon, onClick }) => <button key={actionLabel} onClick={() => { setOpen(false); onClick(); }}><Icon size={15} /> {actionLabel}</button>)}
           {onDelete && <button className="danger-action" onClick={() => { setOpen(false); onDelete(); }}><Trash2 size={15} /> Supprimer</button>}
         </div>,
@@ -829,6 +858,10 @@ function ClientsTable({
   setViewMode,
   notify,
   onDelete,
+  onOpen,
+  onEdit,
+  onDuplicate,
+  onSettle,
 }: {
   rows: ClientRecord[];
   search: string;
@@ -839,6 +872,10 @@ function ClientsTable({
   setViewMode: (value: ViewMode) => void;
   notify: (message: string) => void;
   onDelete: (name: string) => void;
+  onOpen: (client: ClientRecord) => void;
+  onEdit: (client: ClientRecord) => void;
+  onDuplicate: (client: ClientRecord) => void;
+  onSettle: (client: ClientRecord) => void;
 }) {
   const filtered = rows.filter((client) => {
     const matchesSearch = `${client.name} ${client.contact} ${client.email} ${client.contactName ?? ""} ${client.nif ?? ""} ${client.nis ?? ""} ${client.rc ?? ""}`.toLowerCase().includes(search.toLowerCase());
@@ -858,7 +895,7 @@ function ClientsTable({
               <td className="number">{client.balance}</td>
               <td><StatusBadge label={client.status} tone={client.balance === "0 DA" ? "green" : "orange"} /></td>
               <td>{client.activity}</td>
-              <td><RowActions label={client.name} notify={notify} onDelete={() => onDelete(client.name)} /></td>
+              <td><RowActions label={client.name} notify={notify} onOpen={() => onOpen(client)} onEdit={() => onEdit(client)} onDuplicate={() => onDuplicate(client)} onDelete={() => onDelete(client.name)} extraActions={client.balance !== "0 DA" ? [{ label: "Régler le solde", icon: WalletCards, onClick: () => onSettle(client) }] : []} /></td>
             </tr>
           ))}
           {!filtered.length && <EmptyRow columns={7} />}
@@ -878,6 +915,10 @@ function SuppliersTable({
   setViewMode,
   notify,
   onDelete,
+  onOpen,
+  onEdit,
+  onDuplicate,
+  onSettle,
 }: {
   rows: SupplierRecord[];
   search: string;
@@ -888,6 +929,10 @@ function SuppliersTable({
   setViewMode: (value: ViewMode) => void;
   notify: (message: string) => void;
   onDelete: (name: string) => void;
+  onOpen: (supplier: SupplierRecord) => void;
+  onEdit: (supplier: SupplierRecord) => void;
+  onDuplicate: (supplier: SupplierRecord) => void;
+  onSettle: (supplier: SupplierRecord) => void;
 }) {
   const filtered = rows.filter((supplier) => {
     const matchesSearch = `${supplier.name} ${supplier.contact} ${supplier.category}`.toLowerCase().includes(search.toLowerCase());
@@ -907,7 +952,7 @@ function SuppliersTable({
               <td className="number">{supplier.purchases}</td>
               <td className="number">{supplier.balance}</td>
               <td><StatusBadge label={supplier.status} tone={supplier.balance === "0 DA" ? "green" : "orange"} /></td>
-              <td><RowActions label={supplier.name} notify={notify} onDelete={() => onDelete(supplier.name)} /></td>
+              <td><RowActions label={supplier.name} notify={notify} onOpen={() => onOpen(supplier)} onEdit={() => onEdit(supplier)} onDuplicate={() => onDuplicate(supplier)} onDelete={() => onDelete(supplier.name)} extraActions={supplier.balance !== "0 DA" ? [{ label: "Régler le solde", icon: WalletCards, onClick: () => onSettle(supplier) }] : []} /></td>
             </tr>
           ))}
           {!filtered.length && <EmptyRow columns={7} />}
@@ -915,6 +960,94 @@ function SuppliersTable({
       </table>
     </TableCard>
   );
+}
+
+type PartyRow = ClientRecord | SupplierRecord;
+
+const numberFromDa = (value: string) => Number(value.replace(/[^0-9,.-]/g, "").replace(",", ".")) || 0;
+
+function PartyDetailsModal({ party, kind, onClose }: { party: PartyRow; kind: "client" | "supplier"; onClose: () => void }) {
+  const totalLabel = kind === "client" ? "Total facturé" : "Total achats";
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <div className="modal-card document-detail-modal" role="dialog" aria-modal="true" aria-labelledby="party-detail-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-header"><div><h2 id="party-detail-title">{party.name}</h2><p>{kind === "client" ? "Fiche client" : "Fiche fournisseur"}</p></div><button className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+        <div className="document-preview-tile"><EntityLogo name={party.name} tone={party.color} kind={kind} /><div><strong>{party.contactName || party.name}</strong><span>{party.email || party.contact}</span></div><StatusBadge label={party.status} tone={party.balance === "0 DA" ? "green" : "orange"} /></div>
+        <dl className="document-detail-grid">
+          <div><dt>Contact</dt><dd>{party.contact || "—"}</dd></div><div><dt>Ville</dt><dd>{party.city || "—"}</dd></div>
+          <div><dt>{totalLabel}</dt><dd>{"billed" in party ? party.billed : party.purchases}</dd></div><div><dt>Solde restant</dt><dd>{party.balance}</dd></div>
+          <div><dt>Adresse</dt><dd>{party.address || "—"}</dd></div><div><dt>Statut</dt><dd>{party.status}</dd></div>
+        </dl>
+        <div className="modal-actions"><button className="primary-button" onClick={onClose}>Terminé</button></div>
+      </div>
+    </div>
+  );
+}
+
+function PartyEditorModal({ party, kind, onClose, onSaved }: { party: PartyRow; kind: "client" | "supplier"; onClose: () => void; onSaved: (party: ApiPartyRecord) => void }) {
+  const [name, setName] = useState(party.name);
+  const [contact, setContact] = useState(party.contact === "—" ? "" : party.contact);
+  const [contactName, setContactName] = useState(party.contactName || "");
+  const [email, setEmail] = useState(party.email || "");
+  const [city, setCity] = useState(party.city || "");
+  const [address, setAddress] = useState(party.address || "");
+  const [category, setCategory] = useState("category" in party ? party.category : "");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true); setError("");
+    try {
+      const response = await fetch("/api/parties", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: party.id, name, contact_phone: contact, contact_name: contactName, email, city, address, category }) });
+      const payload = await response.json() as { party?: ApiPartyRecord; error?: string };
+      if (!response.ok || !payload.party) throw new Error(payload.error || "Impossible de modifier le tiers.");
+      onSaved(payload.party);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Impossible de modifier le tiers."); } finally { setSaving(false); }
+  };
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card expanded-modal" role="dialog" aria-modal="true" aria-labelledby="party-edit-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
+    <div className="modal-header"><div><h2 id="party-edit-title">Modifier {kind === "client" ? "le client" : "le fournisseur"}</h2><p>Les modifications sont enregistrées dans SQLite.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+    <div className="form-grid"><label className="field-label">Nom<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label className="field-label">Contact<input value={contactName} onChange={(event) => setContactName(event.target.value)} /></label><label className="field-label">Téléphone<input value={contact} onChange={(event) => setContact(event.target.value)} /></label><label className="field-label">E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label className="field-label">Adresse<input value={address} onChange={(event) => setAddress(event.target.value)} /></label><label className="field-label">Ville<input value={city} onChange={(event) => setCity(event.target.value)} /></label>{kind === "supplier" && <label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} /></label>}</div>
+    {error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div>
+  </form></div>;
+}
+
+function SettlementModal({ party, kind, onClose, onSaved }: { party: PartyRow; kind: "client" | "supplier"; onClose: () => void; onSaved: () => void }) {
+  const remaining = numberFromDa(party.balance);
+  const [amount, setAmount] = useState(remaining);
+  const [method, setMethod] = useState("Virement");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true); setError("");
+    try {
+      const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ partyId: party.id, amount, method, note, paymentDate: new Date().toISOString().slice(0, 10) }) });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Impossible d’enregistrer le règlement.");
+      onSaved();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Impossible d’enregistrer le règlement."); } finally { setSaving(false); }
+  };
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card compact-modal" role="dialog" aria-modal="true" aria-labelledby="settlement-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
+    <div className="modal-header"><div><h2 id="settlement-title">Régler {party.name}</h2><p>{kind === "client" ? "Encaissement client" : "Paiement fournisseur"} · solde {party.balance}</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+    <label className="field-label">Montant (DA)<input type="number" min="0.01" max={remaining} step="0.01" value={amount} onChange={(event) => setAmount(Number(event.target.value))} required /></label><label className="field-label">Mode<select value={method} onChange={(event) => setMethod(event.target.value)}><option>Virement</option><option>Espèces</option><option>Chèque</option><option>Carte</option></select></label><label className="field-label">Note (facultatif)<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>
+    {error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving || remaining <= 0}><WalletCards size={16} />{saving ? "Règlement…" : "Valider le règlement"}</button></div>
+  </form></div>;
+}
+
+function FinancePage({ entries, search, setSearch, onDelete, onNew }: { entries: FinanceEntry[]; search: string; setSearch: (value: string) => void; onDelete: (entry: FinanceEntry) => void; onNew: () => void }) {
+  const filtered = entries.filter((entry) => `${entry.label} ${entry.category} ${entry.kind}`.toLowerCase().includes(search.toLowerCase()));
+  const expenses = entries.filter((entry) => entry.kind === "expense").reduce((total, entry) => total + entry.amount, 0);
+  const charges = entries.filter((entry) => entry.kind === "charge").reduce((total, entry) => total + entry.amount, 0);
+  return <section className="table-card finance-page"><div className="table-header"><div className="table-title"><h1>Finance</h1><span>Dépenses et charges de l’entreprise</span></div><div className="table-actions"><label className="search-control"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Libellé, catégorie…" aria-label="Rechercher dans la finance" /></label><button className="primary-button" onClick={onNew}><Plus size={16} /> Nouvelle dépense</button></div></div><div className="finance-summary"><div><small>Dépenses</small><strong>{formatDa(expenses)}</strong></div><div><small>Charges</small><strong>{formatDa(charges)}</strong></div><div><small>Total engagé</small><strong>{formatDa(expenses + charges)}</strong></div></div><div className="table-scroll"><table><thead><tr><th>Libellé</th><th>Type</th><th>Catégorie</th><th>Date</th><th>Montant</th><th>Statut</th><th /></tr></thead><tbody>{filtered.map((entry) => <tr key={entry.id}><td><strong>{entry.label}</strong>{entry.note && <small>{entry.note}</small>}</td><td><span className="soft-label">{entry.kind === "expense" ? "Dépense" : "Charge"}</span></td><td>{entry.category || "—"}</td><td>{formatDocumentDate(entry.entry_date)}</td><td className="number negative-number">-{formatDa(entry.amount)}</td><td><StatusBadge label={entry.status} tone="green" /></td><td><RowActions label={entry.label} notify={() => undefined} onOpen={() => undefined} onDelete={() => onDelete(entry)} /></td></tr>)}{!filtered.length && <EmptyRow columns={7} />}</tbody></table></div></section>;
+}
+
+function FinanceEntryModal({ onClose, onSaved }: { onClose: () => void; onSaved: (entry: FinanceEntry) => void }) {
+  const [kind, setKind] = useState<FinanceEntry["kind"]>("expense"); const [label, setLabel] = useState(""); const [category, setCategory] = useState(""); const [amount, setAmount] = useState(0); const [note, setNote] = useState(""); const [error, setError] = useState(""); const [saving, setSaving] = useState(false);
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); setSaving(true); setError(""); try { const response = await fetch("/api/finance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, label, category, amount, note, entryDate: new Date().toISOString().slice(0, 10) }) }); const payload = await response.json() as { entry?: FinanceEntry; error?: string }; if (!response.ok || !payload.entry) throw new Error(payload.error || "Impossible d’enregistrer la dépense."); onSaved(payload.entry); } catch (reason) { setError(reason instanceof Error ? reason.message : "Impossible d’enregistrer la dépense."); } finally { setSaving(false); } };
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card compact-modal" role="dialog" aria-modal="true" aria-labelledby="finance-entry-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}><div className="modal-header"><div><h2 id="finance-entry-title">Nouvelle opération</h2><p>Une dépense ou une charge est enregistrée dans SQLite.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div><label className="field-label">Type<select value={kind} onChange={(event) => setKind(event.target.value as FinanceEntry["kind"])}><option value="expense">Dépense</option><option value="charge">Charge</option></select></label><label className="field-label">Libellé<input value={label} onChange={(event) => setLabel(event.target.value)} required placeholder="Loyer, transport, publicité…" /></label><div className="form-grid"><label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Exploitation" /></label><label className="field-label">Montant (DA)<input type="number" min="0.01" step="0.01" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value))} required /></label></div><label className="field-label">Note (facultatif)<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div></form></div>;
+}
+
+function DocumentDetailsModal({ document, onClose }: { document: DocumentRecord; onClose: () => void }) {
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal-card document-detail-modal" role="dialog" aria-modal="true" aria-labelledby="table-document-title" onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><h2 id="table-document-title">{document.number}</h2><p>{document.type}</p></div><button className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div><div className="document-preview-tile"><DocumentLogo type={document.type} tone={document.tone} /><div><strong>{document.party}</strong><span>{document.summary || "Document commercial"}</span></div><StatusBadge label={document.status} tone={document.tone} /></div><dl className="document-detail-grid"><div><dt>Date</dt><dd>{document.date}</dd></div><div><dt>Montant</dt><dd>{document.amount}</dd></div><div><dt>Article</dt><dd>{document.articleName || "—"}</dd></div><div><dt>Quantité</dt><dd>{document.quantity ? `${document.quantity} ${document.unit || "unité"}` : "—"}</dd></div>{document.sourceDocument && <div><dt>Document source</dt><dd>{document.sourceDocument}</dd></div>}</dl><div className="modal-actions"><button className="primary-button" onClick={onClose}>Terminé</button></div></div></div>;
 }
 
 function ArticlesTable({
@@ -1050,6 +1183,8 @@ function DocumentsTable({
   setViewMode,
   notify,
   onDelete,
+  onOpen,
+  onDuplicate,
   onReturn,
   onConvertQuote,
 }: {
@@ -1065,6 +1200,8 @@ function DocumentsTable({
   setViewMode: (value: ViewMode) => void;
   notify: (message: string) => void;
   onDelete: (number: string) => void;
+  onOpen: (row: DocumentRecord) => void;
+  onDuplicate: (row: DocumentRecord) => void;
   onReturn: (row: DocumentRecord) => void;
   onConvertQuote: (row: DocumentRecord) => Promise<void> | void;
 }) {
@@ -1093,7 +1230,7 @@ function DocumentsTable({
               <td>{row.date}</td>
               <td className={`number ${row.amount.startsWith("-") ? "negative-number" : ""}`}>{row.amount}</td>
               <td><StatusBadge label={row.status} tone={row.tone} /></td>
-              <td><RowActions label={row.number} notify={notify} onDelete={() => onDelete(row.number)} extraActions={[
+              <td><RowActions label={row.number} notify={notify} onOpen={() => onOpen(row)} onEdit={() => onOpen(row)} onDuplicate={() => onDuplicate(row)} onDelete={() => onDelete(row.number)} extraActions={[
                 ...(row.type === "Devis" ? [{ label: "Créer la facture", icon: FileCheck2, onClick: () => { void Promise.resolve(onConvertQuote(row)).catch((error) => notify(error instanceof Error ? error.message : "Impossible de créer la facture.")); } }] : []),
                 ...((row.type === "Bon de livraison" || row.type === "Bon de réception" || row.type === "Facture") && row.articleId && (row.quantity ?? 1) > (row.returnedQuantity ?? 0) ? [{ label: "Créer un retour", icon: RotateCcw, onClick: () => onReturn(row) }] : []),
               ]} /></td>
@@ -2082,10 +2219,17 @@ export default function WorkspaceApp() {
   const [suppliers, setSuppliers] = useState(initialSuppliers);
   const [purchases, setPurchases] = useState(initialPurchases);
   const [sales, setSales] = useState(initialSales);
+  const [financeEntries, setFinanceEntries] = useState<FinanceEntry[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [articleEditor, setArticleEditor] = useState<ArticleRecord | "new" | null>(null);
   const [catalogVersion, setCatalogVersion] = useState(0);
   const [returnContext, setReturnContext] = useState<{ direction: "purchases" | "sales"; document: DocumentRecord } | null>(null);
+  const [partyDetails, setPartyDetails] = useState<{ party: PartyRow; kind: "client" | "supplier" } | null>(null);
+  const [partyEditor, setPartyEditor] = useState<{ party: PartyRow; kind: "client" | "supplier" } | null>(null);
+  const [settlementContext, setSettlementContext] = useState<{ party: PartyRow; kind: "client" | "supplier" } | null>(null);
+  const [documentDetails, setDocumentDetails] = useState<DocumentRecord | null>(null);
+  const [financeEntryOpen, setFinanceEntryOpen] = useState(false);
+  const [partyVersion, setPartyVersion] = useState(0);
   const [helpOpen, setHelpOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -2165,6 +2309,17 @@ export default function WorkspaceApp() {
       active = false;
       controller.abort();
     };
+  }, [partyVersion]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/finance", { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as { entries?: FinanceEntry[] };
+        if (response.ok) setFinanceEntries(payload.entries ?? []);
+      })
+      .catch((error: Error) => { if (error.name !== "AbortError") console.error("Impossible de charger la finance SQLite", error); });
+    return () => controller.abort();
   }, []);
 
   const navigate = (nextPage: PageKey) => {
@@ -2210,6 +2365,57 @@ export default function WorkspaceApp() {
     return payload.party;
   };
 
+  const deletePartyRecord = async (party: PartyRow, kind: "client" | "supplier") => {
+    const response = await fetch("/api/parties", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: party.id }) });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) throw new Error(payload.error || "Impossible de supprimer le tiers.");
+    if (kind === "client") setClients((rows) => rows.filter((row) => row.id !== party.id));
+    else setSuppliers((rows) => rows.filter((row) => row.id !== party.id));
+    notify(`${party.name} supprimé`);
+  };
+
+  const duplicatePartyRecord = async (party: PartyRow, kind: "client" | "supplier") => {
+    const copy = await postParty({
+      kind,
+      name: `${party.name} (copie)`,
+      contact_phone: party.contact === "—" ? "" : party.contact,
+      contact_name: party.contactName,
+      email: party.email === "E-mail non renseigné" ? "" : party.email,
+      address: party.address,
+      city: party.city,
+      category: "category" in party ? party.category : "",
+    });
+    if (kind === "client") setClients((rows) => [toClientRecord(copy), ...rows]);
+    else setSuppliers((rows) => [toSupplierRecord(copy), ...rows]);
+    notify(`${party.name} dupliqué`);
+  };
+
+  const deleteDocumentRecord = async (document: DocumentRecord, direction: "purchases" | "sales") => {
+    if (document.id) {
+      const response = await fetch("/api/documents", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: document.id }) });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Impossible de supprimer le document.");
+    }
+    if (direction === "sales") setSales((rows) => rows.filter((row) => row.number !== document.number));
+    else setPurchases((rows) => rows.filter((row) => row.number !== document.number));
+    setPartyVersion((value) => value + 1);
+    notify(`${document.number} supprimé`);
+  };
+
+  const duplicateDocumentRecord = async (document: DocumentRecord, direction: "purchases" | "sales") => {
+    if (!document.articleId) throw new Error("Le document ne contient pas de ligne à dupliquer.");
+    const copy = await postDocument({
+      direction,
+      type: "Devis",
+      partyName: document.party,
+      documentDate: new Date().toISOString().slice(0, 10),
+      showDescription: document.showFullDescription,
+      lines: [{ articleId: document.articleId, designation: document.articleName, description: document.description, unit: document.unit, quantity: document.quantity ?? 1, unitPrice: document.unitPrice, discountPercent: document.discountPercent, taxRate: document.taxRate }],
+    });
+    if (direction === "sales") setSales((rows) => [copy, ...rows]); else setPurchases((rows) => [copy, ...rows]);
+    notify(`Copie créée depuis ${document.number}`);
+  };
+
   const confirmReturn = async (quantity: number, reason: string) => {
     if (!returnContext) throw new Error("Aucun document source sélectionné.");
     const { direction, document } = returnContext;
@@ -2241,6 +2447,7 @@ export default function WorkspaceApp() {
       if (direction === "sales") setSales(updateRows);
       else setPurchases(updateRows);
       setCatalogVersion((value) => value + 1);
+      setPartyVersion((value) => value + 1);
     } else {
       // The two Google/Amazon rows remain lightweight local examples. Every new
       // document uses the transactional SQLite route above.
@@ -2295,6 +2502,7 @@ export default function WorkspaceApp() {
       });
       if (direction === "sales") setSales((rows) => [invoice, ...rows]);
       else setPurchases((rows) => [invoice, ...rows]);
+      setPartyVersion((value) => value + 1);
     } else {
       const invoice: DocumentRecord = {
         ...quote,
@@ -2363,6 +2571,7 @@ export default function WorkspaceApp() {
       if (target === "purchases") setPurchases((rows) => [record, ...rows]);
       else setSales((rows) => [record, ...rows]);
       setCatalogVersion((value) => value + 1);
+      setPartyVersion((value) => value + 1);
     }
     setCreateOpen(false);
     notify("Élément ajouté avec succès");
@@ -2455,11 +2664,12 @@ export default function WorkspaceApp() {
 
         <main className="main-content">
           {page === "dashboard" && <Dashboard onViewSales={() => navigate("sales")} purchases={purchases} sales={sales} />}
-          {page === "clients" && <ClientsTable rows={clients} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onDelete={(name) => { setClients((rows) => rows.filter((row) => row.name !== name)); notify(`${name} supprimé`); }} />}
-          {page === "suppliers" && <SuppliersTable rows={suppliers} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onDelete={(name) => { setSuppliers((rows) => rows.filter((row) => row.name !== name)); notify(`${name} supprimé`); }} />}
+          {page === "clients" && <ClientsTable rows={clients} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(party) => setPartyDetails({ party, kind: "client" })} onEdit={(party) => setPartyEditor({ party, kind: "client" })} onDuplicate={(party) => { void duplicatePartyRecord(party, "client").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le client.")); }} onSettle={(party) => setSettlementContext({ party, kind: "client" })} onDelete={(name) => { const party = clients.find((row) => row.name === name); if (party) void deletePartyRecord(party, "client").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le client.")); }} />}
+          {page === "suppliers" && <SuppliersTable rows={suppliers} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(party) => setPartyDetails({ party, kind: "supplier" })} onEdit={(party) => setPartyEditor({ party, kind: "supplier" })} onDuplicate={(party) => { void duplicatePartyRecord(party, "supplier").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le fournisseur.")); }} onSettle={(party) => setSettlementContext({ party, kind: "supplier" })} onDelete={(name) => { const party = suppliers.find((row) => row.name === name); if (party) void deletePartyRecord(party, "supplier").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le fournisseur.")); }} />}
           {page === "articles" && <ArticlesTable search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} refreshKey={catalogVersion} onEdit={(article) => setArticleEditor(article)} />}
-          {page === "purchases" && <DocumentsTable page="purchases" rows={purchases} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onDelete={(number) => { setPurchases((rows) => rows.filter((row) => row.number !== number)); notify(`${number} supprimé`); }} onReturn={(document) => setReturnContext({ direction: "purchases", document })} onConvertQuote={(quote) => convertQuoteToInvoice("purchases", quote)} />}
-          {page === "sales" && <DocumentsTable page="sales" rows={sales} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onDelete={(number) => { setSales((rows) => rows.filter((row) => row.number !== number)); notify(`${number} supprimé`); }} onReturn={(document) => setReturnContext({ direction: "sales", document })} onConvertQuote={(quote) => convertQuoteToInvoice("sales", quote)} />}
+          {page === "purchases" && <DocumentsTable page="purchases" rows={purchases} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={setDocumentDetails} onDuplicate={(document) => { void duplicateDocumentRecord(document, "purchases").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le document.")); }} onDelete={(number) => { const document = purchases.find((row) => row.number === number); if (document) void deleteDocumentRecord(document, "purchases").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le document.")); }} onReturn={(document) => setReturnContext({ direction: "purchases", document })} onConvertQuote={(quote) => convertQuoteToInvoice("purchases", quote)} />}
+          {page === "sales" && <DocumentsTable page="sales" rows={sales} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={setDocumentDetails} onDuplicate={(document) => { void duplicateDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le document.")); }} onDelete={(number) => { const document = sales.find((row) => row.number === number); if (document) void deleteDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le document.")); }} onReturn={(document) => setReturnContext({ direction: "sales", document })} onConvertQuote={(quote) => convertQuoteToInvoice("sales", quote)} />}
+          {page === "finance" && <FinancePage entries={financeEntries} search={search} setSearch={setSearch} onNew={() => setFinanceEntryOpen(true)} onDelete={(entry) => { void (async () => { const response = await fetch("/api/finance", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: entry.id }) }); const payload = await response.json() as { error?: string }; if (!response.ok) throw new Error(payload.error || "Impossible de supprimer la dépense."); setFinanceEntries((rows) => rows.filter((row) => row.id !== entry.id)); notify(`${entry.label} supprimé`); })().catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer la dépense.")); }} />}
           {page === "documents" && <DocumentsLibrary purchases={purchases} sales={sales} search={search} setSearch={setSearch} viewMode={viewMode} setViewMode={setViewMode} />}
           {page === "settings" && <SettingsPage company={company} onSave={persistCompanySettings} notify={notify} />}
         </main>
@@ -2468,6 +2678,11 @@ export default function WorkspaceApp() {
       {createOpen && createTarget && <CreateModal initialTarget={createTarget} initialDocumentType={createDocumentType} parties={createParties} onClose={() => setCreateOpen(false)} onSubmit={createItem} />}
       {articleEditor && <ArticleFormModal article={articleEditor === "new" ? null : articleEditor} onClose={() => setArticleEditor(null)} onSaved={(article) => { setArticleEditor(null); setCatalogVersion((value) => value + 1); notify(`${article.name} enregistré dans le catalogue`); }} />}
       {returnContext && <ReturnModal document={returnContext.document} direction={returnContext.direction} onClose={() => setReturnContext(null)} onConfirm={confirmReturn} />}
+      {partyDetails && <PartyDetailsModal party={partyDetails.party} kind={partyDetails.kind} onClose={() => setPartyDetails(null)} />}
+      {partyEditor && <PartyEditorModal party={partyEditor.party} kind={partyEditor.kind} onClose={() => setPartyEditor(null)} onSaved={(party) => { if (partyEditor.kind === "client") setClients((rows) => rows.map((row) => row.id === party.id ? toClientRecord(party) : row)); else setSuppliers((rows) => rows.map((row) => row.id === party.id ? toSupplierRecord(party) : row)); setPartyEditor(null); notify("Tiers mis à jour"); }} />}
+      {settlementContext && <SettlementModal party={settlementContext.party} kind={settlementContext.kind} onClose={() => setSettlementContext(null)} onSaved={() => { setSettlementContext(null); setPartyVersion((value) => value + 1); notify("Règlement enregistré"); }} />}
+      {documentDetails && <DocumentDetailsModal document={documentDetails} onClose={() => setDocumentDetails(null)} />}
+      {financeEntryOpen && <FinanceEntryModal onClose={() => setFinanceEntryOpen(false)} onSaved={(entry) => { setFinanceEntries((rows) => [entry, ...rows]); setFinanceEntryOpen(false); notify("Opération financière enregistrée"); }} />}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
       {toast && <div className="toast" role="status"><Check size={17} />{toast}<button onClick={() => setToast("")} aria-label="Fermer"><X size={14} /></button></div>}
     </div>

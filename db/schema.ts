@@ -118,6 +118,43 @@ export const CREATE_STOCK_MOVEMENTS_TABLE_SQL = `
 export const CREATE_STOCK_MOVEMENTS_INDEX_SQL =
   "CREATE INDEX IF NOT EXISTS stock_movements_article_idx ON stock_movements (article_id, created_at DESC)";
 
+/** Payments are kept separately from commercial documents so a partial payment
+ * can be recorded without mutating the invoice that justified it. */
+export const CREATE_PAYMENTS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    party_id INTEGER NOT NULL REFERENCES parties(id) ON DELETE CASCADE,
+    direction TEXT NOT NULL CHECK(direction IN ('incoming', 'outgoing')),
+    amount REAL NOT NULL CHECK(amount > 0),
+    payment_date TEXT NOT NULL,
+    method TEXT NOT NULL DEFAULT 'Virement',
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )
+`;
+
+export const CREATE_PAYMENTS_PARTY_INDEX_SQL =
+  "CREATE INDEX IF NOT EXISTS payments_party_idx ON payments (party_id, payment_date DESC)";
+
+/** Independent operating expenses and charges shown in the Finance workspace. */
+export const CREATE_FINANCE_ENTRIES_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS finance_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL CHECK(kind IN ('expense', 'charge')),
+    label TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT '',
+    amount REAL NOT NULL CHECK(amount > 0),
+    entry_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Payée',
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )
+`;
+
+export const CREATE_FINANCE_ENTRIES_DATE_INDEX_SQL =
+  "CREATE INDEX IF NOT EXISTS finance_entries_date_idx ON finance_entries (entry_date DESC, id DESC)";
+
 export const CREATE_APP_META_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS app_meta (
     key TEXT PRIMARY KEY,
