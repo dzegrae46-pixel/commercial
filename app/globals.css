@@ -3536,29 +3536,277 @@ td strong {
   padding: 9px 10px;
 }
 
-.finance-workspace .finance-section-tabs {
+.finance-workspace {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  min-height: calc(100dvh - 86px);
+  overflow: hidden;
+}
+
+.finance-workspace > .table-header {
+  border-bottom: 1px solid var(--line);
+  min-height: 72px;
+  padding: 14px 18px;
+}
+
+.finance-hub {
+  background:
+    radial-gradient(circle at 88% 5%, rgba(67, 97, 238, .11), transparent 30%),
+    linear-gradient(180deg, #fbfcff 0%, #f6f8fc 100%);
+  display: grid;
+  gap: 26px;
+  min-height: calc(100dvh - 159px);
+  padding: clamp(24px, 4vw, 54px);
+}
+
+.finance-hub-heading {
+  display: grid;
+  gap: 7px;
+  max-width: 680px;
+}
+
+.finance-hub-heading > span {
+  color: var(--coral);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+
+.finance-hub-heading h2 {
+  color: var(--ink);
+  font-size: clamp(24px, 3vw, 36px);
+  letter-spacing: -.045em;
+  margin: 0;
+}
+
+.finance-hub-heading p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0;
+  max-width: 620px;
+}
+
+.finance-hub-grid {
+  align-self: center;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.finance-hub-card {
+  border: 0;
+  border-radius: 18px;
+  box-shadow: 0 18px 38px rgba(31, 41, 55, .16);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  min-height: 270px;
+  overflow: hidden;
+  padding: 20px;
+  position: relative;
+  text-align: left;
+  transition: box-shadow .18s ease, transform .18s ease;
+}
+
+.finance-hub-card::after {
+  background: rgba(255,255,255,.1);
+  border-radius: 50%;
+  content: "";
+  height: 170px;
+  position: absolute;
+  right: -58px;
+  top: 30px;
+  width: 170px;
+}
+
+.finance-hub-card:hover {
+  box-shadow: 0 24px 46px rgba(31, 41, 55, .24);
+  transform: translateY(-4px);
+}
+
+.finance-hub-card:focus-visible {
+  outline: 3px solid rgba(67, 97, 238, .3);
+  outline-offset: 4px;
+}
+
+.finance-card-charges {
+  background: linear-gradient(145deg, #8b36c7 0%, #5b21b6 100%);
+}
+
+.finance-card-treasury {
+  background: linear-gradient(145deg, #0ea67d 0%, #08705f 100%);
+}
+
+.finance-card-settlements {
+  background: linear-gradient(145deg, #2673d9 0%, #17418f 100%);
+}
+
+.finance-card-top,
+.finance-card-footer {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  position: relative;
+  z-index: 1;
+}
+
+.finance-card-icon {
+  align-items: center;
+  background: rgba(255,255,255,.17);
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 12px;
+  display: inline-flex;
+  height: 48px;
+  justify-content: center;
+  width: 48px;
+}
+
+.finance-card-count {
+  background: rgba(255,255,255,.14);
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 6px 9px;
+}
+
+.finance-card-copy {
+  display: grid;
+  gap: 4px;
+  margin: auto 0;
+  position: relative;
+  z-index: 1;
+}
+
+.finance-card-copy small {
+  color: rgba(255,255,255,.84);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.finance-card-copy strong {
+  color: white;
+  font-size: clamp(24px, 2.35vw, 34px);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.045em;
+  line-height: 1.15;
+}
+
+.finance-card-copy > span {
+  color: rgba(255,255,255,.75);
+  font-size: 11px;
+}
+
+.finance-card-footer {
+  border-top: 1px solid rgba(255,255,255,.18);
+  font-size: 11px;
+  font-weight: 700;
+  padding-top: 14px;
+}
+
+.finance-card-footer svg {
+  transition: transform .18s ease;
+}
+
+.finance-hub-card:hover .finance-card-footer svg {
+  transform: translateX(4px);
+}
+
+.finance-hub-footnote {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  gap: 18px;
+}
+
+.finance-hub-footnote > span {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.finance-dot {
+  border-radius: 50%;
+  display: inline-block;
+  height: 7px;
+  width: 7px;
+}
+
+.finance-dot-in { background: #0ea67d; }
+.finance-dot-out { background: #d21f72; }
+.finance-dot-paid { background: #4361ee; }
+
+.finance-section-nav {
+  align-items: stretch;
+  background: #fbfcff;
   border-bottom: 1px solid var(--line);
   display: flex;
-  gap: 4px;
+}
+
+.finance-back-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--line);
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 6px;
   padding: 0 18px;
+}
+
+.finance-back-button:hover {
+  background: white;
+  color: var(--ink);
+}
+
+.finance-workspace .finance-section-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 0 10px;
 }
 
 .finance-section-tabs button {
   align-items: center;
   background: transparent;
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-bottom: 3px solid transparent;
   color: var(--muted);
   display: inline-flex;
   font-size: 12px;
   gap: 6px;
-  padding: 12px 11px 10px;
+  padding: 14px 11px 11px;
+  white-space: nowrap;
 }
 
 .finance-section-tabs button:hover,
 .finance-section-tabs button.active {
   border-bottom-color: var(--coral);
   color: var(--coral);
+}
+
+.finance-detail .finance-summary {
+  gap: 10px;
+  margin: 16px 18px 0;
+}
+
+.finance-detail .finance-summary > div {
+  background: linear-gradient(180deg, #fff, #fafbff);
+  border-radius: 10px;
+  min-height: 78px;
+  padding: 14px 15px;
+}
+
+.finance-detail .finance-summary strong {
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
 }
 
 .finance-subheader {
@@ -3575,7 +3823,36 @@ td strong {
 }
 
 .finance-workspace > .table-scroll {
-  margin-top: 14px;
+  margin: 14px 18px 18px;
+}
+
+.finance-workspace .table-scroll {
+  border-color: var(--line-strong);
+  border-radius: 9px;
+  max-height: calc(100dvh - 330px);
+  overflow: auto;
+}
+
+.finance-workspace .table-scroll table {
+  min-width: 900px;
+}
+
+.finance-workspace .table-scroll th {
+  background: #f4f6fa;
+  color: #536175;
+  font-size: 11px;
+  font-weight: 750;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.finance-workspace .table-scroll tbody tr:nth-child(even) td {
+  background: #fbfcfe;
+}
+
+.finance-workspace .table-scroll tbody tr:hover td {
+  background: #f4f7ff;
 }
 
 .treasury-stats strong {
@@ -3594,9 +3871,19 @@ td strong {
     align-items: flex-start;
     gap: 10px;
   }
-  .finance-workspace .finance-section-tabs {
-    overflow-x: auto;
-  }
+  .finance-hub-grid { grid-template-columns: 1fr; }
+  .finance-hub-card { min-height: 220px; }
+  .finance-section-nav { align-items: stretch; flex-direction: column; }
+  .finance-back-button { border-bottom: 1px solid var(--line); border-right: 0; min-height: 42px; }
+}
+
+@media (max-width: 620px) {
+  .finance-workspace { border-left: 0; border-radius: 0; border-right: 0; min-height: calc(100dvh - 60px); }
+  .finance-hub { gap: 20px; padding: 20px 14px; }
+  .finance-hub-card { border-radius: 14px; min-height: 205px; }
+  .finance-card-copy strong { font-size: 27px; }
+  .finance-detail .finance-summary { grid-template-columns: 1fr; margin-left: 12px; margin-right: 12px; }
+  .finance-workspace > .table-scroll { margin-left: 12px; margin-right: 12px; }
 }
 
 /* L'éditeur d'achat/vente est volontairement une feuille unique en plein écran. */
@@ -4060,6 +4347,585 @@ td strong {
   grid-column: span 2;
 }
 
+/* Feuille Achat/Vente : contraste, alignement et suppression immédiatement visibles. */
+.pure-table-backdrop,
+.pure-table-editor {
+  background: #eef2f4;
+}
+
+.pure-document-table {
+  --pure-document-columns: 44px minmax(210px, 1.2fr) minmax(245px, 1.4fr) minmax(76px, .5fr) minmax(92px, .6fr) minmax(110px, .8fr) minmax(82px, .65fr) minmax(76px, .55fr) minmax(120px, .8fr) 48px;
+  background: white;
+  border-top: 1px solid #b8c3cd;
+  min-width: 1380px;
+}
+
+.pure-document-table th,
+.pure-document-table td {
+  border-bottom-color: #cbd5df;
+  border-right-color: #cbd5df;
+}
+
+.pure-document-controls-row th {
+  background: #f8fafc;
+  box-shadow: 0 2px 8px rgba(20, 45, 39, .08);
+  height: 60px;
+}
+
+.pure-document-controls {
+  grid-template-columns: 42px minmax(150px, .72fr) minmax(250px, 1.48fr) 78px 112px minmax(245px, 1.28fr) minmax(165px, .82fr) minmax(142px, .68fr) 94px 126px;
+  height: 59px;
+}
+
+.pure-document-controls > strong {
+  color: #18352f;
+  font-size: 13px;
+}
+
+.pure-document-controls label {
+  grid-template-rows: 18px 1fr;
+  padding: 5px 8px;
+}
+
+.pure-document-controls label span {
+  color: #62716d;
+  font-size: 9px;
+}
+
+.pure-document-controls input,
+.pure-document-controls select {
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.pure-add-line-button {
+  background: #eaf6f0;
+  color: #0b7650;
+  font-size: 11px;
+}
+
+.pure-add-line-button:hover {
+  background: #d9efe4;
+}
+
+.pure-save-button {
+  background: #0d6b4b;
+  font-size: 11px;
+}
+
+.pure-save-button:hover {
+  background: #09593e;
+}
+
+.pure-document-table .pure-column-headings th {
+  align-items: center;
+  background: #124d3c;
+  color: #fff;
+  display: flex;
+  font-size: 10px;
+  font-weight: 800;
+  height: 39px;
+  letter-spacing: .055em;
+  padding: 0 9px;
+}
+
+.pure-document-table .pure-column-headings th:first-child {
+  justify-content: center;
+}
+
+.pure-document-table .pure-column-headings th:nth-child(9) {
+  justify-content: flex-end;
+}
+
+.pure-document-table tbody tr {
+  height: 50px;
+  min-height: 50px;
+}
+
+.pure-document-table tbody td {
+  background: white;
+  height: 50px;
+}
+
+.pure-document-table tbody tr:nth-child(even) td {
+  background: #f8fbfa;
+}
+
+.pure-document-table tbody tr:hover td {
+  background: #eef8f3;
+}
+
+.pure-document-table tbody input {
+  color: #1d2b27;
+  font-size: 12px;
+  height: 49px;
+  padding: 0 9px;
+}
+
+.pure-document-table tbody input:focus {
+  background: #fff;
+  box-shadow: inset 0 0 0 2px #21956c;
+}
+
+.pure-cell-text,
+.pure-line-index,
+.pure-line-total {
+  font-size: 12px;
+  line-height: 49px;
+}
+
+.pure-cell-text {
+  color: #30423d;
+  font-weight: 550;
+  padding: 0 9px;
+}
+
+.pure-line-total {
+  color: #153b30;
+  font-size: 12px;
+  padding: 0 9px !important;
+}
+
+.pure-delete-line {
+  background: #fff1f0;
+  color: #c33b32;
+  height: 49px;
+}
+
+.pure-delete-line:hover {
+  background: #ffdeda;
+  color: #98271f;
+}
+
+.pure-document-table tbody .pure-empty-lines-row {
+  height: auto;
+  min-height: 190px;
+}
+
+.pure-document-table tbody .pure-empty-lines-row td {
+  align-items: center;
+  background: #f8fbfa;
+  color: #53645f;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  grid-column: 1 / -1;
+  height: auto;
+  justify-content: center;
+  min-height: 190px;
+  text-align: center;
+}
+
+.pure-empty-lines-row span {
+  color: #203a33;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.pure-empty-lines-row small {
+  color: #71817c;
+  font-size: 11px;
+}
+
+.pure-document-table tfoot {
+  border-top: 2px solid #9fb0aa;
+  box-shadow: 0 -4px 12px rgba(20, 45, 39, .07);
+}
+
+.pure-totals-row td {
+  height: 64px;
+}
+
+.pure-grand-total {
+  background: #e7f5ee !important;
+}
+
+.pure-grand-total strong {
+  color: #0d6b4b;
+  font-size: 18px;
+}
+
+/* Gestion locale des catégories du catalogue sur trois niveaux. */
+.category-manager-button {
+  white-space: nowrap;
+}
+
+.category-manager-backdrop {
+  z-index: 220;
+}
+
+.category-manager-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: min(880px, calc(100dvh - 36px));
+  max-width: 980px;
+  overflow: hidden;
+  padding: 20px;
+  width: min(980px, calc(100vw - 36px));
+}
+
+.category-manager-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.category-manager-summary > div {
+  background: linear-gradient(180deg, #fbfcff, #f4f7fb);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  display: grid;
+  gap: 2px;
+  padding: 11px 13px;
+}
+
+.category-manager-summary small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.category-manager-summary strong {
+  color: var(--ink);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.category-manager-summary span {
+  color: var(--subtle);
+  font-size: 10px;
+}
+
+.category-manager-note {
+  align-items: center;
+  background: var(--blue-soft);
+  border-radius: 7px;
+  color: #46558f;
+  display: flex;
+  font-size: 11px;
+  gap: 7px;
+  margin: 0;
+  padding: 9px 10px;
+}
+
+.category-manager-note svg {
+  flex: 0 0 auto;
+}
+
+.category-tree-toolbar {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.category-tree-toolbar > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.category-tree-toolbar strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.category-tree-toolbar span {
+  color: var(--subtle);
+  font-size: 10px;
+}
+
+.category-tree-toolbar > div:last-child {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+}
+
+.category-tree-toolbar button {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  height: 29px;
+  padding: 0 9px;
+}
+
+.category-tree-toolbar button:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.category-manager-tree {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.category-manager-branch {
+  background: white;
+  position: relative;
+}
+
+.category-manager-branch + .category-manager-branch {
+  border-top: 1px solid var(--line);
+}
+
+.category-manager-children,
+.category-manager-grandchildren {
+  display: block;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+
+.category-manager-children::before,
+.category-manager-grandchildren::before {
+  background: #cbd5e1;
+  bottom: 27px;
+  content: "";
+  left: 31px;
+  position: absolute;
+  top: 0;
+  width: 1px;
+  z-index: 1;
+}
+
+.category-manager-grandchildren::before {
+  background: #b9d9cd;
+  left: 65px;
+}
+
+.category-manager-subbranch {
+  display: block;
+  position: relative;
+}
+
+.category-manager-node {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 22px 30px minmax(0, 1fr) auto auto;
+  min-height: 52px;
+  padding: 6px 12px;
+  position: relative;
+  transition: background .14s ease;
+}
+
+.category-manager-node:hover {
+  background: #f8fafc;
+}
+
+.category-level-1 {
+  background: #fbfcff;
+  border-bottom: 1px solid var(--line);
+  min-height: 58px;
+}
+
+.category-level-2 {
+  padding-left: 38px;
+}
+
+.category-level-3 {
+  background: #fbfefd;
+  padding-left: 72px;
+}
+
+.category-level-2::before,
+.category-level-3::before {
+  border-top: 1px solid #cbd5e1;
+  content: "";
+  left: 31px;
+  position: absolute;
+  top: 50%;
+  width: 17px;
+  z-index: 1;
+}
+
+.category-level-3::before {
+  border-top-color: #b9d9cd;
+  left: 65px;
+}
+
+.category-manager-node-icon {
+  align-items: center;
+  background: var(--blue-soft);
+  border-radius: 7px;
+  color: var(--blue);
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+  z-index: 2;
+}
+
+.category-level-1 .category-manager-node-icon {
+  background: var(--coral-soft);
+  color: var(--coral);
+}
+
+.category-level-3 .category-manager-node-icon {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.category-manager-node-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.category-tree-toggle {
+  align-items: center;
+  background: white;
+  border: 1px solid #dce3ec;
+  border-radius: 5px;
+  color: #66758a;
+  display: inline-flex;
+  height: 22px;
+  justify-content: center;
+  padding: 0;
+  position: relative;
+  width: 22px;
+  z-index: 2;
+}
+
+.category-tree-toggle svg {
+  transform: rotate(-90deg);
+  transition: transform .14s ease;
+}
+
+.category-tree-toggle.expanded svg {
+  transform: rotate(0deg);
+}
+
+.category-tree-toggle:hover {
+  background: #eef3f8;
+  color: var(--ink);
+}
+
+.category-tree-leaf {
+  background: #94a3b8;
+  border: 3px solid white;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px #cbd5e1;
+  height: 8px;
+  justify-self: center;
+  position: relative;
+  width: 8px;
+  z-index: 2;
+}
+
+.category-level-3 .category-tree-leaf {
+  background: var(--green);
+  box-shadow: 0 0 0 1px #9fd2bf;
+}
+
+.category-manager-node-copy small {
+  color: var(--subtle);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.category-manager-node-copy strong {
+  color: var(--ink);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-usage-count,
+.category-system-label {
+  background: #f1f3f6;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.category-system-label {
+  background: var(--yellow-soft);
+  color: var(--yellow);
+}
+
+.category-manager-actions {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.category-manager-actions .icon-button {
+  height: 30px;
+  width: 30px;
+}
+
+.category-rename-form {
+  align-items: end;
+  display: grid;
+  gap: 6px;
+  grid-column: 3 / -1;
+  grid-template-columns: minmax(0, 1fr) 32px 32px;
+}
+
+.category-rename-form label {
+  color: var(--muted);
+  display: grid;
+  font-size: 9px;
+  font-weight: 700;
+  gap: 3px;
+  text-transform: uppercase;
+}
+
+.category-rename-form input {
+  background: white;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--ink);
+  height: 32px;
+  min-width: 0;
+  outline: 0;
+  padding: 0 9px;
+  text-transform: none;
+  width: 100%;
+}
+
+.category-rename-form input:focus {
+  border-color: var(--coral);
+  box-shadow: 0 0 0 3px var(--coral-soft);
+}
+
+.category-save-button {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.category-manager-empty {
+  align-items: center;
+  color: var(--subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  min-height: 180px;
+}
+
+.category-manager-modal > .modal-actions {
+  border-top: 1px solid var(--line);
+  bottom: auto;
+  margin: 0;
+  padding: 12px 0 0;
+  position: static;
+}
+
 @media (max-width: 620px) {
   .simple-document-table-heading .secondary-button {
     font-size: 0;
@@ -4080,5 +4946,1226 @@ td strong {
   .finance-subheader .search-control {
     min-width: 0;
     width: 100%;
+  }
+  .category-manager-modal {
+    border: 0;
+    border-radius: 0;
+    height: 100dvh;
+    max-height: none;
+    padding: 14px;
+    width: 100vw;
+  }
+  .category-manager-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .category-tree-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .category-manager-node {
+    gap: 6px;
+    grid-template-columns: 20px 28px minmax(0, 1fr) auto;
+    padding-right: 8px;
+  }
+  .category-usage-count {
+    display: none;
+  }
+  .category-system-label,
+  .category-manager-actions {
+    grid-column: 4;
+  }
+  .category-manager-children,
+  .category-manager-grandchildren {
+    margin: 0;
+    padding: 0;
+  }
+}
+
+.document-row-actions,
+.document-detail-header-actions {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+.document-print-button {
+  background: var(--coral-soft);
+  border-color: #ffd5c9;
+  color: var(--coral);
+}
+
+.document-print-button:hover {
+  background: var(--coral);
+  border-color: var(--coral);
+  color: white;
+}
+
+.view-grid tbody tr:has(.document-row-actions) td:first-child {
+  padding-right: 82px;
+}
+
+.print-document-sheet {
+  display: none;
+}
+
+@page {
+  margin: 12mm;
+  size: A4 portrait;
+}
+
+@media print, screen {
+  html:has(.print-preview-backdrop),
+  body:has(.print-preview-backdrop) {
+    background: white !important;
+    color: #1d2926 !important;
+    height: auto;
+    min-height: 0;
+  }
+
+  body:has(.print-preview-backdrop) > *:not(.print-preview-backdrop) {
+    display: none !important;
+  }
+
+  .print-document-sheet {
+    color: #1d2926;
+    display: flex !important;
+    flex-direction: column;
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 9.5pt;
+    min-height: 273mm;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    width: 100%;
+  }
+
+  .print-company-header {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    min-height: 31mm;
+    padding: 0 1mm 3mm;
+  }
+
+  .print-company-brand {
+    align-items: center;
+    display: flex;
+    gap: 5mm;
+    min-width: 0;
+  }
+
+  .print-company-logo {
+    background: white;
+    border: 1px solid #d8dedc;
+    border-radius: 2mm;
+    display: block;
+    flex: 0 0 auto;
+    height: 22mm;
+    object-fit: contain;
+    padding: 1.5mm;
+    width: 22mm;
+  }
+
+  .print-company-logo-fallback {
+    align-items: center;
+    background: #174f43;
+    color: white;
+    display: flex;
+    font-size: 17pt;
+    font-weight: 800;
+    justify-content: center;
+    letter-spacing: -.05em;
+  }
+
+  .print-company-identity {
+    min-width: 0;
+  }
+
+  .print-company-identity h1 {
+    color: #c65b31;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 24pt;
+    letter-spacing: -.025em;
+    line-height: 1;
+    margin: 0 0 2mm;
+  }
+
+  .print-company-identity p {
+    color: #174f43;
+    font-size: 10pt;
+    font-weight: 750;
+    margin: 0 0 1mm;
+    text-transform: uppercase;
+  }
+
+  .print-company-identity span {
+    color: #64716e;
+    font-size: 8pt;
+  }
+
+  .print-document-reference {
+    align-items: flex-end;
+    border-left: 1px solid #d7dfdc;
+    display: flex;
+    flex-direction: column;
+    gap: 1mm;
+    min-width: 39mm;
+    padding: 2mm 0 2mm 5mm;
+  }
+
+  .print-document-reference span,
+  .print-document-reference small {
+    color: #64716e;
+    font-size: 8pt;
+  }
+
+  .print-document-reference strong {
+    color: #174f43;
+    font-size: 12pt;
+  }
+
+  .print-decorative-rule {
+    border-bottom: 1px dashed #6f837d;
+    border-top: 2.5px solid #174f43;
+    height: 3mm;
+    position: relative;
+  }
+
+  .print-decorative-rule span {
+    background: #c65b31;
+    bottom: -1px;
+    height: 1px;
+    left: 0;
+    position: absolute;
+    width: 45mm;
+  }
+
+  .print-document-heading {
+    align-items: stretch;
+    break-inside: avoid;
+    display: grid;
+    gap: 9mm;
+    grid-template-columns: minmax(0, 1fr) 78mm;
+    padding: 8mm 0 6mm;
+  }
+
+  .print-document-heading small {
+    color: #7b8784;
+    display: block;
+    font-size: 7.5pt;
+    font-weight: 700;
+    letter-spacing: .08em;
+    margin-bottom: 1mm;
+    text-transform: uppercase;
+  }
+
+  .print-document-heading h2 {
+    color: #174f43;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 19pt;
+    margin: 0 0 2mm;
+    text-transform: capitalize;
+  }
+
+  .print-document-heading p {
+    color: #64716e;
+    margin: 0;
+  }
+
+  .print-party-card {
+    border: 1px dashed #80918c;
+    border-radius: 2mm;
+    display: grid;
+    margin: 0;
+    padding: 3mm 4mm;
+  }
+
+  .print-party-card > div {
+    display: grid;
+    gap: 3mm;
+    grid-template-columns: 28mm minmax(0, 1fr);
+    padding: 1.2mm 0;
+  }
+
+  .print-party-card dt {
+    color: #6b7875;
+    font-size: 8pt;
+  }
+
+  .print-party-card dd {
+    font-weight: 650;
+    margin: 0;
+  }
+
+  .print-lines-table {
+    border-collapse: collapse;
+    min-width: 0;
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  .print-lines-table thead {
+    display: table-header-group;
+  }
+
+  .print-lines-table th {
+    background: #174f43 !important;
+    border: 1px solid #174f43;
+    color: white !important;
+    font-size: 7.5pt;
+    font-weight: 700;
+    letter-spacing: .02em;
+    padding: 2.5mm 1.8mm;
+    text-align: left;
+  }
+
+  .print-lines-table th:first-child,
+  .print-lines-table td:first-child {
+    text-align: center;
+    width: 9mm;
+  }
+
+  .print-lines-table th:nth-child(3),
+  .print-lines-table td:nth-child(3) {
+    width: 16mm;
+  }
+
+  .print-lines-table th:nth-child(4),
+  .print-lines-table td:nth-child(4) {
+    width: 11mm;
+  }
+
+  .print-lines-table th:nth-child(5),
+  .print-lines-table td:nth-child(5),
+  .print-lines-table th:nth-child(8),
+  .print-lines-table td:nth-child(8) {
+    width: 25mm;
+  }
+
+  .print-lines-table th:nth-child(6),
+  .print-lines-table td:nth-child(6),
+  .print-lines-table th:nth-child(7),
+  .print-lines-table td:nth-child(7) {
+    width: 15mm;
+  }
+
+  .print-lines-table td {
+    border: 1px solid #ccd5d2;
+    color: #2f3b38;
+    font-size: 8pt;
+    height: 11mm;
+    padding: 2mm 1.8mm;
+    vertical-align: top;
+    white-space: normal;
+  }
+
+  .print-lines-table tbody tr {
+    break-inside: avoid;
+  }
+
+  .print-lines-table tbody tr:nth-child(even) td {
+    background: #f4f7f6 !important;
+  }
+
+  .print-lines-table td strong {
+    color: #1d2926;
+    font-size: 8pt;
+  }
+
+  .print-lines-table td small {
+    color: #74807d;
+    display: block;
+    font-size: 7pt;
+    line-height: 1.35;
+    margin-top: 1mm;
+  }
+
+  .print-number-cell {
+    font-variant-numeric: tabular-nums;
+    text-align: right !important;
+  }
+
+  .print-document-bottom {
+    break-inside: avoid;
+    display: grid;
+    gap: 8mm;
+    grid-template-columns: minmax(0, 1fr) 70mm;
+    padding-top: 6mm;
+  }
+
+  .print-document-note {
+    color: #5c6965;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5mm;
+    padding: 2mm 0;
+  }
+
+  .print-document-note strong {
+    color: #293632;
+    font-size: 8pt;
+  }
+
+  .print-document-note > span {
+    color: #174f43;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 13pt;
+    font-weight: 700;
+  }
+
+  .print-document-note p {
+    font-size: 8pt;
+    margin: 4mm 0 0;
+  }
+
+  .print-totals-card {
+    border: 1px solid #bcc8c4;
+    margin: 0;
+  }
+
+  .print-totals-card > div {
+    align-items: center;
+    border-bottom: 1px solid #d9e0de;
+    display: flex;
+    justify-content: space-between;
+    min-height: 8mm;
+    padding: 1.5mm 3mm;
+  }
+
+  .print-totals-card > div:last-child {
+    border-bottom: 0;
+  }
+
+  .print-totals-card dt {
+    color: #66736f;
+    font-size: 8pt;
+  }
+
+  .print-totals-card dd {
+    font-size: 8.5pt;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    margin: 0;
+  }
+
+  .print-totals-card .print-grand-total {
+    background: #174f43 !important;
+    color: white !important;
+    min-height: 10mm;
+  }
+
+  .print-grand-total dt,
+  .print-grand-total dd {
+    color: white !important;
+    font-size: 10pt;
+  }
+
+  .print-signatures {
+    break-inside: avoid;
+    display: grid;
+    gap: 20mm;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 10mm;
+  }
+
+  .print-signatures > div {
+    display: grid;
+    gap: 3mm;
+    text-align: center;
+  }
+
+  .print-signatures span {
+    color: #4f5c58;
+    font-size: 8pt;
+    font-weight: 650;
+  }
+
+  .print-signatures i {
+    border-bottom: 1px solid #aebbb7;
+    display: block;
+    height: 18mm;
+  }
+
+  .print-document-footer {
+    border-top: 1px dashed #9aa7a3;
+    color: #6e7b77;
+    display: flex;
+    font-size: 7.5pt;
+    justify-content: space-between;
+    margin-top: auto;
+    padding-top: 3mm;
+  }
+}
+
+@page {
+  margin: 5mm;
+  size: A4 portrait;
+}
+
+/* Mesures finales calées sur la feuille GSR de référence. */
+@media print, screen {
+  .print-preview-backdrop .print-document-sheet {
+    background: #fffef8;
+    color: #28352f;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 8pt;
+  }
+
+  .print-preview-backdrop .print-company-header {
+    align-items: start;
+    display: grid;
+    gap: 0;
+    grid-template-columns: 34mm minmax(0, 1fr);
+    min-height: 53mm;
+    padding: 7mm 0 3mm;
+    position: static;
+    text-align: center;
+  }
+
+  .print-preview-backdrop .print-company-logo {
+    align-self: center;
+    border: 0;
+    border-radius: 0;
+    height: 31mm;
+    justify-self: start;
+    left: auto;
+    object-fit: contain;
+    padding: 0;
+    position: static;
+    top: auto;
+    width: 32mm;
+  }
+
+  .print-preview-backdrop .print-company-logo-fallback {
+    align-items: center;
+    background: #24594b !important;
+    border: 1px solid #536b62;
+    color: #d1923e !important;
+    display: flex;
+    font-family: "Cooper Black", "Bookman Old Style", Georgia, serif;
+    font-size: 20pt;
+    justify-content: center;
+  }
+
+  .print-preview-backdrop .print-company-identity {
+    align-self: start;
+    margin: 0;
+    max-width: none;
+    padding: 0;
+    text-align: center;
+  }
+
+  .print-preview-backdrop .print-company-identity h1 {
+    color: #c25f27 !important;
+    font-family: "Cooper Black", "Bookman Old Style", Georgia, serif;
+    font-size: 18pt;
+    font-weight: 900;
+    letter-spacing: 0;
+    line-height: 1;
+    margin: 0 0 2mm;
+  }
+
+  .print-preview-backdrop .print-company-identity p {
+    color: #28352f;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 7.5pt;
+    font-weight: 400;
+    line-height: 1.05;
+    margin: 0;
+    text-transform: none;
+  }
+
+  .print-preview-backdrop .print-company-registration {
+    color: #28352f;
+    display: flex;
+    flex-wrap: wrap;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 7.1pt;
+    font-weight: 600;
+    gap: .5mm 3mm;
+    justify-content: center;
+    line-height: 1.05;
+    margin-top: .7mm;
+  }
+
+  .print-preview-backdrop .print-company-address {
+    font-weight: 600 !important;
+    margin-top: .7mm !important;
+  }
+
+  .print-preview-backdrop .print-company-phone {
+    color: #24594b;
+    display: block;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 11pt;
+    font-weight: 800;
+    letter-spacing: .015em;
+    line-height: 1;
+    margin-top: 1.4mm;
+  }
+
+  .print-preview-backdrop .print-decorative-rule {
+    border: 0;
+    border-bottom: 1px dotted #5c7068;
+    height: 1px;
+    width: 100%;
+  }
+
+  .print-preview-backdrop .print-decorative-rule span {
+    display: none;
+  }
+
+  .print-preview-backdrop .print-document-heading {
+    align-items: start;
+    display: grid;
+    gap: 0;
+    grid-template-columns: 35% 6% 59%;
+    min-height: 49mm;
+    padding: 4mm 0 12mm;
+  }
+
+  .print-preview-backdrop .print-document-title h2 {
+    color: #24594b;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 14pt;
+    font-weight: 700;
+    line-height: 1;
+    margin: 2mm 0 16mm;
+    text-transform: none;
+  }
+
+  .print-preview-backdrop .print-document-title dl {
+    display: grid;
+    font-size: 7.5pt;
+    gap: 1.5mm;
+    margin: 0;
+  }
+
+  .print-preview-backdrop .print-document-title dl > div {
+    display: grid;
+    grid-template-columns: 13mm minmax(0, 1fr);
+  }
+
+  .print-preview-backdrop .print-document-title dt {
+    color: #34453f;
+  }
+
+  .print-preview-backdrop .print-document-title dd {
+    color: #28352f;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .print-preview-backdrop .print-due-label {
+    align-self: start;
+    color: #34453f;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 9pt;
+    font-weight: 600;
+    margin: 4mm 0 0;
+    white-space: nowrap;
+  }
+
+  .print-preview-backdrop .print-party-card {
+    border: 1px dashed #586c64;
+    border-radius: 4mm;
+    box-sizing: border-box;
+    display: grid;
+    min-height: 32mm;
+    margin: 0;
+    padding: 3.5mm 5mm;
+  }
+
+  .print-preview-backdrop .print-party-card > div {
+    align-items: baseline;
+    display: grid;
+    gap: 2mm;
+    grid-template-columns: 27mm minmax(0, 1fr);
+    min-height: 7.5mm;
+    padding: 0;
+  }
+
+  .print-preview-backdrop .print-party-card dt {
+    color: #34453f;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 7.5pt;
+    font-weight: 400;
+  }
+
+  .print-preview-backdrop .print-party-card dd {
+    color: #28352f;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 7.7pt;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .print-preview-backdrop .print-lines-table {
+    border: 0;
+    border-collapse: collapse;
+    color: #28352f;
+    font-family: "Times New Roman", Times, serif;
+    min-width: 0;
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  .print-preview-backdrop .print-lines-table .print-col-code {
+    width: 10%;
+  }
+
+  .print-preview-backdrop .print-lines-table .print-col-label {
+    width: 58%;
+  }
+
+  .print-preview-backdrop .print-lines-table .print-col-quantity {
+    width: 8%;
+  }
+
+  .print-preview-backdrop .print-lines-table .print-col-price,
+  .print-preview-backdrop .print-lines-table .print-col-total {
+    width: 12%;
+  }
+
+  .print-preview-backdrop .print-lines-table th {
+    background: #eff1eb !important;
+    border: 1px solid #74857e;
+    color: #28352f !important;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 7.5pt;
+    font-weight: 700;
+    height: 7mm;
+    letter-spacing: 0;
+    padding: 1.2mm 1.5mm;
+    text-align: center;
+    text-transform: none;
+    white-space: nowrap;
+  }
+
+  .print-preview-backdrop .print-lines-table th:first-child,
+  .print-preview-backdrop .print-lines-table th:nth-child(2) {
+    text-align: left;
+  }
+
+  .print-preview-backdrop .print-lines-table th.print-number-cell {
+    text-align: center !important;
+  }
+
+  .print-preview-backdrop .print-lines-table td {
+    background: #fffef8 !important;
+    border: 1px solid #9ca9a3;
+    color: #28352f;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 7.5pt;
+    height: 8mm;
+    padding: 1.5mm;
+    vertical-align: top;
+    white-space: normal;
+  }
+
+  .print-preview-backdrop .print-lines-table td:first-child {
+    text-align: left;
+  }
+
+  .print-preview-backdrop .print-lines-table td strong {
+    color: #28352f;
+    font-size: 7.5pt;
+    font-weight: 400;
+  }
+
+  .print-preview-backdrop .print-number-cell {
+    font-variant-numeric: tabular-nums;
+    text-align: right !important;
+  }
+
+  .print-preview-backdrop .print-document-bottom {
+    break-inside: avoid;
+    display: grid;
+    gap: 10mm;
+    grid-template-columns: minmax(0, 1fr) 62mm;
+    padding-top: 5mm;
+  }
+
+  .print-preview-backdrop .print-document-note {
+    color: #44534e;
+    display: flex;
+    flex-direction: column;
+    font-size: 7.5pt;
+    gap: 1mm;
+    padding-top: 2mm;
+  }
+
+  .print-preview-backdrop .print-document-note strong {
+    color: #28352f;
+    font-size: 7.5pt;
+  }
+
+  .print-preview-backdrop .print-document-note > span {
+    color: #24594b;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 10pt;
+    font-weight: 700;
+  }
+
+  .print-preview-backdrop .print-document-note p {
+    font-size: 7pt;
+    margin: 3mm 0 0;
+  }
+
+  .print-preview-backdrop .print-totals-card {
+    border: 1px solid #74857e;
+    margin: 0;
+  }
+
+  .print-preview-backdrop .print-totals-card > div {
+    align-items: center;
+    background: #fffef8 !important;
+    border-bottom: 1px solid #9ca9a3;
+    display: flex;
+    justify-content: space-between;
+    min-height: 6mm;
+    padding: 1mm 2.5mm;
+  }
+
+  .print-preview-backdrop .print-totals-card > div:last-child {
+    border-bottom: 0;
+  }
+
+  .print-preview-backdrop .print-totals-card dt,
+  .print-preview-backdrop .print-totals-card dd {
+    color: #28352f !important;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 7.5pt;
+    margin: 0;
+  }
+
+  .print-preview-backdrop .print-totals-card dd {
+    font-weight: 700;
+  }
+
+  .print-preview-backdrop .print-totals-card .print-grand-total {
+    background: #eff1eb !important;
+    min-height: 7mm;
+  }
+
+  .print-preview-backdrop .print-grand-total dt,
+  .print-preview-backdrop .print-grand-total dd {
+    color: #28352f !important;
+    font-size: 8.5pt;
+  }
+
+  .print-preview-backdrop .print-signatures {
+    break-inside: avoid;
+    display: grid;
+    gap: 25mm;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 7mm;
+  }
+
+  .print-preview-backdrop .print-signatures > div {
+    display: grid;
+    gap: 2mm;
+    text-align: center;
+  }
+
+  .print-preview-backdrop .print-signatures span {
+    color: #44534e;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 7.5pt;
+    font-weight: 600;
+  }
+
+  .print-preview-backdrop .print-signatures i {
+    border-bottom: 1px solid #9ca9a3;
+    display: block;
+    height: 12mm;
+  }
+
+  .print-preview-backdrop .print-document-footer {
+    border-top: 1px dotted #697a73;
+    color: #4d5d57;
+    display: flex;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 7pt;
+    justify-content: space-between;
+    margin-top: auto;
+    padding-top: 2mm;
+  }
+}
+
+@media screen {
+  .print-preview-backdrop .print-document-sheet {
+    min-height: 297mm;
+    padding: 5mm;
+    width: 210mm;
+  }
+}
+
+@media print {
+  .print-preview-backdrop .print-document-sheet {
+    min-height: 287mm;
+    padding: 0;
+    width: 100%;
+  }
+}
+
+.print-preview-backdrop {
+  background: #d8d8d4;
+  inset: 0;
+  overflow: auto;
+  padding: 16px 20px 28px;
+  position: fixed;
+  z-index: 4000;
+}
+
+.print-preview-toolbar {
+  align-items: center;
+  background: white;
+  border: 1px solid #c8c8c4;
+  box-shadow: 0 5px 20px rgba(20, 28, 25, .12);
+  display: flex;
+  justify-content: space-between;
+  margin: 0 auto 12px;
+  max-width: 210mm;
+  padding: 10px 12px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.print-preview-toolbar > div {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.print-preview-toolbar > div:first-child {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.print-preview-toolbar strong {
+  color: #293632;
+  font-size: 13px;
+}
+
+.print-preview-toolbar span {
+  color: #75807d;
+  font-size: 11px;
+}
+
+@media screen {
+  .print-preview-backdrop .print-document-sheet {
+    background: #fff;
+    box-shadow: 0 8px 32px rgba(20, 28, 25, .18);
+    box-sizing: border-box;
+    margin: 0 auto;
+    min-height: 297mm;
+    padding: 5mm;
+    width: 210mm;
+  }
+}
+
+@media print {
+  .print-preview-backdrop {
+    background: white;
+    display: block !important;
+    inset: auto;
+    overflow: visible;
+    padding: 0;
+    position: static;
+  }
+
+  .print-preview-toolbar {
+    display: none !important;
+  }
+
+  .print-preview-backdrop .print-document-sheet {
+    box-shadow: none;
+    margin: 0;
+    min-height: 287mm;
+    padding: 0;
+    width: 100%;
+  }
+}
+
+/* Ancienne interprétation conservée hors cascade pour éviter toute régression accidentelle. */
+@media not all {
+  .print-document-sheet {
+    color: #26332f;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 8.5pt;
+  }
+
+  .print-company-header {
+    display: block;
+    min-height: 38mm;
+    padding: 4mm 0 2.5mm;
+    position: relative;
+    text-align: center;
+  }
+
+  .print-company-logo {
+    border: 1px solid #74867f;
+    border-radius: 1mm;
+    height: 21mm;
+    left: 1mm;
+    object-fit: contain;
+    padding: 1mm;
+    position: absolute;
+    top: 9mm;
+    width: 21mm;
+  }
+
+  .print-company-logo-fallback {
+    align-items: center;
+    background: #245c50 !important;
+    color: #d49a45 !important;
+    display: flex;
+    font-size: 15pt;
+    justify-content: center;
+  }
+
+  .print-company-identity {
+    margin: 0 auto;
+    max-width: 154mm;
+    padding: 0 4mm;
+  }
+
+  .print-company-identity h1 {
+    color: #b95c25 !important;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 18pt;
+    font-weight: 800;
+    letter-spacing: 0;
+    line-height: 1;
+    margin: 0 0 1.2mm;
+  }
+
+  .print-company-identity p {
+    color: #34433f;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 7.5pt;
+    font-weight: 400;
+    line-height: 1.15;
+    margin: 0;
+    text-transform: none;
+  }
+
+  .print-company-registration {
+    align-items: center;
+    color: #283833;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 7.1pt;
+    font-weight: 600;
+    gap: 1.2mm 4mm;
+    justify-content: center;
+    line-height: 1.15;
+    margin-top: .5mm;
+  }
+
+  .print-company-address {
+    font-weight: 600 !important;
+    margin-top: .5mm !important;
+  }
+
+  .print-company-phone {
+    color: #245c50;
+    display: block;
+    font-family: Arial, sans-serif;
+    font-size: 10pt;
+    letter-spacing: .02em;
+    line-height: 1.2;
+    margin-top: .8mm;
+  }
+
+  .print-decorative-rule {
+    border-bottom: 1px dashed #5e716a;
+    border-top: 0;
+    height: 1.5mm;
+  }
+
+  .print-decorative-rule span {
+    display: none;
+  }
+
+  .print-document-heading {
+    align-items: start;
+    display: grid;
+    gap: 3mm;
+    grid-template-columns: minmax(0, 1fr) 12mm 73mm;
+    min-height: 31mm;
+    padding: 4mm 0 3.5mm;
+  }
+
+  .print-document-title h2 {
+    color: #245c50;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 14pt;
+    font-weight: 700;
+    line-height: 1;
+    margin: 1mm 0 7mm;
+    text-transform: none;
+  }
+
+  .print-document-title dl {
+    display: grid;
+    gap: 1.2mm;
+    margin: 0;
+  }
+
+  .print-document-title dl > div {
+    display: grid;
+    grid-template-columns: 13mm minmax(0, 1fr);
+  }
+
+  .print-document-title dt {
+    color: #40504b;
+  }
+
+  .print-document-title dd {
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .print-due-label {
+    color: #35443f;
+    font-size: 9pt;
+    margin-top: 3mm;
+    white-space: nowrap;
+  }
+
+  .print-party-card {
+    border: 1px dashed #53665f;
+    border-radius: 1.5mm;
+    min-height: 27mm;
+    padding: 2.5mm 4mm;
+  }
+
+  .print-party-card > div {
+    gap: 2mm;
+    grid-template-columns: 28mm minmax(0, 1fr);
+    padding: 1mm 0;
+  }
+
+  .print-party-card dt {
+    color: #45554f;
+    font-size: 7.5pt;
+  }
+
+  .print-party-card dd {
+    color: #26332f;
+    font-size: 7.8pt;
+    font-weight: 600;
+  }
+
+  .print-lines-table {
+    border: 1px solid #6b7d76;
+    font-family: "Times New Roman", Times, serif;
+  }
+
+  .print-lines-table th {
+    background: #eef1eb !important;
+    border: 1px solid #6b7d76;
+    color: #26332f !important;
+    font-size: 7.7pt;
+    font-weight: 700;
+    height: 7mm;
+    letter-spacing: 0;
+    padding: 1.5mm 1.8mm;
+    text-align: center;
+    text-transform: none;
+  }
+
+  .print-lines-table th:first-child,
+  .print-lines-table td:first-child {
+    text-align: left;
+    width: 25mm;
+  }
+
+  .print-lines-table th:nth-child(2),
+  .print-lines-table td:nth-child(2) {
+    width: auto;
+  }
+
+  .print-lines-table th:nth-child(3),
+  .print-lines-table td:nth-child(3) {
+    width: 15mm;
+  }
+
+  .print-lines-table th:nth-child(4),
+  .print-lines-table td:nth-child(4),
+  .print-lines-table th:nth-child(5),
+  .print-lines-table td:nth-child(5) {
+    width: 27mm;
+  }
+
+  .print-lines-table td {
+    border: 1px solid #aab5b1;
+    color: #26332f;
+    font-size: 7.7pt;
+    height: 8mm;
+    padding: 1.6mm 1.8mm;
+  }
+
+  .print-lines-table td strong {
+    color: #26332f;
+    font-size: 7.7pt;
+    font-weight: 600;
+  }
+
+  .print-lines-table tbody tr:nth-child(even) td {
+    background: white !important;
+  }
+
+  .print-document-bottom {
+    gap: 10mm;
+    grid-template-columns: minmax(0, 1fr) 66mm;
+    padding-top: 4mm;
+  }
+
+  .print-document-note > span {
+    color: #245c50;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 11pt;
+  }
+
+  .print-totals-card {
+    border-color: #6b7d76;
+  }
+
+  .print-totals-card > div {
+    border-color: #aab5b1;
+    min-height: 6.5mm;
+    padding: 1mm 2.5mm;
+  }
+
+  .print-totals-card .print-grand-total {
+    background: #eef1eb !important;
+    color: #26332f !important;
+    min-height: 8mm;
+  }
+
+  .print-grand-total dt,
+  .print-grand-total dd {
+    color: #26332f !important;
+    font-size: 9pt;
+  }
+
+  .print-signatures {
+    margin-top: 7mm;
+  }
+
+  .print-signatures i {
+    height: 13mm;
+  }
+
+  .print-document-footer {
+    border-top-color: #6b7d76;
+    color: #4e5e58;
+    font-family: "Times New Roman", Times, serif;
   }
 }

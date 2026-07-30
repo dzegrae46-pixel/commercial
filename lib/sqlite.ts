@@ -55,6 +55,11 @@ export type CategoryTree = {
   }[];
 };
 
+export type CategoryMutationResult = {
+  updated: number;
+  categories: CategoryTree[];
+};
+
 export type PartyKind = "client" | "supplier";
 
 export type PartyRecord = {
@@ -983,6 +988,89 @@ export function listCategoryTree(): CategoryTree[] {
       subcategories: [...grandchildren].sort((left, right) => left.localeCompare(right, "fr")),
     })).sort((left, right) => left.name.localeCompare(right.name, "fr")),
   })).sort((left, right) => left.name.localeCompare(right.name, "fr"));
+}
+
+function categoryMutationInput(value: unknown) {
+  const input = asInputObject(value);
+  const level = optionalNumber(input.level);
+  if (level !== 1 && level !== 2 && level !== 3) {
+    throw new SqliteValidationError("Le niveau de catégorie doit être 1, 2 ou 3.");
+  }
+  const currentName = requiredText(input.currentName, "Le nom actuel");
+  const category = level === 1 ? currentName : requiredText(input.category, "La catégorie");
+  const subcategory = level === 3 ? requiredText(input.subcategory, "La sous-catégorie") : "";
+  return { level, currentName, category, subcategory };
+}
+
+export function renameArticleCategory(value: unknown): CategoryMutationResult {
+  const input = asInputObject(value);
+  const { level, currentName, category, subcategory } = categoryMutationInput(input);
+  const nextName = requiredText(input.nextName, "Le nouveau nom");
+  if (normalizeLookup(currentName) === normalizeLookup(nextName)) {
+    throw new SqliteValidationError("Le nouveau nom doit être différent du nom actuel.");
+  }
+
+  const database = getDatabase();
+  const result = level === 1
+    ? database.prepare(`
+        UPDATE articles
+        SET category = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE is_deleted = 0 AND category = ? COLLATE NOCASE
+      `).run(nextName, currentName)
+    : level === 2
+      ? database.prepare(`
+          UPDATE articles
+          SET subcategory = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE is_deleted = 0
+            AND category = ? COLLATE NOCASE
+            AND subcategory = ? COLLATE NOCASE
+        `).run(nextName, category, currentName)
+      : database.prepare(`
+          UPDATE articles
+          SET subsubcategory = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE is_deleted = 0
+            AND category = ? COLLATE NOCASE
+            AND subcategory = ? COLLATE NOCASE
+            AND subsubcategory = ? COLLATE NOCASE
+        `).run(nextName, category, subcategory, currentName);
+
+  if (!result.changes) throw new SqliteValidationError("Cette catégorie n’existe plus.");
+  return { updated: Number(result.changes), categories: listCategoryTree() };
+}
+
+export function deleteArticleCategory(value: unknown): CategoryMutationResult {
+  const { level, currentName, category, subcategory } = categoryMutationInput(value);
+  if (level === 1 && normalizeLookup(currentName) === normalizeLookup("Non classée")) {
+    throw new SqliteValidationError("La catégorie système « Non classée » ne peut pas être supprimée.");
+  }
+
+  const database = getDatabase();
+  const result = level === 1
+    ? database.prepare(`
+        UPDATE articles
+        SET category = 'Non classée', subcategory = '', subsubcategory = '',
+          updated_at = CURRENT_TIMESTAMP
+        WHERE is_deleted = 0 AND category = ? COLLATE NOCASE
+      `).run(currentName)
+    : level === 2
+      ? database.prepare(`
+          UPDATE articles
+          SET subcategory = '', subsubcategory = '', updated_at = CURRENT_TIMESTAMP
+          WHERE is_deleted = 0
+            AND category = ? COLLATE NOCASE
+            AND subcategory = ? COLLATE NOCASE
+        `).run(category, currentName)
+      : database.prepare(`
+          UPDATE articles
+          SET subsubcategory = '', updated_at = CURRENT_TIMESTAMP
+          WHERE is_deleted = 0
+            AND category = ? COLLATE NOCASE
+            AND subcategory = ? COLLATE NOCASE
+            AND subsubcategory = ? COLLATE NOCASE
+        `).run(category, subcategory, currentName);
+
+  if (!result.changes) throw new SqliteValidationError("Cette catégorie n’existe plus.");
+  return { updated: Number(result.changes), categories: listCategoryTree() };
 }
 
 function normalizePartyKind(value: unknown): PartyKind {

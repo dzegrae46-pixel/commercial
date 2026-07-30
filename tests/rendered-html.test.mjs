@@ -38,6 +38,10 @@ test("contains the compact workspace views and company settings", async () => {
   assert.match(page, /pure-table-backdrop/);
   assert.match(page, /pure-document-table/);
   assert.match(page, /pure-add-line-button/);
+  assert.match(page, /pure-delete-line/);
+  assert.match(page, /Aucune ligne dans ce document/);
+  assert.match(page, /setLines\(\(rows\) => rows\.filter\(\(line\) => line\.key !== key\)\)/);
+  assert.doesNotMatch(page, /rows\.length === 1\s*\?\s*\[emptyDocumentLine/);
   assert.match(page, /list="pure-party-options"/);
   assert.match(page, /list="pure-article-options"/);
   assert.match(page, /DocumentDraftLine/);
@@ -77,6 +81,14 @@ test("contains the compact workspace views and company settings", async () => {
   assert.match(page, /COMPANY_STORAGE_KEY/);
   assert.match(page, /persistCompanySettings/);
   assert.match(page, /CompanyLogo/);
+  assert.match(page, /PrintableDocument/);
+  assert.match(page, /Printer/);
+  assert.match(page, /window\.print\(\)/);
+  assert.match(page, /document-row-actions/);
+  assert.match(page, /company\.logoDataUrl/);
+  assert.match(page, /Aperçu avant impression/);
+  assert.match(page, /Bon DE Livraison/);
+  assert.match(page, /print-col-label/);
   assert.match(page, /filterActive/);
   assert.match(page, /viewMode/);
   assert.match(page, /lucide-react/);
@@ -110,6 +122,7 @@ test("keeps the visual system compact and production-ready", async () => {
   assert.match(css, /\.document-editor-shell/);
   assert.match(css, /height:\s*100dvh/);
   assert.match(css, /\.document-lines-table/);
+  assert.match(css, /\.pure-empty-lines-row/);
   assert.match(css, /\.party-detail-panel/);
   assert.match(css, /\.payment-history-table/);
   assert.match(css, /\.cash-action/);
@@ -125,6 +138,15 @@ test("keeps the visual system compact and production-ready", async () => {
   assert.match(css, /\.description-toggle/);
   assert.match(css, /\.return-source/);
   assert.match(css, /\.return-stock-note/);
+  assert.match(css, /\.print-document-sheet/);
+  assert.match(css, /\.print-lines-table/);
+  assert.match(css, /\.document-print-button/);
+  assert.match(css, /\.print-preview-backdrop/);
+  assert.match(css, /"Cooper Black"/);
+  assert.match(css, /grid-template-columns:\s*35%\s+6%\s+59%/);
+  assert.match(css, /width:\s*32mm/);
+  assert.match(css, /@media print/);
+  assert.match(css, /size:\s*A4 portrait/);
   assert.match(css, /font-family:\s*"Inter"/);
   assert.match(packageJson, /"lucide-react"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
@@ -144,10 +166,11 @@ test("keeps the visual system compact and production-ready", async () => {
 });
 
 test("persists the three-level catalog and clean seeds in offline SQLite", async () => {
-  const [schema, sqlite, route, worker, hosting, gitignore] = await Promise.all([
+  const [schema, sqlite, route, categoriesRoute, worker, hosting, gitignore] = await Promise.all([
     readFile(new URL("db/schema.ts", root), "utf8"),
     readFile(new URL("lib/sqlite.ts", root), "utf8"),
     readFile(new URL("app/api/articles/route.ts", root), "utf8"),
+    readFile(new URL("app/api/categories/route.ts", root), "utf8"),
     readFile(new URL("worker/index.ts", root), "utf8"),
     readFile(new URL(".openai/hosting.json", root), "utf8"),
     readFile(new URL(".gitignore", root), "utf8"),
@@ -174,6 +197,10 @@ test("persists the three-level catalog and clean seeds in offline SQLite", async
   assert.match(route, /listArticles/);
   assert.match(route, /export async function DELETE/);
   assert.match(sqlite, /deleteArticle/);
+  assert.match(sqlite, /renameArticleCategory/);
+  assert.match(sqlite, /deleteArticleCategory/);
+  assert.match(categoriesRoute, /export async function PATCH/);
+  assert.match(categoriesRoute, /export async function DELETE/);
   assert.doesNotMatch(worker, /D1Database|env\.DB/);
   assert.match(gitignore, /data\/\*\.sqlite/);
   await access(new URL("data/.gitkeep", root));
@@ -221,11 +248,26 @@ test("supports detailed article organization and the dedicated product grid", as
   assert.match(page, /article-category-options/);
   assert.match(page, /article-subcategory-options/);
   assert.match(page, /article-third-category-options/);
+  assert.match(page, /CategoryManagerModal/);
+  assert.match(page, /Catégories disponibles/);
+  assert.match(page, /Arborescence du catalogue/);
+  assert.match(page, /Tout déplier/);
+  assert.match(page, /Tout replier/);
+  assert.match(page, /role="tree"/);
+  assert.match(page, /role="treeitem"/);
+  assert.match(page, /collapsedBranches/);
+  assert.match(page, /\/api\/categories/);
+  assert.match(page, /viewMode=\{viewMode\}/);
+  assert.doesNotMatch(page, /viewMode="grid"/);
   assert.match(page, /method: "DELETE"/);
   assert.match(schema, /CREATE_ARTICLES_CATEGORY_INDEX_SQL/);
   assert.match(css, /grid-template-columns:\s*repeat\(4,minmax\(0,1fr\)\)/);
   assert.match(css, /\.article-product-card:hover/);
   assert.match(css, /\.article-card-prices/);
+  assert.match(css, /\.category-manager-tree/);
+  assert.match(css, /\.category-level-3/);
+  assert.match(css, /\.category-tree-toggle/);
+  assert.match(css, /\.category-manager-children::before/);
 });
 
 test("persists party location details and documents from quotes through returns", async () => {
@@ -306,6 +348,11 @@ test("persists settlements, charges and the treasury workspace", async () => {
   assert.match(page, /TreasuryEntryFormModal/);
   assert.match(page, /États des règlements/);
   assert.match(page, /Journal de trésorerie/);
+  assert.match(page, /finance-hub-grid/);
+  assert.match(page, /finance-card-charges/);
+  assert.match(page, /finance-card-treasury/);
+  assert.match(page, /finance-card-settlements/);
+  assert.match(page, /Vue d’ensemble/);
   assert.match(page, /Crédit disponible/);
   assert.match(page, /PartyEditorModal/);
   assert.match(page, /DocumentDetailsModal/);

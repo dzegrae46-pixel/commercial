@@ -23,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
     openGraph: {
       title: "Axxam Workspace",
       description,
-      images: [{ url: imageUrl, width: 1731, height: 909, alt: "Axxam Workspace" }],
+      images: [{ url: imageUrl, width: 1659, height: 948, alt: "Axxam Workspace — Achats, ventes et finance" }],
     },
     twitter: {
       card: "summary_large_image",

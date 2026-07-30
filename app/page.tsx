@@ -3,6 +3,7 @@
 import {
   ArrowLeft,
   ArrowDownRight,
+  ArrowRight,
   BarChart3,
   Banknote,
   Bell,
@@ -32,6 +33,7 @@ import {
   Package,
   Pencil,
   Plus,
+  Printer,
   ReceiptText,
   RotateCcw,
   Save,
@@ -143,6 +145,12 @@ type DocumentRecord = {
   taxAmount?: number;
   total?: number;
   lines?: ApiDocumentLine[];
+};
+
+type DocumentContext = {
+  direction: "purchases" | "sales";
+  document: DocumentRecord;
+  partyAddress?: string;
 };
 
 type ApiDocumentLine = {
@@ -276,6 +284,14 @@ type CategoryTree = {
     name: string;
     subcategories: string[];
   }[];
+};
+
+type CategoryEditTarget = {
+  key: string;
+  level: 1 | 2 | 3;
+  category: string;
+  subcategory: string;
+  currentName: string;
 };
 
 type CreatePayload = {
@@ -543,6 +559,33 @@ const initials = (name: string) => {
 
 const normalizeLabel = (value: string) =>
   value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+const categoryTreeForArticles = (articles: ArticleRecord[]): CategoryTree[] => {
+  const categories = new Map<string, Map<string, Set<string>>>();
+  for (const article of articles) {
+    const category = article.category.trim() || "Non classée";
+    const subcategory = article.subcategory.trim();
+    const thirdLevel = article.subsubcategory.trim();
+    const subcategories = categories.get(category) ?? new Map<string, Set<string>>();
+    if (subcategory) {
+      const thirdLevels = subcategories.get(subcategory) ?? new Set<string>();
+      if (thirdLevel) thirdLevels.add(thirdLevel);
+      subcategories.set(subcategory, thirdLevels);
+    }
+    categories.set(category, subcategories);
+  }
+  return [...categories.entries()]
+    .map(([name, subcategories]) => ({
+      name,
+      subcategories: [...subcategories.entries()]
+        .map(([subcategory, thirdLevels]) => ({
+          name: subcategory,
+          subcategories: [...thirdLevels].sort((left, right) => left.localeCompare(right, "fr")),
+        }))
+        .sort((left, right) => left.name.localeCompare(right.name, "fr")),
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name, "fr"));
+};
 
 const formatDa = (value: number) =>
   `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(value)} DA`;
@@ -1100,6 +1143,172 @@ const documentLinesFor = (document: DocumentRecord): ApiDocumentLine[] => {
   }];
 };
 
+function PrintableDocument({
+  company,
+  context,
+  onClose,
+}: {
+  company: CompanySettings;
+  context: DocumentContext;
+  onClose: () => void;
+}) {
+  if (typeof document === "undefined") return null;
+
+  const { direction, document: record, partyAddress } = context;
+  const lines = documentLinesFor(record);
+  const subtotal = record.subtotal ?? lines.reduce((sum, line) => sum + line.quantity * line.unit_price, 0);
+  const discountAmount = record.discountAmount ?? lines.reduce(
+    (sum, line) => sum + line.quantity * line.unit_price * line.discount_percent / 100,
+    0,
+  );
+  const taxAmount = record.taxAmount ?? lines.reduce((sum, line) => {
+    const net = line.quantity * line.unit_price * (1 - line.discount_percent / 100);
+    return sum + net * line.tax_rate / 100;
+  }, 0);
+  const total = record.total ?? subtotal - discountAmount + taxAmount;
+  const displayedDate = record.rawDate ? formatDocumentDate(record.rawDate) : record.date;
+  const partyLabel = direction === "purchases" ? "Fournisseur" : "Client";
+  const partyCode = record.partyId
+    ? `${direction === "purchases" ? "FR" : "CL"}${String(record.partyId).padStart(4, "0")}`
+    : "—";
+  const printableType = record.type === "Bon de livraison"
+    ? "Bon DE Livraison"
+    : record.type === "Bon de réception"
+      ? "Bon DE Réception"
+      : record.type === "Bon de commande"
+        ? "Bon De Commande"
+        : record.type === "Bon de retour"
+          ? "Bon De Retour"
+          : record.type;
+  const formatPrintAmount = (value: number) =>
+    new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(value);
+
+  return createPortal(
+    <div className="print-preview-backdrop" role="dialog" aria-modal="true" aria-label={`Aperçu de ${record.number}`}>
+      <div className="print-preview-toolbar">
+        <div><strong>Aperçu avant impression</strong><span>{record.type} · {record.number}</span></div>
+        <div>
+          <button className="secondary-button" type="button" onClick={onClose}><X size={16} /> Fermer</button>
+          <button className="primary-button" type="button" onClick={() => window.print()}><Printer size={16} /> Imprimer</button>
+        </div>
+      </div>
+      <article className="print-document-sheet">
+      <header className="print-company-header">
+        {company.logoDataUrl
+          ? (
+            // A raw image keeps the locally stored data URL intact in the browser print engine.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img className="print-company-logo" src={company.logoDataUrl} alt={`Logo ${company.name}`} />
+          )
+          : <span className="print-company-logo print-company-logo-fallback">{initials(company.name) || "AX"}</span>}
+        <div className="print-company-identity">
+          <h1>{company.name}</h1>
+          <p>Vente matériel informatique, bureautiques &amp; consommable</p>
+          <p>Installation réseau informatique &amp; téléphonique conception logiciel &amp; site Web</p>
+          <div className="print-company-registration">
+            <span>RC N° : 15/00-524188A/16</span>
+            <span>Art. Imp : 15018236031</span>
+            <span>NIF : 198306340045040</span>
+          </div>
+          <div className="print-company-registration">
+            <span>RIB : 00500152400242521092</span>
+            <span>BDL. AGENCE BEJAIA PLAINE 152 CITE TOBBAI</span>
+          </div>
+          <p className="print-company-address">Adresse : Cité route Azib Ahmed, Izi Ouzou</p>
+          <strong className="print-company-phone">0772 023 970 / 0559 030 467</strong>
+        </div>
+      </header>
+
+      <div className="print-decorative-rule"><span /></div>
+
+      <section className="print-document-heading">
+        <div className="print-document-title">
+          <h2>{printableType}</h2>
+          <dl>
+            <div><dt>N° :</dt><dd>{record.number}</dd></div>
+            <div><dt>Date :</dt><dd>{displayedDate}</dd></div>
+          </dl>
+        </div>
+        <strong className="print-due-label">Doit :</strong>
+        <dl className="print-party-card">
+          <div><dt>Code {partyLabel.toLowerCase()} :</dt><dd>{partyCode}</dd></div>
+          <div><dt>{partyLabel} :</dt><dd>{record.party}</dd></div>
+          <div><dt>Adresse :</dt><dd>{partyAddress || "—"}</dd></div>
+        </dl>
+      </section>
+
+      <table className="print-lines-table">
+        <colgroup>
+          <col className="print-col-code" />
+          <col className="print-col-label" />
+          <col className="print-col-quantity" />
+          <col className="print-col-price" />
+          <col className="print-col-total" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>N° Article</th>
+            <th>Libellé article</th>
+            <th className="print-number-cell">Qté</th>
+            <th className="print-number-cell">Prix_HT</th>
+            <th className="print-number-cell">Sous_Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((line, index) => {
+            const lineSubtotal = line.quantity * line.unit_price * (1 - line.discount_percent / 100);
+            return (
+              <tr key={line.id ?? `${line.article_id}-${index}`}>
+                <td>{String(line.article_id || index + 1).padStart(5, "0")}</td>
+                <td><strong>{line.designation}</strong></td>
+                <td className="print-number-cell">{line.quantity}</td>
+                <td className="print-number-cell">{formatPrintAmount(line.unit_price)}</td>
+                <td className="print-number-cell"><strong>{formatPrintAmount(lineSubtotal)}</strong></td>
+              </tr>
+            );
+          })}
+          {!lines.length && (
+            <tr>
+              <td>00001</td>
+              <td><strong>{record.summary || record.type}</strong></td>
+              <td className="print-number-cell">1</td>
+              <td className="print-number-cell">{formatPrintAmount(subtotal)}</td>
+              <td className="print-number-cell"><strong>{formatPrintAmount(subtotal)}</strong></td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      <section className="print-document-bottom">
+        <div className="print-document-note">
+          <strong>Arrêté le présent document à la somme de :</strong>
+          <span>{formatDa(total)}</span>
+          <p>Merci pour votre confiance.</p>
+        </div>
+        <dl className="print-totals-card">
+          <div><dt>Sous-total HT</dt><dd>{formatDa(subtotal)}</dd></div>
+          <div><dt>Remise</dt><dd>- {formatDa(discountAmount)}</dd></div>
+          <div><dt>TVA</dt><dd>{formatDa(taxAmount)}</dd></div>
+          <div className="print-grand-total"><dt>Total TTC</dt><dd>{formatDa(total)}</dd></div>
+        </dl>
+      </section>
+
+      <section className="print-signatures">
+        <div><span>Le {partyLabel.toLowerCase()}</span><i /></div>
+        <div><span>{company.name}</span><i /></div>
+      </section>
+
+        <footer className="print-document-footer">
+          <span>{company.name}</span>
+          <span>{record.number}</span>
+          <span>Page 1</span>
+        </footer>
+      </article>
+    </div>,
+    document.body,
+  );
+}
+
 function PartyDetailsModal({
   party,
   kind,
@@ -1319,28 +1528,81 @@ function FinanceWorkspacePage({
   onEditTreasury: (entry: TreasuryEntry) => void;
   onDeleteTreasury: (entry: TreasuryEntry) => void;
 }) {
-  const [section, setSection] = useState<"charges" | "settlements" | "treasury">("charges");
+  const [section, setSection] = useState<"overview" | "charges" | "settlements" | "treasury">("overview");
   const filtered = entries.filter((entry) => `${entry.label} ${entry.category} ${entry.kind} ${entry.note}`.toLowerCase().includes(search.toLowerCase()));
   const expenses = entries.filter((entry) => entry.kind === "expense").reduce((total, entry) => total + entry.amount, 0);
   const charges = entries.filter((entry) => entry.kind === "charge").reduce((total, entry) => total + entry.amount, 0);
   const incoming = treasuryLedger.filter((row) => row.direction === "in").reduce((total, row) => total + row.amount, 0);
   const outgoing = treasuryLedger.filter((row) => row.direction === "out").reduce((total, row) => total + row.amount, 0);
   const settlementRows = parties.filter((party) => ("billed" in party ? party.billed : party.purchases) !== "0 DA" || party.paid !== "0 DA" || party.credit !== "0 DA");
+  const settlementTotal = parties.reduce((sum, party) => sum + numberFromDa("billed" in party ? party.billed : party.purchases), 0);
+  const settlementPaid = parties.reduce((sum, party) => sum + numberFromDa(party.paid), 0);
+  const settlementDue = parties.reduce((sum, party) => sum + numberFromDa(party.balance), 0);
+  const settlementCredits = parties.reduce((sum, party) => sum + numberFromDa(party.credit), 0);
+  const openSection = (nextSection: "charges" | "settlements" | "treasury") => {
+    setSearch("");
+    setSection(nextSection);
+  };
+  const sectionLabel = section === "charges"
+    ? "Charges et dépenses"
+    : section === "settlements"
+      ? "États des règlements"
+      : section === "treasury"
+        ? "Trésorerie"
+        : "Vue d’ensemble";
 
   return (
-    <section className="table-card finance-workspace">
+    <section className={`table-card finance-workspace ${section === "overview" ? "finance-overview" : "finance-detail"}`}>
       <div className="table-header">
-        <div className="table-title"><h1>Finance</h1><span>Charges, règlements et trésorerie</span></div>
+        <div className="table-title"><h1>Finance</h1><span>{section === "overview" ? "Vos chiffres essentiels en un coup d’œil" : sectionLabel}</span></div>
         <div className="table-actions">
           {section === "charges" && <button className="primary-button" onClick={onNewCharge}><Plus size={16} /> Nouvelle charge</button>}
           {section === "treasury" && <button className="primary-button" onClick={onNewTreasury}><Plus size={16} /> Nouvelle entrée / sortie</button>}
         </div>
       </div>
-      <div className="finance-section-tabs" role="tablist" aria-label="Sections finance">
-        <button className={section === "charges" ? "active" : ""} onClick={() => setSection("charges")} role="tab" aria-selected={section === "charges"}><ReceiptText size={16} /> Charges</button>
-        <button className={section === "settlements" ? "active" : ""} onClick={() => setSection("settlements")} role="tab" aria-selected={section === "settlements"}><Banknote size={16} /> États des règlements</button>
-        <button className={section === "treasury" ? "active" : ""} onClick={() => setSection("treasury")} role="tab" aria-selected={section === "treasury"}><WalletCards size={16} /> Trésorerie</button>
-      </div>
+
+      {section === "overview" && (
+        <div className="finance-hub">
+          <div className="finance-hub-heading">
+            <span>Centre financier</span>
+            <h2>Où souhaitez-vous aller&nbsp;?</h2>
+            <p>Chaque carte affiche l’indicateur le plus important. Cliquez dessus pour ouvrir son tableau détaillé et ses statistiques.</p>
+          </div>
+          <div className="finance-hub-grid">
+            <button type="button" className="finance-hub-card finance-card-charges" onClick={() => openSection("charges")}>
+              <span className="finance-card-top"><span className="finance-card-icon"><ReceiptText size={24} /></span><span className="finance-card-count">{entries.length} opération{entries.length === 1 ? "" : "s"}</span></span>
+              <span className="finance-card-copy"><small>Charges &amp; dépenses</small><strong>{formatDa(expenses + charges)}</strong><span>Total engagé</span></span>
+              <span className="finance-card-footer">Ouvrir le tableau <ArrowRight size={17} /></span>
+            </button>
+            <button type="button" className="finance-hub-card finance-card-treasury" onClick={() => openSection("treasury")}>
+              <span className="finance-card-top"><span className="finance-card-icon"><WalletCards size={24} /></span><span className="finance-card-count">{treasuryLedger.length} mouvement{treasuryLedger.length === 1 ? "" : "s"}</span></span>
+              <span className="finance-card-copy"><small>Trésorerie</small><strong>{formatDa(incoming - outgoing)}</strong><span>Solde disponible</span></span>
+              <span className="finance-card-footer">Ouvrir le journal <ArrowRight size={17} /></span>
+            </button>
+            <button type="button" className="finance-hub-card finance-card-settlements" onClick={() => openSection("settlements")}>
+              <span className="finance-card-top"><span className="finance-card-icon"><Banknote size={24} /></span><span className="finance-card-count">{settlementRows.length} compte{settlementRows.length === 1 ? "" : "s"}</span></span>
+              <span className="finance-card-copy"><small>Règlements</small><strong>{formatDa(settlementDue)}</strong><span>Reste à régler</span></span>
+              <span className="finance-card-footer">Voir les états <ArrowRight size={17} /></span>
+            </button>
+          </div>
+          <div className="finance-hub-footnote">
+            <span><i className="finance-dot finance-dot-in" /> Entrées {formatDa(incoming)}</span>
+            <span><i className="finance-dot finance-dot-out" /> Sorties {formatDa(outgoing)}</span>
+            <span><i className="finance-dot finance-dot-paid" /> Réglé {formatDa(settlementPaid)}</span>
+          </div>
+        </div>
+      )}
+
+      {section !== "overview" && (
+        <div className="finance-section-nav">
+          <button type="button" className="finance-back-button" onClick={() => { setSearch(""); setSection("overview"); }}><ArrowLeft size={16} /> Vue d’ensemble</button>
+          <div className="finance-section-tabs" role="tablist" aria-label="Sections finance">
+            <button className={section === "charges" ? "active" : ""} onClick={() => openSection("charges")} role="tab" aria-selected={section === "charges"}><ReceiptText size={16} /> Charges</button>
+            <button className={section === "treasury" ? "active" : ""} onClick={() => openSection("treasury")} role="tab" aria-selected={section === "treasury"}><WalletCards size={16} /> Trésorerie</button>
+            <button className={section === "settlements" ? "active" : ""} onClick={() => openSection("settlements")} role="tab" aria-selected={section === "settlements"}><Banknote size={16} /> Règlements</button>
+          </div>
+        </div>
+      )}
 
       {section === "charges" && (
         <>
@@ -1352,7 +1614,7 @@ function FinanceWorkspacePage({
 
       {section === "settlements" && (
         <>
-          <div className="finance-summary settlement-stats"><div><small>Total facturé / acheté</small><strong>{formatDa(parties.reduce((sum, party) => sum + numberFromDa("billed" in party ? party.billed : party.purchases), 0))}</strong></div><div><small>Total réglé</small><strong>{formatDa(parties.reduce((sum, party) => sum + numberFromDa(party.paid), 0))}</strong></div><div><small>À régler</small><strong>{formatDa(parties.reduce((sum, party) => sum + numberFromDa(party.balance), 0))}</strong></div><div><small>Crédits</small><strong>{formatDa(parties.reduce((sum, party) => sum + numberFromDa(party.credit), 0))}</strong></div></div>
+          <div className="finance-summary settlement-stats"><div><small>Total facturé / acheté</small><strong>{formatDa(settlementTotal)}</strong></div><div><small>Total réglé</small><strong>{formatDa(settlementPaid)}</strong></div><div><small>À régler</small><strong>{formatDa(settlementDue)}</strong></div><div><small>Crédits</small><strong>{formatDa(settlementCredits)}</strong></div></div>
           <div className="table-header finance-subheader"><div className="table-title"><h2>États des règlements</h2><span>Clients et fournisseurs</span></div></div>
           <div className="table-scroll"><table><thead><tr><th>Tiers</th><th>Type</th><th>Total</th><th>Réglé</th><th>À régler</th><th>Crédit</th><th>Statut</th><th /></tr></thead><tbody>{settlementRows.map((party) => { const kind = "billed" in party ? "client" : "supplier"; const total = numberFromDa("billed" in party ? party.billed : party.purchases); return <tr key={`${kind}-${party.id}`}><td><strong>{party.name}</strong></td><td>{kind === "client" ? "Client" : "Fournisseur"}</td><td className="number">{formatDa(total)}</td><td className="number">{party.paid}</td><td className="number">{party.balance}</td><td className="number positive-number">{party.credit}</td><td><StatusBadge label={party.status} tone={party.balance !== "0 DA" ? "orange" : "green"} /></td><td><div className="settlement-row-actions"><button type="button" className="icon-button" onClick={() => onViewParty(party, kind)} aria-label={`Voir la fiche de ${party.name}`}><Eye size={16} /></button><button type="button" className="cash-action" onClick={() => onSettleParty(party, kind)}><Banknote size={16} /><span>{party.balance === "0 DA" ? "Avance" : kind === "client" ? "Encaisser" : "Payer"}</span></button></div></td></tr>; })}{!settlementRows.length && <EmptyRow columns={8} />}</tbody></table></div>
         </>
@@ -1416,7 +1678,15 @@ function TreasuryEntryFormModal({ entry, onClose, onSaved }: { entry: TreasuryEn
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card compact-modal finance-form-modal" role="dialog" aria-modal="true" aria-labelledby="treasury-form-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}><div className="modal-header"><div><h2 id="treasury-form-title">{entry ? "Modifier le mouvement" : "Nouvelle entrée / sortie"}</h2><p>Ajoutez de l’argent ou enregistrez une sortie de trésorerie.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div><label className="field-label">Sens<select value={direction} onChange={(event) => setDirection(event.target.value as TreasuryEntry["direction"])}><option value="in">Entrée d’argent</option><option value="out">Sortie d’argent</option></select></label><label className="field-label">Libellé<input value={label} onChange={(event) => setLabel(event.target.value)} required placeholder="Apport, retrait, banque…" /></label><div className="form-grid"><label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Caisse, banque…" /></label><label className="field-label">Montant (DA)<input type="number" min="0.01" step="0.01" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value))} required /></label></div><label className="field-label">Date<input type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} required /></label><label className="field-label">Note (facultatif)<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div></form></div>;
 }
 
-function DocumentDetailsModal({ document, onClose }: { document: DocumentRecord; onClose: () => void }) {
+function DocumentDetailsModal({
+  document,
+  onClose,
+  onPrint,
+}: {
+  document: DocumentRecord;
+  onClose: () => void;
+  onPrint: () => void;
+}) {
   const lines = documentLinesFor(document);
   const subtotal = document.subtotal ?? lines.reduce((sum, line) => sum + line.quantity * line.unit_price, 0);
   const discountAmount = document.discountAmount ?? lines.reduce((sum, line) => sum + line.quantity * line.unit_price * line.discount_percent / 100, 0);
@@ -1431,7 +1701,10 @@ function DocumentDetailsModal({ document, onClose }: { document: DocumentRecord;
       <div className="modal-card document-detail-modal document-detail-wide" role="dialog" aria-modal="true" aria-labelledby="table-document-title" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-header">
           <div><h2 id="table-document-title">{document.number}</h2><p>{document.type} · {lines.length} ligne{lines.length === 1 ? "" : "s"}</p></div>
-          <button className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
+          <div className="document-detail-header-actions">
+            <button className="secondary-button" type="button" onClick={onPrint}><Printer size={16} /> Imprimer</button>
+            <button className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
+          </div>
         </div>
         <div className="document-preview-tile"><DocumentLogo type={document.type} tone={document.tone} /><div><strong>{document.party}</strong><span>{document.summary || "Document commercial"}</span></div><StatusBadge label={document.status} tone={document.tone} /></div>
         <dl className="document-detail-grid document-detail-summary">
@@ -1468,6 +1741,235 @@ function DocumentDetailsModal({ document, onClose }: { document: DocumentRecord;
   );
 }
 
+function CategoryManagerModal({
+  initialArticles,
+  onClose,
+  onChanged,
+  notify,
+}: {
+  initialArticles: ArticleRecord[];
+  onClose: () => void;
+  onChanged: () => void;
+  notify: (message: string) => void;
+}) {
+  const [articles, setArticles] = useState(initialArticles);
+  const [editing, setEditing] = useState<CategoryEditTarget | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const [busyKey, setBusyKey] = useState("");
+  const [error, setError] = useState("");
+  const [collapsedBranches, setCollapsedBranches] = useState<Set<string>>(() => new Set());
+  const tree = categoryTreeForArticles(articles);
+  const levelTwoCount = tree.reduce((total, category) => total + category.subcategories.length, 0);
+  const levelThreeCount = tree.reduce(
+    (total, category) => total + category.subcategories.reduce((subtotal, subcategory) => subtotal + subcategory.subcategories.length, 0),
+    0,
+  );
+  const branchKeys = tree.flatMap((category) => [
+    `1:${category.name}`,
+    ...category.subcategories
+      .filter((subcategory) => subcategory.subcategories.length > 0)
+      .map((subcategory) => `2:${category.name}:${subcategory.name}`),
+  ]);
+
+  const toggleBranch = (key: string) => {
+    setCollapsedBranches((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const articleCountFor = (target: CategoryEditTarget) => articles.filter((article) => {
+    if (article.category !== target.category) return false;
+    if (target.level >= 2 && article.subcategory !== target.currentName && target.level === 2) return false;
+    if (target.level === 3 && (article.subcategory !== target.subcategory || article.subsubcategory !== target.currentName)) return false;
+    return true;
+  }).length;
+
+  const refreshArticles = async () => {
+    const response = await fetch("/api/articles", { cache: "no-store" });
+    const payload = await response.json() as { articles?: ArticleRecord[]; error?: string };
+    if (!response.ok) throw new Error(payload.error || "Impossible de recharger les catégories.");
+    setArticles(payload.articles ?? []);
+    onChanged();
+  };
+
+  const startEditing = (target: CategoryEditTarget) => {
+    setEditing(target);
+    setDraftName(target.currentName);
+    setError("");
+  };
+
+  const saveRename = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editing) return;
+    const nextName = draftName.trim();
+    if (!nextName) {
+      setError("Le nom de la catégorie est obligatoire.");
+      return;
+    }
+    setBusyKey(editing.key);
+    setError("");
+    try {
+      const response = await fetch("/api/categories", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...editing, nextName }),
+      });
+      const payload = await response.json() as { updated?: number; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Impossible de renommer la catégorie.");
+      const previousName = editing.currentName;
+      setEditing(null);
+      await refreshArticles();
+      notify(`« ${previousName} » renommée en « ${nextName} » sur ${payload.updated ?? 0} article${payload.updated === 1 ? "" : "s"}`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Impossible de renommer la catégorie.");
+    } finally {
+      setBusyKey("");
+    }
+  };
+
+  const deleteCategory = async (target: CategoryEditTarget) => {
+    const count = articleCountFor(target);
+    const consequence = target.level === 1
+      ? "Les articles concernés passeront dans « Non classée »."
+      : target.level === 2
+        ? "La sous-catégorie et le niveau 3 seront retirés des articles concernés."
+        : "Le niveau 3 sera retiré des articles concernés.";
+    if (!window.confirm(`Supprimer « ${target.currentName} » ?\n\n${consequence}\n${count} article${count === 1 ? "" : "s"} concerné${count === 1 ? "" : "s"}.`)) return;
+    setBusyKey(target.key);
+    setError("");
+    try {
+      const response = await fetch("/api/categories", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(target),
+      });
+      const payload = await response.json() as { updated?: number; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Impossible de supprimer la catégorie.");
+      await refreshArticles();
+      notify(`« ${target.currentName} » supprimée · ${payload.updated ?? 0} article${payload.updated === 1 ? "" : "s"} reclassé${payload.updated === 1 ? "" : "s"}`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Impossible de supprimer la catégorie.");
+    } finally {
+      setBusyKey("");
+    }
+  };
+
+  const renderNode = (
+    target: CategoryEditTarget,
+    count: number,
+    options?: { hasChildren: boolean; expanded: boolean; onToggle: () => void },
+  ) => {
+    const isEditing = editing?.key === target.key;
+    const isSystem = target.level === 1 && normalizeLabel(target.currentName) === normalizeLabel("Non classée");
+    const NodeIcon = target.level === 1 ? Folder : target.level === 2 ? Boxes : Grid2X2;
+    return (
+      <div
+        className={`category-manager-node category-level-${target.level}`}
+        key={target.key}
+        role="treeitem"
+        aria-level={target.level}
+        aria-expanded={options?.hasChildren ? options.expanded : undefined}
+        aria-selected={isEditing}
+      >
+        {options?.hasChildren ? (
+          <button type="button" className={`category-tree-toggle ${options.expanded ? "expanded" : ""}`} onClick={options.onToggle} aria-label={`${options.expanded ? "Replier" : "Déplier"} ${target.currentName}`}><ChevronDown size={15} /></button>
+        ) : (
+          <span className="category-tree-leaf" aria-hidden="true" />
+        )}
+        <span className="category-manager-node-icon"><NodeIcon size={16} /></span>
+        {isEditing ? (
+          <form className="category-rename-form" onSubmit={saveRename}>
+            <label>
+              <span>Renommer</span>
+              <input autoFocus value={draftName} onChange={(event) => setDraftName(event.target.value)} aria-label={`Nouveau nom pour ${target.currentName}`} />
+            </label>
+            <button type="submit" className="icon-button category-save-button" disabled={busyKey === target.key} aria-label="Enregistrer le nouveau nom"><Save size={16} /></button>
+            <button type="button" className="icon-button" onClick={() => setEditing(null)} disabled={busyKey === target.key} aria-label="Annuler le renommage"><X size={16} /></button>
+          </form>
+        ) : (
+          <>
+            <span className="category-manager-node-copy"><small>Niveau {target.level}</small><strong>{target.currentName}</strong></span>
+            <span className="category-usage-count">{count} article{count === 1 ? "" : "s"}</span>
+            {isSystem ? (
+              <span className="category-system-label">Catégorie système</span>
+            ) : (
+              <span className="category-manager-actions">
+                <button type="button" className="icon-button" onClick={() => startEditing(target)} disabled={Boolean(busyKey)} aria-label={`Modifier ${target.currentName}`} title="Modifier"><Pencil size={15} /></button>
+                <button type="button" className="icon-button danger-text" onClick={() => void deleteCategory(target)} disabled={Boolean(busyKey)} aria-label={`Supprimer ${target.currentName}`} title="Supprimer"><Trash2 size={15} /></button>
+              </span>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="modal-backdrop category-manager-backdrop" role="presentation" onMouseDown={onClose}>
+      <div className="modal-card expanded-modal category-manager-modal" role="dialog" aria-modal="true" aria-labelledby="category-manager-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-header">
+          <div><h2 id="category-manager-title">Catégories disponibles</h2><p>Consultez, renommez ou supprimez les trois niveaux du catalogue.</p></div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
+        </div>
+        <div className="category-manager-summary">
+          <div><small>Niveau 1</small><strong>{tree.length}</strong><span>catégories</span></div>
+          <div><small>Niveau 2</small><strong>{levelTwoCount}</strong><span>sous-catégories</span></div>
+          <div><small>Niveau 3</small><strong>{levelThreeCount}</strong><span>familles</span></div>
+        </div>
+        <p className="category-manager-note"><CircleHelp size={15} /> Un renommage s’applique à tous les articles concernés. Une suppression conserve les articles mais retire leur classement à ce niveau.</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="category-tree-toolbar">
+          <div><strong>Arborescence du catalogue</strong><span>Catégorie → Sous-catégorie → Niveau 3</span></div>
+          <div>
+            <button type="button" onClick={() => setCollapsedBranches(new Set())}>Tout déplier</button>
+            <button type="button" onClick={() => setCollapsedBranches(new Set(branchKeys))}>Tout replier</button>
+          </div>
+        </div>
+        <div className="category-manager-tree" role="tree" aria-label="Arborescence des catégories">
+          {tree.map((category) => {
+            const categoryTarget: CategoryEditTarget = { key: `1:${category.name}`, level: 1, category: category.name, subcategory: "", currentName: category.name };
+            const categoryCount = articles.filter((article) => article.category === category.name).length;
+            const categoryExpanded = !collapsedBranches.has(categoryTarget.key);
+            return (
+              <section className="category-manager-branch" key={category.name}>
+                {renderNode(categoryTarget, categoryCount, { hasChildren: category.subcategories.length > 0, expanded: categoryExpanded, onToggle: () => toggleBranch(categoryTarget.key) })}
+                {categoryExpanded && category.subcategories.length > 0 && (
+                  <div className="category-manager-children" role="group">
+                    {category.subcategories.map((subcategory) => {
+                      const subcategoryTarget: CategoryEditTarget = { key: `2:${category.name}:${subcategory.name}`, level: 2, category: category.name, subcategory: "", currentName: subcategory.name };
+                      const subcategoryCount = articles.filter((article) => article.category === category.name && article.subcategory === subcategory.name).length;
+                      const subcategoryExpanded = !collapsedBranches.has(subcategoryTarget.key);
+                      return (
+                        <div className="category-manager-subbranch" key={subcategory.name}>
+                          {renderNode(subcategoryTarget, subcategoryCount, { hasChildren: subcategory.subcategories.length > 0, expanded: subcategoryExpanded, onToggle: () => toggleBranch(subcategoryTarget.key) })}
+                          {subcategoryExpanded && subcategory.subcategories.length > 0 && (
+                            <div className="category-manager-grandchildren" role="group">
+                              {subcategory.subcategories.map((thirdLevel) => {
+                                const thirdTarget: CategoryEditTarget = { key: `3:${category.name}:${subcategory.name}:${thirdLevel}`, level: 3, category: category.name, subcategory: subcategory.name, currentName: thirdLevel };
+                                const thirdCount = articles.filter((article) => article.category === category.name && article.subcategory === subcategory.name && article.subsubcategory === thirdLevel).length;
+                                return renderNode(thirdTarget, thirdCount, { hasChildren: false, expanded: false, onToggle: () => undefined });
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+          {!tree.length && <div className="category-manager-empty"><Folder size={22} /><span>Aucune catégorie disponible.</span></div>}
+        </div>
+        <div className="modal-actions"><button type="button" className="primary-button" onClick={onClose}>Terminé</button></div>
+      </div>
+    </div>
+  );
+}
+
 function ArticlesTable({
   search,
   setSearch,
@@ -1496,6 +1998,7 @@ function ArticlesTable({
   });
   const [reloadKey, setReloadKey] = useState(0);
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
   const loading = request.loadedKey !== reloadKey;
 
   useEffect(() => {
@@ -1554,6 +2057,7 @@ function ArticlesTable({
         <div className="table-actions">
           <label className="search-control"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nom, référence, catégorie…" aria-label="Rechercher dans le catalogue" />{search && <button type="button" aria-label="Effacer la recherche" onClick={() => setSearch("")}><X size={14} /></button>}</label>
           <label className="compact-select article-category-select"><span>Catégorie</span><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} aria-label="Filtrer par catégorie"><option value="all">Toutes</option>{categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
+          <button type="button" className="secondary-button category-manager-button" onClick={() => setCategoryManagerOpen(true)} disabled={loading || Boolean(request.error)}><Folder size={16} /> Catégories</button>
           <button className={`filter-button ${filterActive ? "active" : ""}`} onClick={() => setFilterActive(!filterActive)} aria-pressed={filterActive}><SlidersHorizontal size={16} /><span>{filterActive ? "Stock faible" : "Filtrer"}</span></button>
           <div className="view-toggle" aria-label="Mode d’affichage"><button className={viewMode === "grid" ? "active" : ""} onClick={() => setViewMode("grid")} aria-pressed={viewMode === "grid"}><Grid2X2 size={15} /> Grille</button><button className={viewMode === "list" ? "active" : ""} onClick={() => setViewMode("list")} aria-pressed={viewMode === "list"}><List size={15} /> Liste</button></div>
         </div>
@@ -1584,6 +2088,7 @@ function ArticlesTable({
           {!filtered.length && <EmptyRow columns={8} />}
         </tbody></table></div>
       )}
+      {categoryManagerOpen && <CategoryManagerModal initialArticles={request.rows} onClose={() => setCategoryManagerOpen(false)} onChanged={() => { setCategoryFilter("all"); setReloadKey((value) => value + 1); }} notify={notify} />}
     </section>
   );
 }
@@ -1606,6 +2111,7 @@ function DocumentsTable({
   onDuplicate,
   onReturn,
   onConvertQuote,
+  onPrint,
 }: {
   page: "purchases" | "sales";
   rows: DocumentRecord[];
@@ -1624,6 +2130,7 @@ function DocumentsTable({
   onDuplicate: (row: DocumentRecord) => void;
   onReturn: (row: DocumentRecord) => void;
   onConvertQuote: (row: DocumentRecord) => Promise<void> | void;
+  onPrint: (row: DocumentRecord) => void;
 }) {
   const closedStatuses = ["Payée", "Livré", "Reçu", "Traité", "Validé"];
   const filtered = rows.filter((row) => {
@@ -1650,10 +2157,23 @@ function DocumentsTable({
               <td>{row.date}</td>
               <td className={`number ${row.amount.startsWith("-") ? "negative-number" : ""}`}>{row.amount}</td>
               <td><StatusBadge label={row.status} tone={row.tone} /></td>
-              <td><RowActions label={row.number} notify={notify} onOpen={() => onOpen(row)} onEdit={() => onEdit(row)} onDuplicate={() => onDuplicate(row)} onDelete={() => onDelete(row.number)} extraActions={[
-                ...(row.type === "Devis" ? [{ label: "Créer la facture", icon: FileCheck2, onClick: () => { void Promise.resolve(onConvertQuote(row)).catch((error) => notify(error instanceof Error ? error.message : "Impossible de créer la facture.")); } }] : []),
-                ...((row.type === "Bon de livraison" || row.type === "Bon de réception" || row.type === "Facture") && row.articleId && (row.quantity ?? 1) > (row.returnedQuantity ?? 0) ? [{ label: "Créer un retour", icon: RotateCcw, onClick: () => onReturn(row) }] : []),
-              ]} /></td>
+              <td>
+                <div className="document-row-actions">
+                  <button
+                    className="icon-button document-print-button"
+                    type="button"
+                    onClick={() => onPrint(row)}
+                    aria-label={`Imprimer ${row.number}`}
+                    title={`Imprimer ${row.number}`}
+                  >
+                    <Printer size={16} />
+                  </button>
+                  <RowActions label={row.number} notify={notify} onOpen={() => onOpen(row)} onEdit={() => onEdit(row)} onDuplicate={() => onDuplicate(row)} onDelete={() => onDelete(row.number)} extraActions={[
+                    ...(row.type === "Devis" ? [{ label: "Créer la facture", icon: FileCheck2, onClick: () => { void Promise.resolve(onConvertQuote(row)).catch((error) => notify(error instanceof Error ? error.message : "Impossible de créer la facture.")); } }] : []),
+                    ...((row.type === "Bon de livraison" || row.type === "Bon de réception" || row.type === "Facture") && row.articleId && (row.quantity ?? 1) > (row.returnedQuantity ?? 0) ? [{ label: "Créer un retour", icon: RotateCcw, onClick: () => onReturn(row) }] : []),
+                  ]} />
+                </div>
+              </td>
             </tr>
           ))}
           {!filtered.length && <EmptyRow columns={7} />}
@@ -2195,9 +2715,8 @@ function DocumentEditor({
   };
 
   const removeLine = (key: string) => {
-    setLines((rows) => rows.length === 1
-      ? [emptyDocumentLine(rows[0].key)]
-      : rows.filter((line) => line.key !== key));
+    setLines((rows) => rows.filter((line) => line.key !== key));
+    setActiveArticleLine((activeKey) => activeKey === key ? null : activeKey);
   };
 
   const selectArticle = (key: string, article: ArticleRecord) => {
@@ -2561,7 +3080,8 @@ function SimpleDocumentEditor({
   };
 
   const removeLine = (key: string) => {
-    setLines((rows) => rows.length === 1 ? [emptyDocumentLine(rows[0].key)] : rows.filter((line) => line.key !== key));
+    setLines((rows) => rows.filter((line) => line.key !== key));
+    setSubmitError("");
   };
 
   const lineTotal = (line: DocumentDraftLine) => {
@@ -2688,9 +3208,17 @@ function SimpleDocumentEditor({
                 <td><input type="number" min="0" max="100" step="0.01" value={line.discountPercent} onChange={(event) => updateLine(line.key, { discountPercent: Number(event.target.value) })} aria-label={`Remise ligne ${index + 1}`} /></td>
                 <td><input type="number" min="0" max="100" step="0.01" value={line.taxRate} onChange={(event) => updateLine(line.key, { taxRate: Number(event.target.value) })} aria-label={`TVA ligne ${index + 1}`} /></td>
                 <td className="pure-line-total">{formatDa(lineTotal(line))}</td>
-                <td><button type="button" className="pure-delete-line" onClick={() => removeLine(line.key)} aria-label={`Supprimer la ligne ${index + 1}`}><Trash2 size={14} /></button></td>
+                <td><button type="button" className="pure-delete-line" onClick={() => removeLine(line.key)} aria-label={`Supprimer la ligne ${index + 1}`} title="Supprimer cette ligne"><Trash2 size={15} /></button></td>
               </tr>
             ))}
+            {!lines.length && (
+              <tr className="pure-empty-lines-row">
+                <td colSpan={10}>
+                  <span>Aucune ligne dans ce document.</span>
+                  <small>Sélectionnez un article dans la barre du haut, puis cliquez sur « + ligne ».</small>
+                </td>
+              </tr>
+            )}
           </tbody>
           <tfoot>
             {(articleRequest.error || submitError) && <tr className="pure-error-row"><td colSpan={10}>{articleRequest.error || submitError}</td></tr>}
@@ -3275,7 +3803,8 @@ export default function WorkspaceApp() {
   const [partyDetails, setPartyDetails] = useState<{ party: PartyRow; kind: "client" | "supplier" } | null>(null);
   const [partyEditor, setPartyEditor] = useState<{ party: PartyRow; kind: "client" | "supplier" } | null>(null);
   const [settlementContext, setSettlementContext] = useState<{ party: PartyRow; kind: "client" | "supplier" } | null>(null);
-  const [documentDetails, setDocumentDetails] = useState<DocumentRecord | null>(null);
+  const [documentDetails, setDocumentDetails] = useState<DocumentContext | null>(null);
+  const [printContext, setPrintContext] = useState<DocumentContext | null>(null);
   const [financeEntryEditor, setFinanceEntryEditor] = useState<FinanceEntry | "new" | null>(null);
   const [financeEntryDetails, setFinanceEntryDetails] = useState<FinanceEntry | null>(null);
   const [treasuryEntryEditor, setTreasuryEntryEditor] = useState<TreasuryEntry | "new" | null>(null);
@@ -3721,6 +4250,17 @@ export default function WorkspaceApp() {
   const currentSettlementParty = settlementContext
     ? (settlementContext.kind === "client" ? clients : suppliers).find((party) => party.id === settlementContext.party.id) ?? settlementContext.party
     : null;
+  const printableContextFor = (
+    direction: DocumentContext["direction"],
+    document: DocumentRecord,
+  ): DocumentContext => {
+    const parties = direction === "purchases" ? suppliers : clients;
+    const party = parties.find((row) =>
+      document.partyId ? row.id === document.partyId : row.name === document.party,
+    );
+    const partyAddress = [party?.address, party?.city].filter(Boolean).join(", ");
+    return { direction, document, partyAddress };
+  };
 
   return (
     <div className="app-shell">
@@ -3799,9 +4339,9 @@ export default function WorkspaceApp() {
           {page === "dashboard" && <Dashboard onViewSales={() => navigate("sales")} purchases={purchases} sales={sales} />}
           {page === "clients" && <ClientsTable rows={clients} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(party) => setPartyDetails({ party, kind: "client" })} onEdit={(party) => setPartyEditor({ party, kind: "client" })} onDuplicate={(party) => { void duplicatePartyRecord(party, "client").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le client.")); }} onSettle={(party) => setSettlementContext({ party, kind: "client" })} onDelete={(name) => { const party = clients.find((row) => row.name === name); if (party) void deletePartyRecord(party, "client").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le client.")); }} />}
           {page === "suppliers" && <SuppliersTable rows={suppliers} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(party) => setPartyDetails({ party, kind: "supplier" })} onEdit={(party) => setPartyEditor({ party, kind: "supplier" })} onDuplicate={(party) => { void duplicatePartyRecord(party, "supplier").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le fournisseur.")); }} onSettle={(party) => setSettlementContext({ party, kind: "supplier" })} onDelete={(name) => { const party = suppliers.find((row) => row.name === name); if (party) void deletePartyRecord(party, "supplier").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le fournisseur.")); }} />}
-          {page === "articles" && <ArticlesTable search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode="grid" setViewMode={setViewMode} notify={notify} refreshKey={catalogVersion} onEdit={(article) => setArticleEditor(article)} />}
-          {page === "purchases" && <DocumentsTable page="purchases" rows={purchases} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={setDocumentDetails} onEdit={(document) => setDocumentEditorContext({ direction: "purchases", document })} onDuplicate={(document) => { void duplicateDocumentRecord(document, "purchases").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le document.")); }} onDelete={(number) => { const document = purchases.find((row) => row.number === number); if (document) void deleteDocumentRecord(document, "purchases").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le document.")); }} onReturn={(document) => setReturnContext({ direction: "purchases", document })} onConvertQuote={(quote) => convertQuoteToInvoice("purchases", quote)} />}
-          {page === "sales" && <DocumentsTable page="sales" rows={sales} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={setDocumentDetails} onEdit={(document) => setDocumentEditorContext({ direction: "sales", document })} onDuplicate={(document) => { void duplicateDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le document.")); }} onDelete={(number) => { const document = sales.find((row) => row.number === number); if (document) void deleteDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le document.")); }} onReturn={(document) => setReturnContext({ direction: "sales", document })} onConvertQuote={(quote) => convertQuoteToInvoice("sales", quote)} />}
+          {page === "articles" && <ArticlesTable search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} refreshKey={catalogVersion} onEdit={(article) => setArticleEditor(article)} />}
+          {page === "purchases" && <DocumentsTable page="purchases" rows={purchases} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(document) => setDocumentDetails(printableContextFor("purchases", document))} onPrint={(document) => setPrintContext(printableContextFor("purchases", document))} onEdit={(document) => setDocumentEditorContext({ direction: "purchases", document })} onDuplicate={(document) => { void duplicateDocumentRecord(document, "purchases").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le document.")); }} onDelete={(number) => { const document = purchases.find((row) => row.number === number); if (document) void deleteDocumentRecord(document, "purchases").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le document.")); }} onReturn={(document) => setReturnContext({ direction: "purchases", document })} onConvertQuote={(quote) => convertQuoteToInvoice("purchases", quote)} />}
+          {page === "sales" && <DocumentsTable page="sales" rows={sales} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(document) => setDocumentDetails(printableContextFor("sales", document))} onPrint={(document) => setPrintContext(printableContextFor("sales", document))} onEdit={(document) => setDocumentEditorContext({ direction: "sales", document })} onDuplicate={(document) => { void duplicateDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le document.")); }} onDelete={(number) => { const document = sales.find((row) => row.number === number); if (document) void deleteDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le document.")); }} onReturn={(document) => setReturnContext({ direction: "sales", document })} onConvertQuote={(quote) => convertQuoteToInvoice("sales", quote)} />}
           {page === "finance" && <FinanceWorkspacePage entries={financeEntries} parties={[...clients, ...suppliers]} treasuryLedger={treasuryLedger} search={search} setSearch={setSearch} onNewCharge={() => setFinanceEntryEditor("new")} onViewCharge={setFinanceEntryDetails} onEditCharge={(entry) => setFinanceEntryEditor(entry)} onDeleteCharge={(entry) => { void deleteFinanceEntryRecord(entry); }} onViewParty={(party, kind) => setPartyDetails({ party, kind })} onSettleParty={(party, kind) => setSettlementContext({ party, kind })} onNewTreasury={() => setTreasuryEntryEditor("new")} onEditTreasury={(entry) => setTreasuryEntryEditor(entry)} onDeleteTreasury={(entry) => { void deleteTreasuryEntryRecord(entry); }} />}
           {page === "documents" && <DocumentsLibrary purchases={purchases} sales={sales} search={search} setSearch={setSearch} viewMode={viewMode} setViewMode={setViewMode} />}
           {page === "settings" && <SettingsPage company={company} onSave={persistCompanySettings} notify={notify} />}
@@ -3840,7 +4380,8 @@ export default function WorkspaceApp() {
       )}
       {partyEditor && <PartyEditorModal party={partyEditor.party} kind={partyEditor.kind} onClose={() => setPartyEditor(null)} onSaved={(party) => { if (partyEditor.kind === "client") setClients((rows) => rows.map((row) => row.id === party.id ? toClientRecord(party) : row)); else setSuppliers((rows) => rows.map((row) => row.id === party.id ? toSupplierRecord(party) : row)); setPartyEditor(null); notify("Tiers mis à jour"); }} />}
       {settlementContext && currentSettlementParty && <SettlementModal party={currentSettlementParty} kind={settlementContext.kind} onClose={() => setSettlementContext(null)} onSaved={() => { setSettlementContext(null); setPartyVersion((value) => value + 1); setFinanceVersion((value) => value + 1); notify("Règlement enregistré"); }} />}
-      {documentDetails && <DocumentDetailsModal document={documentDetails} onClose={() => setDocumentDetails(null)} />}
+      {documentDetails && <DocumentDetailsModal document={documentDetails.document} onClose={() => setDocumentDetails(null)} onPrint={() => setPrintContext(documentDetails)} />}
+      {printContext && <PrintableDocument company={company} context={printContext} onClose={() => setPrintContext(null)} />}
       {financeEntryEditor && <FinanceEntryFormModal entry={financeEntryEditor === "new" ? null : financeEntryEditor} onClose={() => setFinanceEntryEditor(null)} onSaved={(entry) => { setFinanceEntries((rows) => financeEntryEditor === "new" ? [entry, ...rows] : rows.map((row) => row.id === entry.id ? entry : row)); setFinanceEntryEditor(null); setFinanceVersion((value) => value + 1); notify("Charge enregistrée"); }} />}
       {financeEntryDetails && <FinanceEntryDetailsModal entry={financeEntryDetails} onClose={() => setFinanceEntryDetails(null)} />}
       {treasuryEntryEditor && <TreasuryEntryFormModal entry={treasuryEntryEditor === "new" ? null : treasuryEntryEditor} onClose={() => setTreasuryEntryEditor(null)} onSaved={() => { setTreasuryEntryEditor(null); setFinanceVersion((value) => value + 1); notify("Mouvement de trésorerie enregistré"); }} />}
