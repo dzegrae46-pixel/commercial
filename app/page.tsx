@@ -1,8 +1,10 @@
 "use client";
 
 import {
+  ArrowLeft,
   ArrowDownRight,
   BarChart3,
+  Banknote,
   Bell,
   Boxes,
   Building2,
@@ -64,6 +66,7 @@ type ViewMode = "list" | "grid";
 type CompanySettings = {
   name: string;
   logoDataUrl: string;
+  defaultTaxRate: number;
 };
 
 type ClientRecord = {
@@ -74,12 +77,16 @@ type ClientRecord = {
   contact: string;
   email: string;
   billed: string;
+  paid: string;
+  credit: string;
   balance: string;
   status: string;
   activity: string;
   contactName?: string;
   address?: string;
   city?: string;
+  headOffice?: string;
+  category?: string;
   nif?: string;
   nis?: string;
   rc?: string;
@@ -93,6 +100,8 @@ type SupplierRecord = {
   contact: string;
   category: string;
   purchases: string;
+  paid: string;
+  credit: string;
   balance: string;
   status: string;
   contactName?: string;
@@ -100,6 +109,9 @@ type SupplierRecord = {
   address?: string;
   city?: string;
   headOffice?: string;
+  nif?: string;
+  nis?: string;
+  rc?: string;
 };
 
 type DocumentRecord = {
@@ -124,9 +136,18 @@ type DocumentRecord = {
   showFullDescription?: boolean;
   returnedQuantity?: number;
   sourceDocumentId?: number;
+  partyId?: number;
+  rawDate?: string;
+  subtotal?: number;
+  discountAmount?: number;
+  taxAmount?: number;
+  total?: number;
+  lines?: ApiDocumentLine[];
 };
 
 type ApiDocumentLine = {
+  id?: number;
+  document_id?: number;
   article_id: number;
   designation: string;
   description: string;
@@ -136,6 +157,7 @@ type ApiDocumentLine = {
   discount_percent: number;
   tax_rate: number;
   line_total: number;
+  image_url?: string;
 };
 
 type ApiDocumentRecord = {
@@ -144,12 +166,17 @@ type ApiDocumentRecord = {
   direction: "purchases" | "sales";
   type: "quote" | "order" | "delivery" | "invoice" | "return";
   type_label: string;
+  party_id?: number | null;
   party_name: string;
   source_document_id: number | null;
   source_document_number: string;
   document_date: string;
   status: string;
   show_description: number;
+  subtotal: number;
+  discount_amount: number;
+  tax_rate: number;
+  tax_amount: number;
   total: number;
   lines?: ApiDocumentLine[];
 };
@@ -169,8 +196,21 @@ type ApiPartyRecord = {
   nis: string;
   rc: string;
   billed: number;
+  paid?: number;
+  credit?: number;
   balance: number;
   status: string;
+};
+
+type PaymentRecord = {
+  id: number;
+  party_id: number;
+  direction: "incoming" | "outgoing";
+  amount: number;
+  payment_date: string;
+  method: string;
+  note: string;
+  created_at: string;
 };
 
 type FinanceEntry = {
@@ -182,6 +222,24 @@ type FinanceEntry = {
   entry_date: string;
   status: string;
   note: string;
+};
+
+type TreasuryLedgerRow = {
+  id: string;
+  source: "manual" | "payment" | "finance";
+  source_id: number;
+  direction: "in" | "out";
+  label: string;
+  category: string;
+  amount: number;
+  entry_date: string;
+  note: string;
+  party_id: number | null;
+  editable: boolean;
+};
+
+type TreasuryEntry = Omit<TreasuryLedgerRow, "id" | "source" | "source_id" | "party_id" | "editable"> & {
+  id: number;
 };
 
 type LibraryRecord = Omit<DocumentRecord, "id"> & {
@@ -244,6 +302,23 @@ type CreatePayload = {
   taxRate?: number;
   documentDate?: string;
   total?: number;
+  partyId?: number;
+  documentId?: number;
+  lines?: DocumentDraftLine[];
+};
+
+type DocumentDraftLine = {
+  key: string;
+  articleId: number | null;
+  articleQuery: string;
+  designation: string;
+  description: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  discountPercent: number;
+  taxRate: number;
+  stock: number | null;
 };
 
 const pageMeta: Record<PageKey, { label: string; subtitle: string; icon: LucideIcon }> = {
@@ -372,7 +447,7 @@ const libraryTabs: { value: LibraryCategory; label: string; icon: LucideIcon }[]
   { value: "returns", label: "Retours", icon: ArrowDownRight },
 ];
 
-const DEFAULT_COMPANY: CompanySettings = { name: "Axxam", logoDataUrl: "" };
+const DEFAULT_COMPANY: CompanySettings = { name: "Axxam", logoDataUrl: "", defaultTaxRate: 0 };
 const COMPANY_STORAGE_KEY = "axxam-company-settings";
 const COMPANY_CHANGE_EVENT = "axxam-company-settings-change";
 
@@ -405,6 +480,9 @@ const readCompanySettings = (): CompanySettings => {
       logoDataUrl: typeof stored.logoDataUrl === "string" && stored.logoDataUrl.startsWith("data:image/")
         ? stored.logoDataUrl
         : "",
+      defaultTaxRate: typeof stored.defaultTaxRate === "number" && Number.isFinite(stored.defaultTaxRate)
+        ? Math.min(100, Math.max(0, stored.defaultTaxRate))
+        : DEFAULT_COMPANY.defaultTaxRate,
     };
   } catch {
     companyCache = DEFAULT_COMPANY;
@@ -426,6 +504,7 @@ const persistCompanySettings = (nextSettings: CompanySettings) => {
   const cleaned: CompanySettings = {
     name: nextSettings.name.trim().slice(0, 40) || DEFAULT_COMPANY.name,
     logoDataUrl: nextSettings.logoDataUrl.startsWith("data:image/") ? nextSettings.logoDataUrl : "",
+    defaultTaxRate: Math.min(100, Math.max(0, Number(nextSettings.defaultTaxRate) || 0)),
   };
   const serialized = JSON.stringify(cleaned);
 
@@ -489,17 +568,22 @@ const displayDocumentType = (document: ApiDocumentRecord) =>
     : document.type_label;
 
 const toDocumentRecord = (document: ApiDocumentRecord): DocumentRecord => {
-  const line = document.lines?.[0];
+  const lines = document.lines ?? [];
+  const line = lines[0];
   const type = displayDocumentType(document);
   const summary = line
-    ? `${line.quantity} ${line.unit || "unité"} × ${line.designation}${document.show_description && line.description ? ` · ${line.description}` : ""}`
+    ? lines.length > 1
+      ? `${lines.length} articles · ${line.designation} + ${lines.length - 1}`
+      : `${line.quantity} ${line.unit || "unité"} × ${line.designation}${document.show_description && line.description ? ` · ${line.description}` : ""}`
     : undefined;
 
   return {
     id: document.id,
+    partyId: document.party_id ?? undefined,
     number: document.number,
     party: document.party_name,
     type,
+    rawDate: document.document_date,
     date: formatDocumentDate(document.document_date),
     amount: `${document.type === "return" ? "-" : ""}${formatDa(document.total)}`,
     status: document.type === "return" ? "Traité" : document.status,
@@ -516,6 +600,11 @@ const toDocumentRecord = (document: ApiDocumentRecord): DocumentRecord => {
     sourceDocument: document.source_document_number || undefined,
     sourceDocumentId: document.source_document_id ?? undefined,
     showFullDescription: Boolean(document.show_description),
+    subtotal: document.subtotal,
+    discountAmount: document.discount_amount,
+    taxAmount: document.tax_amount,
+    total: document.total,
+    lines,
   };
 };
 
@@ -540,10 +629,14 @@ const toClientRecord = (party: ApiPartyRecord): ClientRecord => ({
   contactName: party.contact_name || undefined,
   address: party.address || undefined,
   city: party.city || undefined,
+  headOffice: party.head_office || undefined,
+  category: party.category || undefined,
   nif: party.nif || undefined,
   nis: party.nis || undefined,
   rc: party.rc || undefined,
   billed: formatDa(party.billed ?? 0),
+  paid: formatDa(party.paid ?? 0),
+  credit: formatDa(party.credit ?? 0),
   balance: formatDa(party.balance ?? 0),
   status: party.status ?? "À jour",
   activity: party.balance > 0 ? "Règlement attendu" : "À jour",
@@ -560,8 +653,13 @@ const toSupplierRecord = (party: ApiPartyRecord): SupplierRecord => ({
   address: party.address || undefined,
   city: party.city || undefined,
   headOffice: party.head_office || undefined,
+  nif: party.nif || undefined,
+  nis: party.nis || undefined,
+  rc: party.rc || undefined,
   category: party.category || "Général",
   purchases: formatDa(party.billed ?? 0),
+  paid: formatDa(party.paid ?? 0),
+  credit: formatDa(party.credit ?? 0),
   balance: formatDa(party.balance ?? 0),
   status: party.status ?? "À jour",
 });
@@ -700,11 +798,7 @@ function RowActions({
   const [position, setPosition] = useState({ left: 0, top: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-
-  const action = (message: string) => {
-    setOpen(false);
-    notify(message);
-  };
+  void notify;
 
   useEffect(() => {
     if (!open) return;
@@ -895,7 +989,17 @@ function ClientsTable({
               <td className="number">{client.balance}</td>
               <td><StatusBadge label={client.status} tone={client.balance === "0 DA" ? "green" : "orange"} /></td>
               <td>{client.activity}</td>
-              <td><RowActions label={client.name} notify={notify} onOpen={() => onOpen(client)} onEdit={() => onEdit(client)} onDuplicate={() => onDuplicate(client)} onDelete={() => onDelete(client.name)} extraActions={client.balance !== "0 DA" ? [{ label: "Régler le solde", icon: WalletCards, onClick: () => onSettle(client) }] : []} /></td>
+              <td className="party-row-actions">
+                <button
+                  className="cash-action"
+                  type="button"
+                  onClick={() => onSettle(client)}
+                  title={client.balance === "0 DA" ? `Enregistrer une avance pour ${client.name}` : `Encaisser un paiement de ${client.name}`}
+                >
+                  <Banknote size={16} /><span>Encaisser</span>
+                </button>
+                <RowActions label={client.name} notify={notify} onOpen={() => onOpen(client)} onEdit={() => onEdit(client)} onDuplicate={() => onDuplicate(client)} onDelete={() => onDelete(client.name)} />
+              </td>
             </tr>
           ))}
           {!filtered.length && <EmptyRow columns={7} />}
@@ -952,7 +1056,17 @@ function SuppliersTable({
               <td className="number">{supplier.purchases}</td>
               <td className="number">{supplier.balance}</td>
               <td><StatusBadge label={supplier.status} tone={supplier.balance === "0 DA" ? "green" : "orange"} /></td>
-              <td><RowActions label={supplier.name} notify={notify} onOpen={() => onOpen(supplier)} onEdit={() => onEdit(supplier)} onDuplicate={() => onDuplicate(supplier)} onDelete={() => onDelete(supplier.name)} extraActions={supplier.balance !== "0 DA" ? [{ label: "Régler le solde", icon: WalletCards, onClick: () => onSettle(supplier) }] : []} /></td>
+              <td className="party-row-actions">
+                <button
+                  className="cash-action"
+                  type="button"
+                  onClick={() => onSettle(supplier)}
+                  title={supplier.balance === "0 DA" ? `Enregistrer une avance pour ${supplier.name}` : `Payer ${supplier.name}`}
+                >
+                  <Banknote size={16} /><span>Payer</span>
+                </button>
+                <RowActions label={supplier.name} notify={notify} onOpen={() => onOpen(supplier)} onEdit={() => onEdit(supplier)} onDuplicate={() => onDuplicate(supplier)} onDelete={() => onDelete(supplier.name)} />
+              </td>
             </tr>
           ))}
           {!filtered.length && <EmptyRow columns={7} />}
@@ -966,19 +1080,136 @@ type PartyRow = ClientRecord | SupplierRecord;
 
 const numberFromDa = (value: string) => Number(value.replace(/[^0-9,.-]/g, "").replace(",", ".")) || 0;
 
-function PartyDetailsModal({ party, kind, onClose }: { party: PartyRow; kind: "client" | "supplier"; onClose: () => void }) {
-  const totalLabel = kind === "client" ? "Total facturé" : "Total achats";
+const documentLinesFor = (document: DocumentRecord): ApiDocumentLine[] => {
+  if (document.lines?.length) return document.lines;
+  if (!document.articleId) return [];
+  const quantity = document.quantity ?? 1;
+  const unitPrice = document.unitPrice ?? 0;
+  const discountPercent = document.discountPercent ?? 0;
+  const taxRate = document.taxRate ?? 0;
+  return [{
+    article_id: document.articleId,
+    designation: document.articleName || "Article",
+    description: document.description || "",
+    unit: document.unit || "Unité",
+    quantity,
+    unit_price: unitPrice,
+    discount_percent: discountPercent,
+    tax_rate: taxRate,
+    line_total: quantity * unitPrice * (1 - discountPercent / 100) * (1 + taxRate / 100),
+  }];
+};
+
+function PartyDetailsModal({
+  party,
+  kind,
+  paymentVersion,
+  onClose,
+  onEdit,
+  onSettle,
+}: {
+  party: PartyRow;
+  kind: "client" | "supplier";
+  paymentVersion: number;
+  onClose: () => void;
+  onEdit: () => void;
+  onSettle: () => void;
+}) {
+  const [paymentRequest, setPaymentRequest] = useState<{ rows: PaymentRecord[]; loading: boolean; error: string }>({
+    rows: [],
+    loading: true,
+    error: "",
+  });
+  const total = numberFromDa("billed" in party ? party.billed : party.purchases);
+  const paid = numberFromDa(party.paid);
+  const credit = numberFromDa(party.credit);
+  const remaining = numberFromDa(party.balance);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    fetch(`/api/payments?party_id=${party.id}`, { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as { payments?: PaymentRecord[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "Impossible de charger les paiements.");
+        if (active) setPaymentRequest({ rows: payload.payments ?? [], loading: false, error: "" });
+      })
+      .catch((error: Error) => {
+        if (active && error.name !== "AbortError") {
+          setPaymentRequest({ rows: [], loading: false, error: error.message });
+        }
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [party.id, paymentVersion]);
+
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="modal-card document-detail-modal" role="dialog" aria-modal="true" aria-labelledby="party-detail-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="modal-header"><div><h2 id="party-detail-title">{party.name}</h2><p>{kind === "client" ? "Fiche client" : "Fiche fournisseur"}</p></div><button className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
-        <div className="document-preview-tile"><EntityLogo name={party.name} tone={party.color} kind={kind} /><div><strong>{party.contactName || party.name}</strong><span>{party.email || party.contact}</span></div><StatusBadge label={party.status} tone={party.balance === "0 DA" ? "green" : "orange"} /></div>
-        <dl className="document-detail-grid">
-          <div><dt>Contact</dt><dd>{party.contact || "—"}</dd></div><div><dt>Ville</dt><dd>{party.city || "—"}</dd></div>
-          <div><dt>{totalLabel}</dt><dd>{"billed" in party ? party.billed : party.purchases}</dd></div><div><dt>Solde restant</dt><dd>{party.balance}</dd></div>
-          <div><dt>Adresse</dt><dd>{party.address || "—"}</dd></div><div><dt>Statut</dt><dd>{party.status}</dd></div>
-        </dl>
-        <div className="modal-actions"><button className="primary-button" onClick={onClose}>Terminé</button></div>
+    <div className="modal-backdrop party-detail-backdrop" role="presentation" onMouseDown={onClose}>
+      <div className="modal-card party-detail-panel" role="dialog" aria-modal="true" aria-labelledby="party-detail-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-header party-detail-header">
+          <div className="party-detail-identity">
+            <EntityLogo name={party.name} tone={party.color} kind={kind} />
+            <div><h2 id="party-detail-title">{party.name}</h2><p>{kind === "client" ? "Fiche client complète" : "Fiche fournisseur complète"}</p></div>
+            <StatusBadge label={party.status} tone={remaining > 0 ? "orange" : "green"} />
+          </div>
+          <div className="party-detail-actions">
+            <button type="button" className="secondary-button" onClick={onEdit}><Pencil size={16} /> Modifier</button>
+            <button type="button" className="cash-action cash-action-large" onClick={onSettle}>
+              <Banknote size={18} />{kind === "client" ? "Encaisser" : "Payer"}
+            </button>
+            <button className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
+          </div>
+        </div>
+
+        <div className="party-summary-grid">
+          <article><span>{kind === "client" ? "Total facturé" : "Total achats"}</span><strong>{formatDa(total)}</strong></article>
+          <article><span>Total réglé</span><strong>{formatDa(paid)}</strong></article>
+          <article className={remaining > 0 ? "balance-due" : ""}><span>Solde restant</span><strong>{formatDa(remaining)}</strong></article>
+          <article className={credit > 0 ? "credit-available" : ""}><span>Crédit disponible</span><strong>{formatDa(credit)}</strong></article>
+        </div>
+
+        <div className="party-detail-body">
+          <section className="party-information-card">
+            <div className="party-section-title"><ContactRound size={17} /><div><h3>Informations générales</h3><p>Coordonnées, adresse et données fiscales</p></div></div>
+            <dl className="party-info-grid">
+              <div><dt>Contact principal</dt><dd>{party.contactName || "—"}</dd></div>
+              <div><dt>Téléphone</dt><dd>{party.contact || "—"}</dd></div>
+              <div><dt>E-mail</dt><dd>{party.email === "E-mail non renseigné" ? "—" : party.email || "—"}</dd></div>
+              <div><dt>Catégorie</dt><dd>{party.category || "—"}</dd></div>
+              <div className="party-info-wide"><dt>Adresse</dt><dd>{party.address || "—"}</dd></div>
+              <div><dt>Ville</dt><dd>{party.city || "—"}</dd></div>
+              <div><dt>Siège social</dt><dd>{party.headOffice || "—"}</dd></div>
+              <div><dt>NIF</dt><dd>{party.nif || "—"}</dd></div>
+              <div><dt>NIS</dt><dd>{party.nis || "—"}</dd></div>
+              <div><dt>RC</dt><dd>{party.rc || "—"}</dd></div>
+            </dl>
+          </section>
+
+          <section className="payment-history-card">
+            <div className="party-section-title"><Banknote size={17} /><div><h3>Historique des paiements</h3><p>{paymentRequest.rows.length} règlement{paymentRequest.rows.length === 1 ? "" : "s"} enregistré{paymentRequest.rows.length === 1 ? "" : "s"}</p></div></div>
+            <div className="payment-history-scroll" aria-live="polite">
+              {paymentRequest.loading && <p className="party-history-message">Chargement de l’historique…</p>}
+              {!paymentRequest.loading && paymentRequest.error && <p className="party-history-message error">{paymentRequest.error}</p>}
+              {!paymentRequest.loading && !paymentRequest.error && !paymentRequest.rows.length && <p className="party-history-message">Aucun paiement enregistré pour ce tiers.</p>}
+              {!paymentRequest.loading && !paymentRequest.error && paymentRequest.rows.length > 0 && (
+                <table className="payment-history-table">
+                  <thead><tr><th>Date</th><th>Type</th><th>Mode</th><th>Note</th><th>Montant</th></tr></thead>
+                  <tbody>{paymentRequest.rows.map((payment) => (
+                    <tr key={payment.id}>
+                      <td>{formatDocumentDate(payment.payment_date)}</td>
+                      <td><span className={`payment-direction payment-${payment.direction}`}>{payment.direction === "incoming" ? "Encaissement" : "Décaissement"}</span></td>
+                      <td>{payment.method}</td>
+                      <td>{payment.note || "—"}</td>
+                      <td className="number">{formatDa(payment.amount)}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              )}
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );
@@ -988,48 +1219,59 @@ function PartyEditorModal({ party, kind, onClose, onSaved }: { party: PartyRow; 
   const [name, setName] = useState(party.name);
   const [contact, setContact] = useState(party.contact === "—" ? "" : party.contact);
   const [contactName, setContactName] = useState(party.contactName || "");
-  const [email, setEmail] = useState(party.email || "");
+  const [email, setEmail] = useState(party.email === "E-mail non renseigné" ? "" : party.email || "");
   const [city, setCity] = useState(party.city || "");
   const [address, setAddress] = useState(party.address || "");
-  const [category, setCategory] = useState("category" in party ? party.category : "");
+  const [headOffice, setHeadOffice] = useState(party.headOffice || "");
+  const [category, setCategory] = useState(party.category || "");
+  const [nif, setNif] = useState(party.nif || "");
+  const [nis, setNis] = useState(party.nis || "");
+  const [rc, setRc] = useState(party.rc || "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError("");
     try {
-      const response = await fetch("/api/parties", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: party.id, name, contact_phone: contact, contact_name: contactName, email, city, address, category }) });
+      const response = await fetch("/api/parties", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: party.id, name, contact_phone: contact, contact_name: contactName, email, city, address, head_office: headOffice, category, nif, nis, rc }) });
       const payload = await response.json() as { party?: ApiPartyRecord; error?: string };
       if (!response.ok || !payload.party) throw new Error(payload.error || "Impossible de modifier le tiers.");
       onSaved(payload.party);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Impossible de modifier le tiers."); } finally { setSaving(false); }
   };
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card expanded-modal" role="dialog" aria-modal="true" aria-labelledby="party-edit-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
-    <div className="modal-header"><div><h2 id="party-edit-title">Modifier {kind === "client" ? "le client" : "le fournisseur"}</h2><p>Les modifications sont enregistrées dans SQLite.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
-    <div className="form-grid"><label className="field-label">Nom<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label className="field-label">Contact<input value={contactName} onChange={(event) => setContactName(event.target.value)} /></label><label className="field-label">Téléphone<input value={contact} onChange={(event) => setContact(event.target.value)} /></label><label className="field-label">E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label className="field-label">Adresse<input value={address} onChange={(event) => setAddress(event.target.value)} /></label><label className="field-label">Ville<input value={city} onChange={(event) => setCity(event.target.value)} /></label>{kind === "supplier" && <label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} /></label>}</div>
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card expanded-modal party-editor-modal" role="dialog" aria-modal="true" aria-labelledby="party-edit-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
+    <div className="modal-header"><div><h2 id="party-edit-title">Modifier {kind === "client" ? "le client" : "le fournisseur"}</h2><p>Coordonnées et informations fiscales complètes.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+    <div className="party-editor-sections">
+      <section><div className="form-section-label"><ContactRound size={15} /><span>Identité et contact</span></div><div className="form-grid"><label className="field-label">Nom<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label className="field-label">Contact<input value={contactName} onChange={(event) => setContactName(event.target.value)} /></label><label className="field-label">Téléphone<input value={contact} onChange={(event) => setContact(event.target.value)} /></label><label className="field-label">E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label></div></section>
+      <section><div className="form-section-label"><MapPin size={15} /><span>Adresse et organisation</span></div><div className="form-grid"><label className="field-label">Adresse<input value={address} onChange={(event) => setAddress(event.target.value)} /></label><label className="field-label">Ville<input value={city} onChange={(event) => setCity(event.target.value)} /></label><label className="field-label">Siège social<input value={headOffice} onChange={(event) => setHeadOffice(event.target.value)} /></label><label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} /></label></div></section>
+      <section><div className="form-section-label"><ReceiptText size={15} /><span>Informations fiscales</span></div><div className="form-grid form-grid-three"><label className="field-label">NIF<input value={nif} onChange={(event) => setNif(event.target.value)} /></label><label className="field-label">NIS<input value={nis} onChange={(event) => setNis(event.target.value)} /></label><label className="field-label">RC<input value={rc} onChange={(event) => setRc(event.target.value)} /></label></div></section>
+    </div>
     {error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div>
   </form></div>;
 }
 
-function SettlementModal({ party, kind, onClose, onSaved }: { party: PartyRow; kind: "client" | "supplier"; onClose: () => void; onSaved: () => void }) {
+function SettlementModal({ party, kind, onClose, onSaved }: { party: PartyRow; kind: "client" | "supplier"; onClose: () => void; onSaved: (payment: PaymentRecord) => void }) {
   const remaining = numberFromDa(party.balance);
-  const [amount, setAmount] = useState(remaining);
-  const [method, setMethod] = useState("Virement");
+  const credit = numberFromDa(party.credit);
+  const [amount, setAmount] = useState(remaining > 0 ? remaining : 0);
+  const [method, setMethod] = useState("Espèces");
+  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError("");
     try {
-      const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ partyId: party.id, amount, method, note, paymentDate: new Date().toISOString().slice(0, 10) }) });
-      const payload = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Impossible d’enregistrer le règlement.");
-      onSaved();
+      const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ partyId: party.id, amount, method, note, paymentDate }) });
+      const payload = await response.json() as { payment?: PaymentRecord; error?: string };
+      if (!response.ok || !payload.payment) throw new Error(payload.error || "Impossible d’enregistrer le règlement.");
+      onSaved(payload.payment);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Impossible d’enregistrer le règlement."); } finally { setSaving(false); }
   };
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card compact-modal" role="dialog" aria-modal="true" aria-labelledby="settlement-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
-    <div className="modal-header"><div><h2 id="settlement-title">Régler {party.name}</h2><p>{kind === "client" ? "Encaissement client" : "Paiement fournisseur"} · solde {party.balance}</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
-    <label className="field-label">Montant (DA)<input type="number" min="0.01" max={remaining} step="0.01" value={amount} onChange={(event) => setAmount(Number(event.target.value))} required /></label><label className="field-label">Mode<select value={method} onChange={(event) => setMethod(event.target.value)}><option>Virement</option><option>Espèces</option><option>Chèque</option><option>Carte</option></select></label><label className="field-label">Note (facultatif)<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>
-    {error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving || remaining <= 0}><WalletCards size={16} />{saving ? "Règlement…" : "Valider le règlement"}</button></div>
+    <div className="modal-header"><div><h2 id="settlement-title">{remaining > 0 ? "Régler" : "Enregistrer une avance"} {party.name}</h2><p>{kind === "client" ? "Encaissement client" : "Paiement fournisseur"} · solde {party.balance} · crédit {formatDa(credit)}</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+    <div className="form-grid"><label className="field-label">Montant (DA)<input type="number" min="0.01" step="0.01" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value))} required /></label><label className="field-label">Date<input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} required /></label></div><label className="field-label">Mode<select value={method} onChange={(event) => setMethod(event.target.value)}><option>Espèces</option><option>Virement</option><option>Chèque</option><option>Carte</option></select></label><label className="field-label">Note (facultatif)<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>
+    <p className="settlement-advance-note"><Banknote size={15} /> Un montant supérieur au solde devient automatiquement un crédit disponible pour ce tiers.</p>
+    {error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving}><Banknote size={16} />{saving ? "Enregistrement…" : "Valider le règlement"}</button></div>
   </form></div>;
 }
 
@@ -1046,8 +1288,184 @@ function FinanceEntryModal({ onClose, onSaved }: { onClose: () => void; onSaved:
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card compact-modal" role="dialog" aria-modal="true" aria-labelledby="finance-entry-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}><div className="modal-header"><div><h2 id="finance-entry-title">Nouvelle opération</h2><p>Une dépense ou une charge est enregistrée dans SQLite.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div><label className="field-label">Type<select value={kind} onChange={(event) => setKind(event.target.value as FinanceEntry["kind"])}><option value="expense">Dépense</option><option value="charge">Charge</option></select></label><label className="field-label">Libellé<input value={label} onChange={(event) => setLabel(event.target.value)} required placeholder="Loyer, transport, publicité…" /></label><div className="form-grid"><label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Exploitation" /></label><label className="field-label">Montant (DA)<input type="number" min="0.01" step="0.01" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value))} required /></label></div><label className="field-label">Note (facultatif)<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div></form></div>;
 }
 
+function FinanceWorkspacePage({
+  entries,
+  parties,
+  treasuryLedger,
+  search,
+  setSearch,
+  onNewCharge,
+  onViewCharge,
+  onEditCharge,
+  onDeleteCharge,
+  onViewParty,
+  onSettleParty,
+  onNewTreasury,
+  onEditTreasury,
+  onDeleteTreasury,
+}: {
+  entries: FinanceEntry[];
+  parties: PartyRow[];
+  treasuryLedger: TreasuryLedgerRow[];
+  search: string;
+  setSearch: (value: string) => void;
+  onNewCharge: () => void;
+  onViewCharge: (entry: FinanceEntry) => void;
+  onEditCharge: (entry: FinanceEntry) => void;
+  onDeleteCharge: (entry: FinanceEntry) => void;
+  onViewParty: (party: PartyRow, kind: "client" | "supplier") => void;
+  onSettleParty: (party: PartyRow, kind: "client" | "supplier") => void;
+  onNewTreasury: () => void;
+  onEditTreasury: (entry: TreasuryEntry) => void;
+  onDeleteTreasury: (entry: TreasuryEntry) => void;
+}) {
+  const [section, setSection] = useState<"charges" | "settlements" | "treasury">("charges");
+  const filtered = entries.filter((entry) => `${entry.label} ${entry.category} ${entry.kind} ${entry.note}`.toLowerCase().includes(search.toLowerCase()));
+  const expenses = entries.filter((entry) => entry.kind === "expense").reduce((total, entry) => total + entry.amount, 0);
+  const charges = entries.filter((entry) => entry.kind === "charge").reduce((total, entry) => total + entry.amount, 0);
+  const incoming = treasuryLedger.filter((row) => row.direction === "in").reduce((total, row) => total + row.amount, 0);
+  const outgoing = treasuryLedger.filter((row) => row.direction === "out").reduce((total, row) => total + row.amount, 0);
+  const settlementRows = parties.filter((party) => ("billed" in party ? party.billed : party.purchases) !== "0 DA" || party.paid !== "0 DA" || party.credit !== "0 DA");
+
+  return (
+    <section className="table-card finance-workspace">
+      <div className="table-header">
+        <div className="table-title"><h1>Finance</h1><span>Charges, règlements et trésorerie</span></div>
+        <div className="table-actions">
+          {section === "charges" && <button className="primary-button" onClick={onNewCharge}><Plus size={16} /> Nouvelle charge</button>}
+          {section === "treasury" && <button className="primary-button" onClick={onNewTreasury}><Plus size={16} /> Nouvelle entrée / sortie</button>}
+        </div>
+      </div>
+      <div className="finance-section-tabs" role="tablist" aria-label="Sections finance">
+        <button className={section === "charges" ? "active" : ""} onClick={() => setSection("charges")} role="tab" aria-selected={section === "charges"}><ReceiptText size={16} /> Charges</button>
+        <button className={section === "settlements" ? "active" : ""} onClick={() => setSection("settlements")} role="tab" aria-selected={section === "settlements"}><Banknote size={16} /> États des règlements</button>
+        <button className={section === "treasury" ? "active" : ""} onClick={() => setSection("treasury")} role="tab" aria-selected={section === "treasury"}><WalletCards size={16} /> Trésorerie</button>
+      </div>
+
+      {section === "charges" && (
+        <>
+          <div className="finance-summary"><div><small>Dépenses</small><strong>{formatDa(expenses)}</strong></div><div><small>Charges</small><strong>{formatDa(charges)}</strong></div><div><small>Total engagé</small><strong>{formatDa(expenses + charges)}</strong></div></div>
+          <div className="table-header finance-subheader"><div className="table-title"><h2>Tableau des charges</h2><span>{filtered.length} opération{filtered.length === 1 ? "" : "s"}</span></div><label className="search-control"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Libellé, catégorie…" aria-label="Rechercher dans les charges" /></label></div>
+          <div className="table-scroll"><table><thead><tr><th>Libellé</th><th>Type</th><th>Catégorie</th><th>Date</th><th>Montant</th><th>Statut</th><th /></tr></thead><tbody>{filtered.map((entry) => <tr key={entry.id}><td><strong>{entry.label}</strong>{entry.note && <small>{entry.note}</small>}</td><td><span className="soft-label">{entry.kind === "expense" ? "Dépense" : "Charge"}</span></td><td>{entry.category || "—"}</td><td>{formatDocumentDate(entry.entry_date)}</td><td className="number negative-number">-{formatDa(entry.amount)}</td><td><StatusBadge label={entry.status} tone="green" /></td><td><RowActions label={entry.label} notify={() => undefined} onOpen={() => onViewCharge(entry)} onEdit={() => onEditCharge(entry)} onDelete={() => onDeleteCharge(entry)} /></td></tr>)}{!filtered.length && <EmptyRow columns={7} />}</tbody></table></div>
+        </>
+      )}
+
+      {section === "settlements" && (
+        <>
+          <div className="finance-summary settlement-stats"><div><small>Total facturé / acheté</small><strong>{formatDa(parties.reduce((sum, party) => sum + numberFromDa("billed" in party ? party.billed : party.purchases), 0))}</strong></div><div><small>Total réglé</small><strong>{formatDa(parties.reduce((sum, party) => sum + numberFromDa(party.paid), 0))}</strong></div><div><small>À régler</small><strong>{formatDa(parties.reduce((sum, party) => sum + numberFromDa(party.balance), 0))}</strong></div><div><small>Crédits</small><strong>{formatDa(parties.reduce((sum, party) => sum + numberFromDa(party.credit), 0))}</strong></div></div>
+          <div className="table-header finance-subheader"><div className="table-title"><h2>États des règlements</h2><span>Clients et fournisseurs</span></div></div>
+          <div className="table-scroll"><table><thead><tr><th>Tiers</th><th>Type</th><th>Total</th><th>Réglé</th><th>À régler</th><th>Crédit</th><th>Statut</th><th /></tr></thead><tbody>{settlementRows.map((party) => { const kind = "billed" in party ? "client" : "supplier"; const total = numberFromDa("billed" in party ? party.billed : party.purchases); return <tr key={`${kind}-${party.id}`}><td><strong>{party.name}</strong></td><td>{kind === "client" ? "Client" : "Fournisseur"}</td><td className="number">{formatDa(total)}</td><td className="number">{party.paid}</td><td className="number">{party.balance}</td><td className="number positive-number">{party.credit}</td><td><StatusBadge label={party.status} tone={party.balance !== "0 DA" ? "orange" : "green"} /></td><td><div className="settlement-row-actions"><button type="button" className="icon-button" onClick={() => onViewParty(party, kind)} aria-label={`Voir la fiche de ${party.name}`}><Eye size={16} /></button><button type="button" className="cash-action" onClick={() => onSettleParty(party, kind)}><Banknote size={16} /><span>{party.balance === "0 DA" ? "Avance" : kind === "client" ? "Encaisser" : "Payer"}</span></button></div></td></tr>; })}{!settlementRows.length && <EmptyRow columns={8} />}</tbody></table></div>
+        </>
+      )}
+
+      {section === "treasury" && (
+        <>
+          <div className="finance-summary treasury-stats"><div><small>Total entrées</small><strong className="positive-number">{formatDa(incoming)}</strong></div><div><small>Total sorties</small><strong className="negative-number">-{formatDa(outgoing)}</strong></div><div><small>Solde de trésorerie</small><strong>{formatDa(incoming - outgoing)}</strong></div></div>
+          <div className="table-header finance-subheader"><div className="table-title"><h2>Journal de trésorerie</h2><span>Paiements, charges et mouvements manuels</span></div></div>
+          <div className="table-scroll"><table><thead><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th>Entrée</th><th>Sortie</th><th>Note</th><th /></tr></thead><tbody>{treasuryLedger.map((row) => { const manual = row.source === "manual"; const manualEntry: TreasuryEntry = { id: row.source_id, direction: row.direction, label: row.label, category: row.category, amount: row.amount, entry_date: row.entry_date, note: row.note }; return <tr key={row.id}><td>{formatDocumentDate(row.entry_date)}</td><td><strong>{row.label}</strong><small>{row.source === "payment" ? "Règlement" : row.source === "finance" ? "Charge" : "Mouvement manuel"}</small></td><td>{row.category || "—"}</td><td className="number positive-number">{row.direction === "in" ? formatDa(row.amount) : "—"}</td><td className="number negative-number">{row.direction === "out" ? `- ${formatDa(row.amount)}` : "—"}</td><td>{row.note || "—"}</td><td>{manual && <RowActions label={row.label} notify={() => undefined} onEdit={() => onEditTreasury(manualEntry)} onDelete={() => onDeleteTreasury(manualEntry)} />}</td></tr>; })}{!treasuryLedger.length && <EmptyRow columns={7} />}</tbody></table></div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function FinanceEntryFormModal({ entry, onClose, onSaved }: { entry: FinanceEntry | null; onClose: () => void; onSaved: (entry: FinanceEntry) => void }) {
+  const [kind, setKind] = useState<FinanceEntry["kind"]>(entry?.kind ?? "expense");
+  const [label, setLabel] = useState(entry?.label ?? "");
+  const [category, setCategory] = useState(entry?.category ?? "");
+  const [amount, setAmount] = useState(entry?.amount ?? 0);
+  const [entryDate, setEntryDate] = useState(entry?.entry_date ?? new Date().toISOString().slice(0, 10));
+  const [status, setStatus] = useState(entry?.status ?? "Payée");
+  const [note, setNote] = useState(entry?.note ?? "");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true); setError("");
+    try {
+      const response = await fetch("/api/finance", { method: entry ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...(entry ? { id: entry.id } : {}), kind, label, category, amount, entryDate, status, note }) });
+      const payload = await response.json() as { entry?: FinanceEntry; error?: string };
+      if (!response.ok || !payload.entry) throw new Error(payload.error || "Impossible d’enregistrer la charge.");
+      onSaved(payload.entry);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Impossible d’enregistrer la charge."); } finally { setSaving(false); }
+  };
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card compact-modal finance-form-modal" role="dialog" aria-modal="true" aria-labelledby="finance-form-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}><div className="modal-header"><div><h2 id="finance-form-title">{entry ? "Modifier la charge" : "Nouvelle charge"}</h2><p>Cette opération sera intégrée automatiquement à la trésorerie.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div><label className="field-label">Type<select value={kind} onChange={(event) => setKind(event.target.value as FinanceEntry["kind"])}><option value="expense">Dépense</option><option value="charge">Charge</option></select></label><label className="field-label">Libellé<input value={label} onChange={(event) => setLabel(event.target.value)} required placeholder="Loyer, transport, publicité…" /></label><div className="form-grid"><label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Exploitation" /></label><label className="field-label">Montant (DA)<input type="number" min="0.01" step="0.01" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value))} required /></label></div><div className="form-grid"><label className="field-label">Date<input type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} required /></label><label className="field-label">Statut<select value={status} onChange={(event) => setStatus(event.target.value)}><option>Payée</option><option>À payer</option><option>Prévue</option></select></label></div><label className="field-label">Note (facultatif)<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div></form></div>;
+}
+
+function FinanceEntryDetailsModal({ entry, onClose }: { entry: FinanceEntry; onClose: () => void }) {
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal-card compact-modal" role="dialog" aria-modal="true" aria-labelledby="finance-details-title" onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><h2 id="finance-details-title">{entry.label}</h2><p>{entry.kind === "charge" ? "Charge" : "Dépense"} · {formatDocumentDate(entry.entry_date)}</p></div><button className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div><dl className="document-detail-grid"><div><dt>Montant</dt><dd>{formatDa(entry.amount)}</dd></div><div><dt>Catégorie</dt><dd>{entry.category || "—"}</dd></div><div><dt>Statut</dt><dd>{entry.status}</dd></div><div><dt>Note</dt><dd>{entry.note || "—"}</dd></div></dl><div className="modal-actions"><button className="primary-button" onClick={onClose}>Terminé</button></div></div></div>;
+}
+
+function TreasuryEntryFormModal({ entry, onClose, onSaved }: { entry: TreasuryEntry | null; onClose: () => void; onSaved: (entry: TreasuryEntry) => void }) {
+  const [direction, setDirection] = useState<TreasuryEntry["direction"]>(entry?.direction ?? "in");
+  const [label, setLabel] = useState(entry?.label ?? "");
+  const [category, setCategory] = useState(entry?.category ?? "");
+  const [amount, setAmount] = useState(entry?.amount ?? 0);
+  const [entryDate, setEntryDate] = useState(entry?.entry_date ?? new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState(entry?.note ?? "");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true); setError("");
+    try {
+      const response = await fetch("/api/treasury", { method: entry ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...(entry ? { id: entry.id } : {}), direction, label, category, amount, entryDate, note }) });
+      const payload = await response.json() as { entry?: TreasuryEntry; error?: string };
+      if (!response.ok || !payload.entry) throw new Error(payload.error || "Impossible d’enregistrer le mouvement.");
+      onSaved(payload.entry);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Impossible d’enregistrer le mouvement."); } finally { setSaving(false); }
+  };
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card compact-modal finance-form-modal" role="dialog" aria-modal="true" aria-labelledby="treasury-form-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}><div className="modal-header"><div><h2 id="treasury-form-title">{entry ? "Modifier le mouvement" : "Nouvelle entrée / sortie"}</h2><p>Ajoutez de l’argent ou enregistrez une sortie de trésorerie.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div><label className="field-label">Sens<select value={direction} onChange={(event) => setDirection(event.target.value as TreasuryEntry["direction"])}><option value="in">Entrée d’argent</option><option value="out">Sortie d’argent</option></select></label><label className="field-label">Libellé<input value={label} onChange={(event) => setLabel(event.target.value)} required placeholder="Apport, retrait, banque…" /></label><div className="form-grid"><label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Caisse, banque…" /></label><label className="field-label">Montant (DA)<input type="number" min="0.01" step="0.01" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value))} required /></label></div><label className="field-label">Date<input type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} required /></label><label className="field-label">Note (facultatif)<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div></form></div>;
+}
+
 function DocumentDetailsModal({ document, onClose }: { document: DocumentRecord; onClose: () => void }) {
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal-card document-detail-modal" role="dialog" aria-modal="true" aria-labelledby="table-document-title" onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><h2 id="table-document-title">{document.number}</h2><p>{document.type}</p></div><button className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div><div className="document-preview-tile"><DocumentLogo type={document.type} tone={document.tone} /><div><strong>{document.party}</strong><span>{document.summary || "Document commercial"}</span></div><StatusBadge label={document.status} tone={document.tone} /></div><dl className="document-detail-grid"><div><dt>Date</dt><dd>{document.date}</dd></div><div><dt>Montant</dt><dd>{document.amount}</dd></div><div><dt>Article</dt><dd>{document.articleName || "—"}</dd></div><div><dt>Quantité</dt><dd>{document.quantity ? `${document.quantity} ${document.unit || "unité"}` : "—"}</dd></div>{document.sourceDocument && <div><dt>Document source</dt><dd>{document.sourceDocument}</dd></div>}</dl><div className="modal-actions"><button className="primary-button" onClick={onClose}>Terminé</button></div></div></div>;
+  const lines = documentLinesFor(document);
+  const subtotal = document.subtotal ?? lines.reduce((sum, line) => sum + line.quantity * line.unit_price, 0);
+  const discountAmount = document.discountAmount ?? lines.reduce((sum, line) => sum + line.quantity * line.unit_price * line.discount_percent / 100, 0);
+  const taxAmount = document.taxAmount ?? lines.reduce((sum, line) => {
+    const net = line.quantity * line.unit_price * (1 - line.discount_percent / 100);
+    return sum + net * line.tax_rate / 100;
+  }, 0);
+  const total = document.total ?? subtotal - discountAmount + taxAmount;
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <div className="modal-card document-detail-modal document-detail-wide" role="dialog" aria-modal="true" aria-labelledby="table-document-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-header">
+          <div><h2 id="table-document-title">{document.number}</h2><p>{document.type} · {lines.length} ligne{lines.length === 1 ? "" : "s"}</p></div>
+          <button className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
+        </div>
+        <div className="document-preview-tile"><DocumentLogo type={document.type} tone={document.tone} /><div><strong>{document.party}</strong><span>{document.summary || "Document commercial"}</span></div><StatusBadge label={document.status} tone={document.tone} /></div>
+        <dl className="document-detail-grid document-detail-summary">
+          <div><dt>Date</dt><dd>{document.date}</dd></div>
+          <div><dt>Total TTC</dt><dd>{formatDa(total)}</dd></div>
+          <div><dt>Sous-total</dt><dd>{formatDa(subtotal)}</dd></div>
+          <div><dt>Remise</dt><dd>- {formatDa(discountAmount)}</dd></div>
+          <div><dt>TVA</dt><dd>{formatDa(taxAmount)}</dd></div>
+          {document.sourceDocument && <div><dt>Document source</dt><dd>{document.sourceDocument}</dd></div>}
+        </dl>
+        <div className="document-detail-lines">
+          <table>
+            <thead><tr><th>#</th><th>Désignation</th><th>Unité</th><th>Quantité</th><th>Prix unitaire</th><th>Remise</th><th>TVA</th><th>Total</th></tr></thead>
+            <tbody>
+              {lines.map((line, index) => (
+                <tr key={line.id ?? `${line.article_id}-${index}`}>
+                  <td>{index + 1}</td>
+                  <td><strong>{line.designation}</strong>{document.showFullDescription && line.description && <small>{line.description}</small>}</td>
+                  <td>{line.unit || "Unité"}</td>
+                  <td className="number">{line.quantity}</td>
+                  <td className="number">{formatDa(line.unit_price)}</td>
+                  <td className="number">{line.discount_percent}%</td>
+                  <td className="number">{line.tax_rate}%</td>
+                  <td className="number"><strong>{formatDa(line.line_total)}</strong></td>
+                </tr>
+              ))}
+              {!lines.length && <EmptyRow columns={8} />}
+            </tbody>
+          </table>
+        </div>
+        <div className="modal-actions"><button className="primary-button" onClick={onClose}>Terminé</button></div>
+      </div>
+    </div>
+  );
 }
 
 function ArticlesTable({
@@ -1184,6 +1602,7 @@ function DocumentsTable({
   notify,
   onDelete,
   onOpen,
+  onEdit,
   onDuplicate,
   onReturn,
   onConvertQuote,
@@ -1201,6 +1620,7 @@ function DocumentsTable({
   notify: (message: string) => void;
   onDelete: (number: string) => void;
   onOpen: (row: DocumentRecord) => void;
+  onEdit: (row: DocumentRecord) => void;
   onDuplicate: (row: DocumentRecord) => void;
   onReturn: (row: DocumentRecord) => void;
   onConvertQuote: (row: DocumentRecord) => Promise<void> | void;
@@ -1230,7 +1650,7 @@ function DocumentsTable({
               <td>{row.date}</td>
               <td className={`number ${row.amount.startsWith("-") ? "negative-number" : ""}`}>{row.amount}</td>
               <td><StatusBadge label={row.status} tone={row.tone} /></td>
-              <td><RowActions label={row.number} notify={notify} onOpen={() => onOpen(row)} onEdit={() => onOpen(row)} onDuplicate={() => onDuplicate(row)} onDelete={() => onDelete(row.number)} extraActions={[
+              <td><RowActions label={row.number} notify={notify} onOpen={() => onOpen(row)} onEdit={() => onEdit(row)} onDuplicate={() => onDuplicate(row)} onDelete={() => onDelete(row.number)} extraActions={[
                 ...(row.type === "Devis" ? [{ label: "Créer la facture", icon: FileCheck2, onClick: () => { void Promise.resolve(onConvertQuote(row)).catch((error) => notify(error instanceof Error ? error.message : "Impossible de créer la facture.")); } }] : []),
                 ...((row.type === "Bon de livraison" || row.type === "Bon de réception" || row.type === "Facture") && row.articleId && (row.quantity ?? 1) > (row.returnedQuantity ?? 0) ? [{ label: "Créer un retour", icon: RotateCcw, onClick: () => onReturn(row) }] : []),
               ]} /></td>
@@ -1432,12 +1852,16 @@ function Dashboard({
     : sortedProducts.slice(0, 5);
   const productTotalAmount = productRanking.reduce((total, product) => total + product.value, 0);
   const productColors = ["#4361ee", "#4cc9f0", "#f72585", "#7209b7", "#10b981"];
-  let productCursor = 0;
-  const productDonutSegments = productRanking.map(({ value }, index) => {
-    const start = productCursor;
-    productCursor += productTotalAmount > 0 ? value / productTotalAmount * 100 : 0;
-    return `${productColors[index]} ${start}% ${productCursor}%`;
-  });
+  const productDonutSegments = productRanking.reduce<{ cursor: number; segments: string[] }>(
+    (result, { value }, index) => {
+      const nextCursor = result.cursor + (productTotalAmount > 0 ? value / productTotalAmount * 100 : 0);
+      return {
+        cursor: nextCursor,
+        segments: [...result.segments, `${productColors[index]} ${result.cursor}% ${nextCursor}%`],
+      };
+    },
+    { cursor: 0, segments: [] },
+  ).segments;
   const productDonutBackground = productDonutSegments.length
     ? `conic-gradient(${productDonutSegments.join(", ")})`
     : "conic-gradient(#eef2ff 0 100%)";
@@ -1539,10 +1963,12 @@ function SettingsPage({
 }) {
   const [name, setName] = useState(company.name);
   const [logoDataUrl, setLogoDataUrl] = useState(company.logoDataUrl);
+  const [defaultTaxRate, setDefaultTaxRate] = useState(String(company.defaultTaxRate));
   const logoInput = useRef<HTMLInputElement | null>(null);
   const previewCompany = {
     name: name.trim() || "Nom de l’entreprise",
     logoDataUrl,
+    defaultTaxRate: Number(defaultTaxRate) || 0,
   };
 
   const loadLogo = (file?: File) => {
@@ -1581,7 +2007,7 @@ function SettingsPage({
           className="settings-form"
           onSubmit={(event) => {
             event.preventDefault();
-            const saved = onSave({ name, logoDataUrl });
+            const saved = onSave({ name, logoDataUrl, defaultTaxRate: Number(defaultTaxRate) });
             notify(saved ? "Identité de l’entreprise enregistrée" : "Impossible d’enregistrer sur cet appareil");
           }}
         >
@@ -1599,6 +2025,20 @@ function SettingsPage({
               onChange={(event) => setName(event.target.value)}
               placeholder="Nom de votre entreprise"
             />
+          </label>
+
+          <label className="field-label">
+            TVA par défaut (%)
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={defaultTaxRate}
+              onChange={(event) => setDefaultTaxRate(event.target.value)}
+              placeholder="0"
+            />
+            <small>Cette valeur sera proposée sur chaque nouvelle ligne d’achat ou de vente.</small>
           </label>
 
           <div className="field-label">
@@ -1638,6 +2078,7 @@ function SettingsPage({
               onClick={() => {
                 setName(DEFAULT_COMPANY.name);
                 setLogoDataUrl("");
+                setDefaultTaxRate(String(DEFAULT_COMPANY.defaultTaxRate));
                 notify("Valeurs par défaut restaurées dans le formulaire");
               }}
             >
@@ -1660,6 +2101,611 @@ function SettingsPage({
           <p className="storage-note"><Check size={15} /> Enregistré localement sur cet appareil.</p>
         </aside>
       </div>
+    </div>
+  );
+}
+
+const emptyDocumentLine = (key: string): DocumentDraftLine => ({
+  key,
+  articleId: null,
+  articleQuery: "",
+  designation: "",
+  description: "",
+  unit: "Unité",
+  quantity: 1,
+  unitPrice: 1,
+  discountPercent: 0,
+  taxRate: 0,
+  stock: null,
+});
+
+function DocumentEditor({
+  initialTarget,
+  initialDocumentType,
+  parties,
+  onClose,
+  onSubmit,
+}: {
+  initialTarget: "purchases" | "sales";
+  initialDocumentType?: string;
+  parties: PartyRow[];
+  onClose: () => void;
+  onSubmit: (payload: CreatePayload) => Promise<void> | void;
+}) {
+  const lineSequence = useRef(1);
+  const [partyQuery, setPartyQuery] = useState("");
+  const [selectedPartyId, setSelectedPartyId] = useState<number | null>(null);
+  const [documentType, setDocumentType] = useState(initialDocumentType ?? "");
+  const [documentDate, setDocumentDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [showFullDescription, setShowFullDescription] = useState(false);
+  const [lines, setLines] = useState<DocumentDraftLine[]>(() => [emptyDocumentLine("line-1")]);
+  const [activeArticleLine, setActiveArticleLine] = useState<string | null>(null);
+  const [articleRequest, setArticleRequest] = useState<{ rows: ArticleRecord[]; loading: boolean; error: string }>({
+    rows: [],
+    loading: true,
+    error: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const selectedParty = parties.find((party) => party.id === selectedPartyId) ?? null;
+  const normalizedPartyQuery = normalizeLabel(partyQuery);
+  const filteredParties = parties
+    .filter((party) => normalizeLabel(`${party.name} ${party.contactName ?? ""} ${party.contact ?? ""}`).includes(normalizedPartyQuery))
+    .slice(0, 6);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !saving) onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose, saving]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/articles", { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as { articles?: ArticleRecord[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "Impossible de lire les articles.");
+        setArticleRequest({ rows: payload.articles ?? [], loading: false, error: "" });
+      })
+      .catch((error: Error) => {
+        if (error.name !== "AbortError") setArticleRequest({ rows: [], loading: false, error: error.message });
+      });
+    return () => controller.abort();
+  }, []);
+
+  const updateLine = (key: string, patch: Partial<DocumentDraftLine>) => {
+    setLines((rows) => rows.map((line) => line.key === key ? { ...line, ...patch } : line));
+  };
+
+  const addLine = () => {
+    lineSequence.current += 1;
+    const key = `line-${lineSequence.current}`;
+    setLines((rows) => [...rows, emptyDocumentLine(key)]);
+    setActiveArticleLine(key);
+  };
+
+  const removeLine = (key: string) => {
+    setLines((rows) => rows.length === 1
+      ? [emptyDocumentLine(rows[0].key)]
+      : rows.filter((line) => line.key !== key));
+  };
+
+  const selectArticle = (key: string, article: ArticleRecord) => {
+    updateLine(key, {
+      articleId: article.id,
+      articleQuery: article.name,
+      designation: article.name,
+      description: article.description,
+      unit: article.unit || "Unité",
+      unitPrice: initialTarget === "purchases" ? article.purchase_price : article.sale_price,
+      stock: article.stock,
+    });
+    setActiveArticleLine(null);
+  };
+
+  const articlesFor = (line: DocumentDraftLine) => {
+    const query = normalizeLabel(line.articleQuery);
+    return articleRequest.rows
+      .filter((article) => normalizeLabel(`${article.name} ${article.sku} ${article.brand} ${article.category}`).includes(query))
+      .slice(0, 6);
+  };
+
+  const lineTotal = (line: DocumentDraftLine) => {
+    const gross = Math.max(0, line.quantity) * Math.max(0, line.unitPrice);
+    const net = gross * (1 - Math.min(100, Math.max(0, line.discountPercent)) / 100);
+    return net * (1 + Math.min(100, Math.max(0, line.taxRate)) / 100);
+  };
+  const subtotal = lines.reduce((sum, line) => sum + Math.max(0, line.quantity) * Math.max(0, line.unitPrice), 0);
+  const discountAmount = lines.reduce((sum, line) => sum + Math.max(0, line.quantity) * Math.max(0, line.unitPrice) * Math.min(100, Math.max(0, line.discountPercent)) / 100, 0);
+  const taxAmount = lines.reduce((sum, line) => {
+    const net = Math.max(0, line.quantity) * Math.max(0, line.unitPrice) * (1 - Math.min(100, Math.max(0, line.discountPercent)) / 100);
+    return sum + net * Math.min(100, Math.max(0, line.taxRate)) / 100;
+  }, 0);
+  const grandTotal = subtotal - discountAmount + taxAmount;
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSubmitError("");
+    if (!selectedParty) {
+      setSubmitError(`Sélectionnez un ${initialTarget === "purchases" ? "fournisseur" : "client"} enregistré.`);
+      return;
+    }
+    if (!documentType) {
+      setSubmitError("Choisissez le type de document.");
+      return;
+    }
+    const invalidLine = lines.find((line) => !line.articleId || !line.designation.trim() || line.quantity <= 0 || line.unitPrice < 0);
+    if (invalidLine) {
+      setSubmitError("Chaque ligne doit contenir un article, une désignation, une quantité et un prix valides.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSubmit({
+        target: initialTarget,
+        name: selectedParty.name,
+        partyId: selectedParty.id,
+        detail: "",
+        documentType,
+        documentDate,
+        showFullDescription,
+        lines,
+        total: grandTotal,
+      });
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Impossible d’enregistrer le document.");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="document-editor-backdrop">
+      <form className="document-editor-shell" role="dialog" aria-modal="true" aria-labelledby="document-editor-title" onSubmit={submit}>
+        <header className="document-editor-header">
+          <div className="document-editor-heading">
+            <button type="button" className="document-editor-back" onClick={onClose} disabled={saving} aria-label="Fermer l’éditeur"><ArrowLeft size={20} /></button>
+            <div><span>{initialTarget === "purchases" ? "ACHATS" : "VENTES"}</span><h2 id="document-editor-title">Nouveau document {initialTarget === "purchases" ? "d’achat" : "de vente"}</h2></div>
+          </div>
+          <div className="document-editor-header-actions">
+            <button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Annuler</button>
+            <button type="submit" className="primary-button" disabled={saving}><Save size={17} />{saving ? "Enregistrement…" : "Enregistrer le document"}</button>
+          </div>
+        </header>
+
+        <div className="document-editor-body">
+          <section className="document-editor-meta">
+            <div className="document-party-field">
+              <span className="document-editor-label">{initialTarget === "purchases" ? "Fournisseur" : "Client"}</span>
+              {selectedParty ? (
+                <div className="document-selected-party">
+                  <EntityLogo name={selectedParty.name} tone={selectedParty.color} kind={initialTarget === "purchases" ? "supplier" : "client"} />
+                  <div><strong>{selectedParty.name}</strong><small>{selectedParty.contactName || selectedParty.contact}</small></div>
+                  <button type="button" className="text-button" onClick={() => { setSelectedPartyId(null); setPartyQuery(""); }}>Changer</button>
+                </div>
+              ) : (
+                <div className="document-party-picker">
+                  <label className="article-search-control">
+                    <Search size={16} />
+                    <input autoFocus value={partyQuery} onChange={(event) => setPartyQuery(event.target.value)} placeholder={`Rechercher un ${initialTarget === "purchases" ? "fournisseur" : "client"}…`} />
+                  </label>
+                  <div className="document-party-results">
+                    {filteredParties.map((party) => (
+                      <button type="button" key={party.id} onClick={() => { setSelectedPartyId(party.id); setPartyQuery(party.name); }}>
+                        <EntityLogo name={party.name} tone={party.color} kind={initialTarget === "purchases" ? "supplier" : "client"} />
+                        <span><strong>{party.name}</strong><small>{party.contactName || party.contact}</small></span>
+                        <em>{party.balance}</em>
+                      </button>
+                    ))}
+                    {!filteredParties.length && <p>Aucun tiers enregistré ne correspond à cette recherche.</p>}
+                  </div>
+                </div>
+              )}
+            </div>
+            <label className="field-label">Type de document
+              <select required value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
+                <option value="" disabled>Choisir le document</option>
+                <option>Devis</option>
+                <option>Bon de commande</option>
+                <option>{initialTarget === "purchases" ? "Bon de réception" : "Bon de livraison"}</option>
+                <option>Facture</option>
+              </select>
+            </label>
+            <label className="field-label">Date
+              <input type="date" required value={documentDate} onChange={(event) => setDocumentDate(event.target.value)} />
+            </label>
+          </section>
+
+          <section className="document-lines-section">
+            <div className="document-lines-heading">
+              <div><h3>Articles du document</h3><p>Ajoutez plusieurs lignes et adaptez librement chaque désignation.</p></div>
+              <button type="button" className="secondary-button add-document-line" onClick={addLine}><Plus size={16} /> Ajouter une ligne</button>
+            </div>
+            <div className="document-lines-scroll">
+              <table className="document-lines-table">
+                <thead><tr><th>#</th><th>Article</th><th>Désignation / description</th><th>Unité</th><th>Quantité</th><th>Prix unitaire</th><th>Remise %</th><th>TVA %</th><th>Total TTC</th><th /></tr></thead>
+                <tbody>
+                  {lines.map((line, index) => {
+                    const matches = articlesFor(line);
+                    return (
+                      <tr key={line.key}>
+                        <td className="document-line-index">{index + 1}</td>
+                        <td>
+                          <div className="line-article-picker">
+                            <div className="line-article-input">
+                              <Search size={14} />
+                              <input
+                                value={line.articleQuery}
+                                onFocus={() => setActiveArticleLine(line.key)}
+                                onChange={(event) => {
+                                  updateLine(line.key, { articleQuery: event.target.value, articleId: null, stock: null });
+                                  setActiveArticleLine(line.key);
+                                }}
+                                placeholder="Nom ou référence"
+                                aria-label={`Article ligne ${index + 1}`}
+                              />
+                              {line.articleQuery && <button type="button" onClick={() => updateLine(line.key, { articleId: null, articleQuery: "", designation: "", description: "", stock: null })} aria-label={`Effacer l’article ligne ${index + 1}`}><X size={13} /></button>}
+                            </div>
+                            {activeArticleLine === line.key && !line.articleId && (
+                              <div className="line-article-results">
+                                {articleRequest.loading && <p>Chargement…</p>}
+                                {!articleRequest.loading && articleRequest.error && <p className="error">{articleRequest.error}</p>}
+                                {!articleRequest.loading && !articleRequest.error && matches.map((article) => (
+                                  <button type="button" key={article.id} onClick={() => selectArticle(line.key, article)}>
+                                    <ArticleBrandLogo brand={article.brand} logo={article.brand_logo} />
+                                    <span><strong>{article.name}</strong><small>{article.sku} · Stock {article.stock}</small></span>
+                                  </button>
+                                ))}
+                                {!articleRequest.loading && !articleRequest.error && !matches.length && <p>Aucun article trouvé.</p>}
+                              </div>
+                            )}
+                            {line.articleId && <small className="line-stock-note">Stock disponible : {line.stock ?? 0} {line.unit}</small>}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="line-designation-fields">
+                            <input required value={line.designation} onChange={(event) => updateLine(line.key, { designation: event.target.value })} placeholder="Désignation modifiable" aria-label={`Désignation ligne ${index + 1}`} />
+                            <input value={line.description} onChange={(event) => updateLine(line.key, { description: event.target.value })} placeholder="Description facultative" aria-label={`Description ligne ${index + 1}`} />
+                          </div>
+                        </td>
+                        <td><input className="line-unit-input" value={line.unit} onChange={(event) => updateLine(line.key, { unit: event.target.value })} aria-label={`Unité ligne ${index + 1}`} /></td>
+                        <td><input className="line-number-input" type="number" min="0.001" step="0.001" required value={line.quantity} onChange={(event) => updateLine(line.key, { quantity: Number(event.target.value) })} aria-label={`Quantité ligne ${index + 1}`} /></td>
+                        <td><input className="line-money-input" type="number" min="0" step="0.01" required value={line.unitPrice} onChange={(event) => updateLine(line.key, { unitPrice: Number(event.target.value) })} aria-label={`Prix unitaire ligne ${index + 1}`} /></td>
+                        <td><input className="line-number-input" type="number" min="0" max="100" step="0.01" value={line.discountPercent} onChange={(event) => updateLine(line.key, { discountPercent: Number(event.target.value) })} aria-label={`Remise ligne ${index + 1}`} /></td>
+                        <td><input className="line-number-input" type="number" min="0" max="100" step="0.01" value={line.taxRate} onChange={(event) => updateLine(line.key, { taxRate: Number(event.target.value) })} aria-label={`TVA ligne ${index + 1}`} /></td>
+                        <td className="document-line-total">{formatDa(lineTotal(line))}</td>
+                        <td><button type="button" className="remove-document-line" onClick={() => removeLine(line.key)} aria-label={`Supprimer la ligne ${index + 1}`}><Trash2 size={16} /></button></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <button type="button" className="document-add-row-button" onClick={addLine}><Plus size={16} /> Ajouter un autre article</button>
+          </section>
+
+          <section className="document-editor-bottom">
+            <div>
+              {documentType === "Bon de commande" && (
+                <label className="description-toggle"><input type="checkbox" checked={showFullDescription} onChange={(event) => setShowFullDescription(event.target.checked)} /><span><strong>Afficher les descriptions complètes</strong><small>Les descriptions de toutes les lignes apparaîtront sur le document.</small></span></label>
+              )}
+              {documentType === "Facture" && (
+                <p className="document-credit-note"><Banknote size={16} /> Cette facture est enregistrée à crédit et pourra être réglée plus tard depuis la fiche du tiers.</p>
+              )}
+              {submitError && <p className="form-error" role="alert">{submitError}</p>}
+            </div>
+            <div className="document-editor-totals" aria-live="polite">
+              <div><span>Sous-total</span><strong>{formatDa(subtotal)}</strong></div>
+              <div><span>Remise</span><strong>- {formatDa(discountAmount)}</strong></div>
+              <div><span>TVA</span><strong>{formatDa(taxAmount)}</strong></div>
+              <div className="grand-total"><span>Total TTC</span><strong>{formatDa(grandTotal)}</strong></div>
+            </div>
+          </section>
+        </div>
+
+        <footer className="document-editor-footer">
+          <span>{lines.length} ligne{lines.length === 1 ? "" : "s"} · {selectedParty?.name || "Tiers à sélectionner"}</span>
+          <div><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Annuler</button><button type="submit" className="primary-button" disabled={saving}><Save size={17} />{saving ? "Enregistrement…" : `Créer pour ${formatDa(grandTotal)}`}</button></div>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function SimpleDocumentEditor({
+  initialTarget,
+  initialDocument,
+  initialDocumentType,
+  defaultTaxRate,
+  parties,
+  onClose,
+  onSubmit,
+}: {
+  initialTarget: "purchases" | "sales";
+  initialDocument?: DocumentRecord | null;
+  initialDocumentType?: string;
+  defaultTaxRate: number;
+  parties: PartyRow[];
+  onClose: () => void;
+  onSubmit: (payload: CreatePayload) => Promise<void> | void;
+}) {
+  const sourceLines = initialDocument ? documentLinesFor(initialDocument) : [];
+  const lineSequence = useRef(Math.max(0, sourceLines.length));
+  const [selectedPartyId, setSelectedPartyId] = useState<number | null>(
+    initialDocument?.partyId ?? parties.find((party) => party.name === initialDocument?.party)?.id ?? null,
+  );
+  const [partyQuery, setPartyQuery] = useState(initialDocument?.party ?? "");
+  const [articleQuery, setArticleQuery] = useState("");
+  const [selectedArticleId, setSelectedArticleId] = useState<number | null>(null);
+  const [draftQuantity, setDraftQuantity] = useState("1");
+  const [draftUnitPrice, setDraftUnitPrice] = useState("1");
+  const [documentType, setDocumentType] = useState(initialDocument?.type ?? initialDocumentType ?? "");
+  const [documentDate, setDocumentDate] = useState(initialDocument?.rawDate ?? new Date().toISOString().slice(0, 10));
+  const [lines, setLines] = useState<DocumentDraftLine[]>(() => sourceLines.length
+    ? sourceLines.map((line, index) => ({
+        key: `line-${index + 1}`,
+        articleId: line.article_id,
+        articleQuery: line.designation,
+        designation: line.designation,
+        description: line.description,
+        unit: line.unit || "Unité",
+        quantity: line.quantity,
+        unitPrice: line.unit_price,
+        discountPercent: line.discount_percent,
+        taxRate: line.tax_rate,
+        stock: null,
+      }))
+    : []);
+  const [articleRequest, setArticleRequest] = useState<{ rows: ArticleRecord[]; loading: boolean; error: string }>({
+    rows: [],
+    loading: true,
+    error: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const selectedParty = parties.find((party) => party.id === selectedPartyId) ?? null;
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/articles", { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as { articles?: ArticleRecord[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "Impossible de lire les articles.");
+        const articleRows = payload.articles ?? [];
+        setArticleRequest({ rows: articleRows, loading: false, error: "" });
+        setLines((currentLines) => currentLines.map((line) => {
+          const article = line.articleId ? articleRows.find((row) => row.id === line.articleId) : null;
+          return article ? { ...line, articleQuery: `${article.name} · ${article.sku}`, stock: article.stock } : line;
+        }));
+      })
+      .catch((error: Error) => {
+        if (error.name !== "AbortError") setArticleRequest({ rows: [], loading: false, error: error.message });
+      });
+    return () => controller.abort();
+  }, []);
+
+  const updateLine = (key: string, patch: Partial<DocumentDraftLine>) => {
+    setLines((rows) => rows.map((line) => line.key === key ? { ...line, ...patch } : line));
+  };
+
+  const selectDraftArticle = (query: string) => {
+    const normalizedQuery = normalizeLabel(query.trim());
+    const article = articleRequest.rows.find((row) =>
+      normalizeLabel(row.name) === normalizedQuery
+      || normalizeLabel(row.sku) === normalizedQuery
+      || normalizeLabel(`${row.name} · ${row.sku}`) === normalizedQuery,
+    );
+    setArticleQuery(query);
+    setSelectedArticleId(article?.id ?? null);
+    if (article) {
+      setDraftUnitPrice(String(initialTarget === "purchases" ? article.purchase_price : article.sale_price));
+      setDraftQuantity((current) => current.trim() === "" ? "1" : current);
+    }
+    setSubmitError("");
+  };
+
+  const addLine = () => {
+    const article = selectedArticleId
+      ? articleRequest.rows.find((row) => row.id === selectedArticleId)
+      : articleRequest.rows.find((row) => {
+          const normalizedQuery = normalizeLabel(articleQuery.trim());
+          return normalizeLabel(row.name) === normalizedQuery
+            || normalizeLabel(row.sku) === normalizedQuery
+            || normalizeLabel(`${row.name} · ${row.sku}`) === normalizedQuery;
+        });
+    if (!article) {
+      setSubmitError("Recherchez puis sélectionnez un article avant d’ajouter la ligne.");
+      return;
+    }
+    const quantity = draftQuantity.trim() === "" ? 1 : Number(draftQuantity);
+    const unitPrice = draftUnitPrice.trim() === "" ? 1 : Number(draftUnitPrice);
+    if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice < 0) {
+      setSubmitError("La quantité et le prix doivent être valides.");
+      return;
+    }
+    lineSequence.current += 1;
+    setLines((rows) => [...rows, {
+      ...emptyDocumentLine(`line-${lineSequence.current}`),
+      articleId: article.id,
+      articleQuery: `${article.name} · ${article.sku}`,
+      designation: article.name,
+      description: article.description,
+      unit: article.unit || "Unité",
+      quantity,
+      unitPrice,
+      taxRate: defaultTaxRate,
+      stock: article.stock,
+    }]);
+    setArticleQuery("");
+    setSelectedArticleId(null);
+    setDraftQuantity("");
+    setDraftUnitPrice("");
+    setSubmitError("");
+  };
+
+  const removeLine = (key: string) => {
+    setLines((rows) => rows.length === 1 ? [emptyDocumentLine(rows[0].key)] : rows.filter((line) => line.key !== key));
+  };
+
+  const lineTotal = (line: DocumentDraftLine) => {
+    const gross = Math.max(0, line.quantity) * Math.max(0, line.unitPrice);
+    const net = gross * (1 - Math.min(100, Math.max(0, line.discountPercent)) / 100);
+    return net * (1 + Math.min(100, Math.max(0, line.taxRate)) / 100);
+  };
+  const subtotal = lines.reduce((sum, line) => sum + Math.max(0, line.quantity) * Math.max(0, line.unitPrice), 0);
+  const discountAmount = lines.reduce((sum, line) => sum + Math.max(0, line.quantity) * Math.max(0, line.unitPrice) * Math.min(100, Math.max(0, line.discountPercent)) / 100, 0);
+  const taxAmount = lines.reduce((sum, line) => {
+    const net = Math.max(0, line.quantity) * Math.max(0, line.unitPrice) * (1 - Math.min(100, Math.max(0, line.discountPercent)) / 100);
+    return sum + net * Math.min(100, Math.max(0, line.taxRate)) / 100;
+  }, 0);
+  const grandTotal = subtotal - discountAmount + taxAmount;
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSubmitError("");
+    if (!selectedParty) {
+      setSubmitError(`Sélectionnez un ${initialTarget === "purchases" ? "fournisseur" : "client"}.`);
+      return;
+    }
+    if (!documentType) {
+      setSubmitError("Choisissez le type de document.");
+      return;
+    }
+    if (!lines.length || lines.some((line) => !line.articleId || !line.designation.trim() || line.quantity <= 0 || line.unitPrice < 0)) {
+      setSubmitError("Chaque ligne doit contenir un article, une désignation, une quantité et un prix valides.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSubmit({
+        target: initialTarget,
+        name: selectedParty.name,
+        partyId: selectedParty.id,
+        documentId: initialDocument?.id,
+        detail: "",
+        documentType,
+        documentDate,
+        lines,
+        total: grandTotal,
+      });
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Impossible d’enregistrer le document.");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="document-editor-backdrop pure-table-backdrop">
+      <form className="pure-table-editor" role="dialog" aria-modal="true" aria-labelledby="pure-document-title" onSubmit={submit}>
+        <table className="pure-document-table">
+          <caption id="pure-document-title">{initialDocument ? "Modifier" : "Ajouter"} {initialTarget === "purchases" ? "un achat" : "une vente"}</caption>
+          <thead>
+            <tr className="pure-document-controls-row">
+              <th colSpan={10}>
+                <div className="pure-document-controls">
+                  <button type="button" className="pure-icon-button" onClick={onClose} disabled={saving} aria-label="Fermer"><ArrowLeft size={17} /></button>
+                  <strong>{initialDocument?.number ?? (initialTarget === "purchases" ? "Nouvel achat" : "Nouvelle vente")}</strong>
+                  <label className="pure-article-control">
+                    <span>Article à ajouter</span>
+                    <input
+                      list="pure-article-options"
+                      value={articleQuery}
+                      onChange={(event) => selectDraftArticle(event.target.value)}
+                      placeholder={articleRequest.loading ? "Chargement…" : "Rechercher un article"}
+                      aria-label="Rechercher un article à ajouter"
+                    />
+                  </label>
+                  <label className="pure-number-control">
+                    <span>Qté</span>
+                    <input type="number" min="0.001" step="0.001" value={draftQuantity} onChange={(event) => setDraftQuantity(event.target.value)} placeholder="1" aria-label="Quantité de la ligne à ajouter" />
+                  </label>
+                  <label className="pure-number-control pure-price-control">
+                    <span>Prix unit.</span>
+                    <input type="number" min="0" step="0.01" value={draftUnitPrice} onChange={(event) => setDraftUnitPrice(event.target.value)} placeholder="1" aria-label="Prix unitaire de la ligne à ajouter" />
+                  </label>
+                  <label>
+                    <span>{initialTarget === "purchases" ? "Fournisseur" : "Client"}</span>
+                    <input
+                      required
+                      list="pure-party-options"
+                      value={partyQuery}
+                      onChange={(event) => {
+                        const query = event.target.value;
+                        setPartyQuery(query);
+                        const party = parties.find((row) => normalizeLabel(row.name) === normalizeLabel(query.trim()));
+                        setSelectedPartyId(party?.id ?? null);
+                      }}
+                      placeholder={`Rechercher un ${initialTarget === "purchases" ? "fournisseur" : "client"}`}
+                    />
+                  </label>
+                  <label>
+                    <span>Document</span>
+                    <select required value={documentType} onChange={(event) => setDocumentType(event.target.value)} disabled={Boolean(initialDocument)}>
+                      <option value="" disabled>Choisir</option>
+                      <option>Devis</option>
+                      <option>Bon de commande</option>
+                      <option>{initialTarget === "purchases" ? "Bon de réception" : "Bon de livraison"}</option>
+                      <option>Facture</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Date</span>
+                    <input type="date" required value={documentDate} onChange={(event) => setDocumentDate(event.target.value)} />
+                  </label>
+                  <button type="button" className="pure-add-line-button" onClick={addLine} disabled={saving}><Plus size={14} /><span>+ ligne</span></button>
+                  <button type="submit" className="pure-save-button" disabled={saving}><Save size={15} />{saving ? "…" : "Enregistrer"}</button>
+                </div>
+              </th>
+            </tr>
+            <tr className="pure-column-headings"><th>#</th><th>Article</th><th>Désignation</th><th>Unité</th><th>Quantité</th><th>Prix unit.</th><th>Remise %</th><th>TVA %</th><th>Total</th><th /></tr>
+          </thead>
+          <tbody>
+            {lines.map((line, index) => (
+              <tr key={line.key}>
+                <td className="pure-line-index">{index + 1}</td>
+                <td><span className="pure-cell-text">{line.articleQuery || "—"}</span></td>
+                <td><input required value={line.designation} onChange={(event) => updateLine(line.key, { designation: event.target.value })} placeholder="Désignation" aria-label={`Désignation ligne ${index + 1}`} /></td>
+                <td><input value={line.unit} onChange={(event) => updateLine(line.key, { unit: event.target.value })} aria-label={`Unité ligne ${index + 1}`} /></td>
+                <td><input type="number" min="0.001" step="0.001" required value={line.quantity} onChange={(event) => updateLine(line.key, { quantity: Number(event.target.value) })} aria-label={`Quantité ligne ${index + 1}`} /></td>
+                <td><input type="number" min="0" step="0.01" required value={line.unitPrice} onChange={(event) => updateLine(line.key, { unitPrice: Number(event.target.value) })} aria-label={`Prix unitaire ligne ${index + 1}`} /></td>
+                <td><input type="number" min="0" max="100" step="0.01" value={line.discountPercent} onChange={(event) => updateLine(line.key, { discountPercent: Number(event.target.value) })} aria-label={`Remise ligne ${index + 1}`} /></td>
+                <td><input type="number" min="0" max="100" step="0.01" value={line.taxRate} onChange={(event) => updateLine(line.key, { taxRate: Number(event.target.value) })} aria-label={`TVA ligne ${index + 1}`} /></td>
+                <td className="pure-line-total">{formatDa(lineTotal(line))}</td>
+                <td><button type="button" className="pure-delete-line" onClick={() => removeLine(line.key)} aria-label={`Supprimer la ligne ${index + 1}`}><Trash2 size={14} /></button></td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            {(articleRequest.error || submitError) && <tr className="pure-error-row"><td colSpan={10}>{articleRequest.error || submitError}</td></tr>}
+            <tr className="pure-totals-row">
+              <td colSpan={5}><span>{lines.length} ligne{lines.length === 1 ? "" : "s"} · {selectedParty?.name || "Tiers non sélectionné"}</span></td>
+              <td><small>Sous-total</small><strong>{formatDa(subtotal)}</strong></td>
+              <td><small>Remise</small><strong>- {formatDa(discountAmount)}</strong></td>
+              <td><small>TVA</small><strong>{formatDa(taxAmount)}</strong></td>
+              <td colSpan={2} className="pure-grand-total"><small>Total TTC</small><strong>{formatDa(grandTotal)}</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+        <datalist id="pure-party-options">{parties.map((party) => <option key={party.id} value={party.name} />)}</datalist>
+        <datalist id="pure-article-options">{articleRequest.rows.map((article) => <option key={article.id} value={`${article.name} · ${article.sku}`} />)}</datalist>
+      </form>
     </div>
   );
 }
@@ -1696,7 +2742,7 @@ function CreateModal({
   const [quantity, setQuantity] = useState(1);
   const [unitPrice, setUnitPrice] = useState(0);
   const [discount, setDiscount] = useState(0);
-  const [taxRate, setTaxRate] = useState(19);
+  const [taxRate, setTaxRate] = useState(0);
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [documentDate, setDocumentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
@@ -2126,7 +3172,7 @@ function ArticleFormModal({
               <datalist id="article-third-category-options">{thirdLevelOptions.map((item) => <option key={item} value={item} />)}</datalist>
             </label>
           </div>
-          <p className="category-editor-hint"><Plus size={13} />Sélectionnez une valeur proposée ou saisissez un nouveau niveau.</p>
+          <p className="category-editor-hint"><Plus size={13} />Les 3 familles sont libres : choisissez une valeur existante, ajoutez-en une nouvelle ou renommez-la directement sur cet article.</p>
         </section>
         <label className="field-label">Description complète<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description affichée sur les commandes lorsque l’option est activée." rows={3} /></label>
         <div className="form-grid form-grid-three">
@@ -2220,7 +3266,9 @@ export default function WorkspaceApp() {
   const [purchases, setPurchases] = useState(initialPurchases);
   const [sales, setSales] = useState(initialSales);
   const [financeEntries, setFinanceEntries] = useState<FinanceEntry[]>([]);
+  const [treasuryLedger, setTreasuryLedger] = useState<TreasuryLedgerRow[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
+  const [documentEditorContext, setDocumentEditorContext] = useState<{ direction: "purchases" | "sales"; document: DocumentRecord | null } | null>(null);
   const [articleEditor, setArticleEditor] = useState<ArticleRecord | "new" | null>(null);
   const [catalogVersion, setCatalogVersion] = useState(0);
   const [returnContext, setReturnContext] = useState<{ direction: "purchases" | "sales"; document: DocumentRecord } | null>(null);
@@ -2228,18 +3276,17 @@ export default function WorkspaceApp() {
   const [partyEditor, setPartyEditor] = useState<{ party: PartyRow; kind: "client" | "supplier" } | null>(null);
   const [settlementContext, setSettlementContext] = useState<{ party: PartyRow; kind: "client" | "supplier" } | null>(null);
   const [documentDetails, setDocumentDetails] = useState<DocumentRecord | null>(null);
-  const [financeEntryOpen, setFinanceEntryOpen] = useState(false);
+  const [financeEntryEditor, setFinanceEntryEditor] = useState<FinanceEntry | "new" | null>(null);
+  const [financeEntryDetails, setFinanceEntryDetails] = useState<FinanceEntry | null>(null);
+  const [treasuryEntryEditor, setTreasuryEntryEditor] = useState<TreasuryEntry | "new" | null>(null);
   const [partyVersion, setPartyVersion] = useState(0);
+  const [financeVersion, setFinanceVersion] = useState(0);
   const [helpOpen, setHelpOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [toast, setToast] = useState("");
   const toastTimer = useRef<number | null>(null);
   const meta = pageMeta[page];
-
-  useEffect(() => {
-    if (page === "articles") setViewMode("grid");
-  }, [page]);
 
   const notify = (message: string) => {
     setToast(message);
@@ -2313,14 +3360,25 @@ export default function WorkspaceApp() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/finance", { signal: controller.signal, cache: "no-store" })
-      .then(async (response) => {
+    Promise.all([
+      fetch("/api/finance", { signal: controller.signal, cache: "no-store" }).then(async (response) => {
         const payload = await response.json() as { entries?: FinanceEntry[] };
-        if (response.ok) setFinanceEntries(payload.entries ?? []);
+        if (!response.ok) throw new Error("Finance indisponible");
+        return payload.entries ?? [];
+      }),
+      fetch("/api/treasury", { signal: controller.signal, cache: "no-store" }).then(async (response) => {
+        const payload = await response.json() as { ledger?: TreasuryLedgerRow[] };
+        if (!response.ok) throw new Error("Trésorerie indisponible");
+        return payload.ledger ?? [];
+      }),
+    ])
+      .then(([entries, ledger]) => {
+        setFinanceEntries(entries);
+        setTreasuryLedger(ledger);
       })
       .catch((error: Error) => { if (error.name !== "AbortError") console.error("Impossible de charger la finance SQLite", error); });
     return () => controller.abort();
-  }, []);
+  }, [financeVersion]);
 
   const navigate = (nextPage: PageKey) => {
     if (nextPage !== page) window.history.pushState(null, "", `#${nextPage}`);
@@ -2351,6 +3409,17 @@ export default function WorkspaceApp() {
     });
     const payload = await response.json() as { document?: ApiDocumentRecord; error?: string };
     if (!response.ok || !payload.document) throw new Error(payload.error || "Impossible d’enregistrer le document.");
+    return toDocumentRecord(payload.document);
+  };
+
+  const patchDocument = async (body: Record<string, unknown>) => {
+    const response = await fetch("/api/documents", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json() as { document?: ApiDocumentRecord; error?: string };
+    if (!response.ok || !payload.document) throw new Error(payload.error || "Impossible de modifier le document.");
     return toDocumentRecord(payload.document);
   };
 
@@ -2403,14 +3472,25 @@ export default function WorkspaceApp() {
   };
 
   const duplicateDocumentRecord = async (document: DocumentRecord, direction: "purchases" | "sales") => {
-    if (!document.articleId) throw new Error("Le document ne contient pas de ligne à dupliquer.");
+    const lines = documentLinesFor(document);
+    if (!lines.length) throw new Error("Le document ne contient pas de ligne à dupliquer.");
     const copy = await postDocument({
       direction,
       type: "Devis",
+      partyId: document.partyId,
       partyName: document.party,
       documentDate: new Date().toISOString().slice(0, 10),
       showDescription: document.showFullDescription,
-      lines: [{ articleId: document.articleId, designation: document.articleName, description: document.description, unit: document.unit, quantity: document.quantity ?? 1, unitPrice: document.unitPrice, discountPercent: document.discountPercent, taxRate: document.taxRate }],
+      lines: lines.map((line) => ({
+        articleId: line.article_id,
+        designation: line.designation,
+        description: line.description,
+        unit: line.unit,
+        quantity: line.quantity,
+        unitPrice: line.unit_price,
+        discountPercent: line.discount_percent,
+        taxRate: line.tax_rate,
+      })),
     });
     if (direction === "sales") setSales((rows) => [copy, ...rows]); else setPurchases((rows) => [copy, ...rows]);
     notify(`Copie créée depuis ${document.number}`);
@@ -2481,24 +3561,27 @@ export default function WorkspaceApp() {
   };
 
   const convertQuoteToInvoice = async (direction: "purchases" | "sales", quote: DocumentRecord) => {
-    if (quote.id && quote.articleId) {
+    const sourceLines = documentLinesFor(quote);
+    if (quote.id && sourceLines.length) {
       const invoice = await postDocument({
         direction,
         type: "Facture",
+        status: "À régler",
+        partyId: quote.partyId,
         partyName: quote.party,
         sourceDocumentId: quote.id,
         documentDate: new Date().toISOString().slice(0, 10),
         showDescription: quote.showFullDescription,
-        lines: [{
-          articleId: quote.articleId,
-          designation: quote.articleName,
-          description: quote.description,
-          unit: quote.unit,
-          quantity: quote.quantity ?? 1,
-          unitPrice: quote.unitPrice,
-          discountPercent: quote.discountPercent,
-          taxRate: quote.taxRate,
-        }],
+        lines: sourceLines.map((line) => ({
+          articleId: line.article_id,
+          designation: line.designation,
+          description: line.description,
+          unit: line.unit,
+          quantity: line.quantity,
+          unitPrice: line.unit_price,
+          discountPercent: line.discount_percent,
+          taxRate: line.tax_rate,
+        })),
       });
       if (direction === "sales") setSales((rows) => [invoice, ...rows]);
       else setPurchases((rows) => [invoice, ...rows]);
@@ -2519,7 +3602,7 @@ export default function WorkspaceApp() {
     notify(`Facture créée depuis ${quote.number}`);
   };
 
-  const createItem = async ({ target, name, detail, documentType, contactName, email, address, city, headOffice, nif, nis, rc, articleId, articleName, articleDescription, unit, showFullDescription, quantity, unitPrice, discount, taxRate, documentDate }: CreatePayload) => {
+  const createItem = async ({ target, name, detail, documentType, contactName, email, address, city, headOffice, nif, nis, rc, articleId, articleName, articleDescription, unit, showFullDescription, quantity, unitPrice, discount, taxRate, documentDate, partyId, documentId, lines }: CreatePayload) => {
     const cleanName = name.trim();
     if (target === "clients") {
       const party = await postParty({
@@ -2545,49 +3628,99 @@ export default function WorkspaceApp() {
         city,
         head_office: headOffice,
         category: detail,
+        nif,
+        nis,
+        rc,
       });
       setSuppliers((rows) => [toSupplierRecord(party), ...rows]);
     } else {
-      if (!articleId) throw new Error("Sélectionnez un article existant.");
-      const record = await postDocument({
+      const documentLines = lines?.length
+        ? lines.map((line) => ({
+            articleId: line.articleId,
+            designation: line.designation.trim(),
+            description: line.description.trim(),
+            unit: line.unit.trim() || "Unité",
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            discountPercent: line.discountPercent,
+            taxRate: line.taxRate,
+          }))
+        : articleId
+          ? [{
+              articleId,
+              designation: articleName,
+              description: articleDescription,
+              unit,
+              quantity,
+              unitPrice,
+              discountPercent: discount,
+              taxRate,
+            }]
+          : [];
+      if (!partyId) throw new Error(`Sélectionnez un ${target === "purchases" ? "fournisseur" : "client"} enregistré.`);
+      if (!documentLines.length) throw new Error("Ajoutez au moins un article.");
+      const save = documentId ? patchDocument : postDocument;
+      const record = await save({
+        ...(documentId ? { id: documentId } : {}),
         direction: target,
         type: documentType,
+        status: documentType === "Facture" ? "À régler" : undefined,
+        partyId,
         partyName: cleanName,
         documentDate,
-        discount,
-        taxRate,
         showDescription: showFullDescription,
-        lines: [{
-          articleId,
-          designation: articleName,
-          description: articleDescription,
-          unit,
-          quantity,
-          unitPrice,
-          discountPercent: discount,
-          taxRate,
-        }],
+        lines: documentLines,
       });
-      if (target === "purchases") setPurchases((rows) => [record, ...rows]);
-      else setSales((rows) => [record, ...rows]);
+      if (target === "purchases") {
+        setPurchases((rows) => documentId ? rows.map((row) => row.id === documentId ? record : row) : [record, ...rows]);
+      } else {
+        setSales((rows) => documentId ? rows.map((row) => row.id === documentId ? record : row) : [record, ...rows]);
+      }
       setCatalogVersion((value) => value + 1);
       setPartyVersion((value) => value + 1);
     }
     setCreateOpen(false);
-    notify("Élément ajouté avec succès");
+    setDocumentEditorContext(null);
+    notify(documentId ? "Document modifié avec succès" : "Élément ajouté avec succès");
+  };
+
+  const deleteFinanceEntryRecord = async (entry: FinanceEntry) => {
+    try {
+      const response = await fetch("/api/finance", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: entry.id }) });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Impossible de supprimer la charge.");
+      setFinanceEntries((rows) => rows.filter((row) => row.id !== entry.id));
+      setFinanceVersion((value) => value + 1);
+      notify(`${entry.label} supprimé`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Impossible de supprimer la charge.");
+    }
+  };
+
+  const deleteTreasuryEntryRecord = async (entry: TreasuryEntry) => {
+    try {
+      const response = await fetch("/api/treasury", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: entry.id }) });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Impossible de supprimer le mouvement.");
+      setFinanceVersion((value) => value + 1);
+      notify(`${entry.label} supprimé`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Impossible de supprimer le mouvement.");
+    }
   };
 
   const createTarget: BusinessPage | null = ["clients", "suppliers", "purchases", "sales"].includes(page)
     ? page as BusinessPage
     : null;
-  const createParties = createTarget === "purchases"
-    ? suppliers.map((supplier) => supplier.name)
-    : createTarget === "sales"
-      ? clients.map((client) => client.name)
-      : [];
   const createDocumentType = createTarget === "purchases" || createTarget === "sales"
     ? documentTypeForTab(activeTab, createTarget)
     : "";
+  const currentPartyDetails = partyDetails
+    ? (partyDetails.kind === "client" ? clients : suppliers).find((party) => party.id === partyDetails.party.id) ?? partyDetails.party
+    : null;
+  const currentSettlementParty = settlementContext
+    ? (settlementContext.kind === "client" ? clients : suppliers).find((party) => party.id === settlementContext.party.id) ?? settlementContext.party
+    : null;
 
   return (
     <div className="app-shell">
@@ -2666,23 +3799,51 @@ export default function WorkspaceApp() {
           {page === "dashboard" && <Dashboard onViewSales={() => navigate("sales")} purchases={purchases} sales={sales} />}
           {page === "clients" && <ClientsTable rows={clients} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(party) => setPartyDetails({ party, kind: "client" })} onEdit={(party) => setPartyEditor({ party, kind: "client" })} onDuplicate={(party) => { void duplicatePartyRecord(party, "client").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le client.")); }} onSettle={(party) => setSettlementContext({ party, kind: "client" })} onDelete={(name) => { const party = clients.find((row) => row.name === name); if (party) void deletePartyRecord(party, "client").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le client.")); }} />}
           {page === "suppliers" && <SuppliersTable rows={suppliers} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(party) => setPartyDetails({ party, kind: "supplier" })} onEdit={(party) => setPartyEditor({ party, kind: "supplier" })} onDuplicate={(party) => { void duplicatePartyRecord(party, "supplier").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le fournisseur.")); }} onSettle={(party) => setSettlementContext({ party, kind: "supplier" })} onDelete={(name) => { const party = suppliers.find((row) => row.name === name); if (party) void deletePartyRecord(party, "supplier").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le fournisseur.")); }} />}
-          {page === "articles" && <ArticlesTable search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} refreshKey={catalogVersion} onEdit={(article) => setArticleEditor(article)} />}
-          {page === "purchases" && <DocumentsTable page="purchases" rows={purchases} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={setDocumentDetails} onDuplicate={(document) => { void duplicateDocumentRecord(document, "purchases").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le document.")); }} onDelete={(number) => { const document = purchases.find((row) => row.number === number); if (document) void deleteDocumentRecord(document, "purchases").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le document.")); }} onReturn={(document) => setReturnContext({ direction: "purchases", document })} onConvertQuote={(quote) => convertQuoteToInvoice("purchases", quote)} />}
-          {page === "sales" && <DocumentsTable page="sales" rows={sales} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={setDocumentDetails} onDuplicate={(document) => { void duplicateDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le document.")); }} onDelete={(number) => { const document = sales.find((row) => row.number === number); if (document) void deleteDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le document.")); }} onReturn={(document) => setReturnContext({ direction: "sales", document })} onConvertQuote={(quote) => convertQuoteToInvoice("sales", quote)} />}
-          {page === "finance" && <FinancePage entries={financeEntries} search={search} setSearch={setSearch} onNew={() => setFinanceEntryOpen(true)} onDelete={(entry) => { void (async () => { const response = await fetch("/api/finance", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: entry.id }) }); const payload = await response.json() as { error?: string }; if (!response.ok) throw new Error(payload.error || "Impossible de supprimer la dépense."); setFinanceEntries((rows) => rows.filter((row) => row.id !== entry.id)); notify(`${entry.label} supprimé`); })().catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer la dépense.")); }} />}
+          {page === "articles" && <ArticlesTable search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode="grid" setViewMode={setViewMode} notify={notify} refreshKey={catalogVersion} onEdit={(article) => setArticleEditor(article)} />}
+          {page === "purchases" && <DocumentsTable page="purchases" rows={purchases} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={setDocumentDetails} onEdit={(document) => setDocumentEditorContext({ direction: "purchases", document })} onDuplicate={(document) => { void duplicateDocumentRecord(document, "purchases").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le document.")); }} onDelete={(number) => { const document = purchases.find((row) => row.number === number); if (document) void deleteDocumentRecord(document, "purchases").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le document.")); }} onReturn={(document) => setReturnContext({ direction: "purchases", document })} onConvertQuote={(quote) => convertQuoteToInvoice("purchases", quote)} />}
+          {page === "sales" && <DocumentsTable page="sales" rows={sales} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={setDocumentDetails} onEdit={(document) => setDocumentEditorContext({ direction: "sales", document })} onDuplicate={(document) => { void duplicateDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le document.")); }} onDelete={(number) => { const document = sales.find((row) => row.number === number); if (document) void deleteDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le document.")); }} onReturn={(document) => setReturnContext({ direction: "sales", document })} onConvertQuote={(quote) => convertQuoteToInvoice("sales", quote)} />}
+          {page === "finance" && <FinanceWorkspacePage entries={financeEntries} parties={[...clients, ...suppliers]} treasuryLedger={treasuryLedger} search={search} setSearch={setSearch} onNewCharge={() => setFinanceEntryEditor("new")} onViewCharge={setFinanceEntryDetails} onEditCharge={(entry) => setFinanceEntryEditor(entry)} onDeleteCharge={(entry) => { void deleteFinanceEntryRecord(entry); }} onViewParty={(party, kind) => setPartyDetails({ party, kind })} onSettleParty={(party, kind) => setSettlementContext({ party, kind })} onNewTreasury={() => setTreasuryEntryEditor("new")} onEditTreasury={(entry) => setTreasuryEntryEditor(entry)} onDeleteTreasury={(entry) => { void deleteTreasuryEntryRecord(entry); }} />}
           {page === "documents" && <DocumentsLibrary purchases={purchases} sales={sales} search={search} setSearch={setSearch} viewMode={viewMode} setViewMode={setViewMode} />}
           {page === "settings" && <SettingsPage company={company} onSave={persistCompanySettings} notify={notify} />}
         </main>
       </div>
 
-      {createOpen && createTarget && <CreateModal initialTarget={createTarget} initialDocumentType={createDocumentType} parties={createParties} onClose={() => setCreateOpen(false)} onSubmit={createItem} />}
+      {(createOpen && (createTarget === "purchases" || createTarget === "sales") || documentEditorContext) && (
+        <SimpleDocumentEditor
+          initialTarget={documentEditorContext?.direction ?? createTarget as "purchases" | "sales"}
+          initialDocument={documentEditorContext?.document ?? null}
+          initialDocumentType={documentEditorContext ? undefined : createDocumentType}
+          defaultTaxRate={company.defaultTaxRate}
+          parties={documentEditorContext?.direction === "purchases" || createTarget === "purchases" ? suppliers : clients}
+          onClose={() => { setCreateOpen(false); setDocumentEditorContext(null); }}
+          onSubmit={createItem}
+        />
+      )}
+      {createOpen && (createTarget === "clients" || createTarget === "suppliers") && (
+        <CreateModal initialTarget={createTarget} initialDocumentType={createDocumentType} parties={[]} onClose={() => setCreateOpen(false)} onSubmit={createItem} />
+      )}
       {articleEditor && <ArticleFormModal article={articleEditor === "new" ? null : articleEditor} onClose={() => setArticleEditor(null)} onSaved={(article) => { setArticleEditor(null); setCatalogVersion((value) => value + 1); notify(`${article.name} enregistré dans le catalogue`); }} />}
       {returnContext && <ReturnModal document={returnContext.document} direction={returnContext.direction} onClose={() => setReturnContext(null)} onConfirm={confirmReturn} />}
-      {partyDetails && <PartyDetailsModal party={partyDetails.party} kind={partyDetails.kind} onClose={() => setPartyDetails(null)} />}
+      {partyDetails && currentPartyDetails && (
+        <PartyDetailsModal
+          key={`${currentPartyDetails.id}-${partyVersion}`}
+          party={currentPartyDetails}
+          kind={partyDetails.kind}
+          paymentVersion={partyVersion}
+          onClose={() => setPartyDetails(null)}
+          onEdit={() => {
+            setPartyEditor({ party: currentPartyDetails, kind: partyDetails.kind });
+            setPartyDetails(null);
+          }}
+          onSettle={() => setSettlementContext({ party: currentPartyDetails, kind: partyDetails.kind })}
+        />
+      )}
       {partyEditor && <PartyEditorModal party={partyEditor.party} kind={partyEditor.kind} onClose={() => setPartyEditor(null)} onSaved={(party) => { if (partyEditor.kind === "client") setClients((rows) => rows.map((row) => row.id === party.id ? toClientRecord(party) : row)); else setSuppliers((rows) => rows.map((row) => row.id === party.id ? toSupplierRecord(party) : row)); setPartyEditor(null); notify("Tiers mis à jour"); }} />}
-      {settlementContext && <SettlementModal party={settlementContext.party} kind={settlementContext.kind} onClose={() => setSettlementContext(null)} onSaved={() => { setSettlementContext(null); setPartyVersion((value) => value + 1); notify("Règlement enregistré"); }} />}
+      {settlementContext && currentSettlementParty && <SettlementModal party={currentSettlementParty} kind={settlementContext.kind} onClose={() => setSettlementContext(null)} onSaved={() => { setSettlementContext(null); setPartyVersion((value) => value + 1); setFinanceVersion((value) => value + 1); notify("Règlement enregistré"); }} />}
       {documentDetails && <DocumentDetailsModal document={documentDetails} onClose={() => setDocumentDetails(null)} />}
-      {financeEntryOpen && <FinanceEntryModal onClose={() => setFinanceEntryOpen(false)} onSaved={(entry) => { setFinanceEntries((rows) => [entry, ...rows]); setFinanceEntryOpen(false); notify("Opération financière enregistrée"); }} />}
+      {financeEntryEditor && <FinanceEntryFormModal entry={financeEntryEditor === "new" ? null : financeEntryEditor} onClose={() => setFinanceEntryEditor(null)} onSaved={(entry) => { setFinanceEntries((rows) => financeEntryEditor === "new" ? [entry, ...rows] : rows.map((row) => row.id === entry.id ? entry : row)); setFinanceEntryEditor(null); setFinanceVersion((value) => value + 1); notify("Charge enregistrée"); }} />}
+      {financeEntryDetails && <FinanceEntryDetailsModal entry={financeEntryDetails} onClose={() => setFinanceEntryDetails(null)} />}
+      {treasuryEntryEditor && <TreasuryEntryFormModal entry={treasuryEntryEditor === "new" ? null : treasuryEntryEditor} onClose={() => setTreasuryEntryEditor(null)} onSaved={() => { setTreasuryEntryEditor(null); setFinanceVersion((value) => value + 1); notify("Mouvement de trésorerie enregistré"); }} />}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
       {toast && <div className="toast" role="status"><Check size={17} />{toast}<button onClick={() => setToast("")} aria-label="Fermer"><X size={14} /></button></div>}
     </div>

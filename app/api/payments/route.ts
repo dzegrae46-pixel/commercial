@@ -14,8 +14,9 @@ function errorResponse(error: unknown) {
 
 export function GET(request: Request) {
   try {
-    const partyId = new URL(request.url).searchParams.get("party_id") ?? undefined;
-    return Response.json({ payments: listPayments(partyId) }, { headers: { "Cache-Control": "no-store" } });
+    const partyId = new URL(request.url).searchParams.get("party_id");
+    if (partyId === "") throw new SqliteValidationError("Le paramètre party_id est invalide.");
+    return Response.json({ payments: listPayments(partyId ?? undefined) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return errorResponse(error);
   }
@@ -23,8 +24,8 @@ export function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const payment = settleParty(await request.json());
-    return Response.json({ payment }, { status: 201 });
+    const settlement = settleParty(await request.json());
+    return Response.json(settlement, { status: 201 });
   } catch (error) {
     return errorResponse(error);
   }

@@ -65,6 +65,7 @@ export const CREATE_DOCUMENTS_TABLE_SQL = `
     number TEXT NOT NULL UNIQUE,
     direction TEXT NOT NULL CHECK(direction IN ('purchases', 'sales')),
     type TEXT NOT NULL CHECK(type IN ('quote', 'order', 'delivery', 'invoice', 'return')),
+    party_id INTEGER REFERENCES parties(id) ON DELETE RESTRICT,
     party_name TEXT NOT NULL,
     source_document_id INTEGER REFERENCES documents(id),
     source_document_number TEXT NOT NULL DEFAULT '',
@@ -101,6 +102,9 @@ export const CREATE_DOCUMENT_LINES_TABLE_SQL = `
 export const CREATE_DOCUMENTS_INDEX_SQL =
   "CREATE INDEX IF NOT EXISTS documents_direction_type_idx ON documents (direction, type, document_date DESC)";
 
+export const CREATE_DOCUMENTS_PARTY_INDEX_SQL =
+  "CREATE INDEX IF NOT EXISTS documents_party_idx ON documents (party_id, direction, document_date DESC)";
+
 export const CREATE_DOCUMENT_LINES_INDEX_SQL =
   "CREATE INDEX IF NOT EXISTS document_lines_document_idx ON document_lines (document_id)";
 
@@ -123,7 +127,7 @@ export const CREATE_STOCK_MOVEMENTS_INDEX_SQL =
 export const CREATE_PAYMENTS_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS payments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    party_id INTEGER NOT NULL REFERENCES parties(id) ON DELETE CASCADE,
+    party_id INTEGER NOT NULL REFERENCES parties(id) ON DELETE RESTRICT,
     direction TEXT NOT NULL CHECK(direction IN ('incoming', 'outgoing')),
     amount REAL NOT NULL CHECK(amount > 0),
     payment_date TEXT NOT NULL,
@@ -154,6 +158,26 @@ export const CREATE_FINANCE_ENTRIES_TABLE_SQL = `
 
 export const CREATE_FINANCE_ENTRIES_DATE_INDEX_SQL =
   "CREATE INDEX IF NOT EXISTS finance_entries_date_idx ON finance_entries (entry_date DESC, id DESC)";
+
+/** Manual treasury adjustments. Customer/supplier payments and operating
+ * charges are merged into the treasury ledger at read time, so they are never
+ * duplicated and every inflow/outflow stays traceable to its source. */
+export const CREATE_TREASURY_ENTRIES_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS treasury_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    direction TEXT NOT NULL CHECK(direction IN ('in', 'out')),
+    label TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT '',
+    amount REAL NOT NULL CHECK(amount > 0),
+    entry_date TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )
+`;
+
+export const CREATE_TREASURY_ENTRIES_DATE_INDEX_SQL =
+  "CREATE INDEX IF NOT EXISTS treasury_entries_date_idx ON treasury_entries (entry_date DESC, id DESC)";
 
 export const CREATE_APP_META_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS app_meta (
@@ -246,6 +270,17 @@ export const PARTY_COLUMN_MIGRATIONS = [
   {
     name: "updated_at",
     sql: "ALTER TABLE parties ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+  },
+] as const;
+
+/** Additive document columns for databases created before documents referenced
+ * parties by their stable identifier.  The nullable column lets unmatched
+ * historical snapshots remain readable while lib/sqlite.ts backfills every
+ * document whose canonical party can be identified. */
+export const DOCUMENT_COLUMN_MIGRATIONS = [
+  {
+    name: "party_id",
+    sql: "ALTER TABLE documents ADD COLUMN party_id INTEGER REFERENCES parties(id) ON DELETE RESTRICT",
   },
 ] as const;
 

@@ -1,9 +1,10 @@
 import {
-  createFinanceEntry,
-  deleteFinanceEntry,
-  listFinanceEntries,
+  createTreasuryEntry,
+  deleteTreasuryEntry,
+  listTreasuryEntries,
+  listTreasuryLedger,
   SqliteValidationError,
-  updateFinanceEntry,
+  updateTreasuryEntry,
 } from "@/lib/sqlite";
 
 export const dynamic = "force-dynamic";
@@ -15,13 +16,19 @@ function errorResponse(error: unknown) {
 }
 
 export function GET() {
-  return Response.json({ entries: listFinanceEntries() }, { headers: { "Cache-Control": "no-store" } });
+  try {
+    return Response.json(
+      { entries: listTreasuryEntries(), ledger: listTreasuryLedger() },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    return errorResponse(error);
+  }
 }
 
 export async function POST(request: Request) {
   try {
-    const entry = createFinanceEntry(await request.json());
-    return Response.json({ entry }, { status: 201 });
+    return Response.json({ entry: createTreasuryEntry(await request.json()) }, { status: 201 });
   } catch (error) {
     return errorResponse(error);
   }
@@ -29,8 +36,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const entry = updateFinanceEntry(await request.json());
-    return Response.json({ entry });
+    return Response.json({ entry: updateTreasuryEntry(await request.json()) });
   } catch (error) {
     return errorResponse(error);
   }
@@ -39,8 +45,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const input = await request.json() as { id?: unknown };
-    const entry = deleteFinanceEntry(input.id);
-    return Response.json({ entry });
+    return Response.json({ entry: deleteTreasuryEntry(input.id) });
   } catch (error) {
     return errorResponse(error);
   }

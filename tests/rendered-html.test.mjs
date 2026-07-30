@@ -33,6 +33,15 @@ test("contains the compact workspace views and company settings", async () => {
   assert.match(page, /topStats/);
   assert.match(page, /TableCard/);
   assert.match(page, /CreateModal/);
+  assert.match(page, /DocumentEditor/);
+  assert.match(page, /SimpleDocumentEditor/);
+  assert.match(page, /pure-table-backdrop/);
+  assert.match(page, /pure-document-table/);
+  assert.match(page, /pure-add-line-button/);
+  assert.match(page, /list="pure-party-options"/);
+  assert.match(page, /list="pure-article-options"/);
+  assert.match(page, /DocumentDraftLine/);
+  assert.match(page, /lines\.map/);
   assert.match(page, /SettingsPage/);
   assert.match(page, /DocumentsLibrary/);
   assert.match(page, /EntityLogo/);
@@ -97,6 +106,13 @@ test("keeps the visual system compact and production-ready", async () => {
   assert.match(css, /\.article-search-results/);
   assert.match(css, /\.selected-article/);
   assert.match(css, /\.document-total-card/);
+  assert.match(css, /\.document-editor-backdrop/);
+  assert.match(css, /\.document-editor-shell/);
+  assert.match(css, /height:\s*100dvh/);
+  assert.match(css, /\.document-lines-table/);
+  assert.match(css, /\.party-detail-panel/);
+  assert.match(css, /\.payment-history-table/);
+  assert.match(css, /\.cash-action/);
   assert.match(css, /\.form-grid-four/);
   assert.match(css, /\.document-logo/);
   assert.match(css, /\.documents-library/);
@@ -248,7 +264,11 @@ test("persists party location details and documents from quotes through returns"
   assert.match(schema, /CREATE TABLE IF NOT EXISTS document_lines/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS stock_movements/);
   assert.match(schema, /source_document_id/);
+  assert.match(schema, /party_id INTEGER REFERENCES parties/);
+  assert.match(schema, /DOCUMENT_COLUMN_MIGRATIONS/);
   assert.match(schema, /show_description/);
+  assert.match(sqlite, /backfillDocumentPartyIds/);
+  assert.match(sqlite, /partyId/);
   assert.match(sqlite, /createDocument/);
   assert.match(sqlite, /createReturnFromDocument/);
   assert.match(sqlite, /validateReturnLines/);
@@ -260,8 +280,8 @@ test("persists party location details and documents from quotes through returns"
   assert.match(returnsRoute, /createReturnFromDocument/);
 });
 
-test("persists settlements and the finance workspace", async () => {
-  const [page, schema, sqlite, partiesRoute, documentsRoute, paymentsRoute, financeRoute] = await Promise.all([
+test("persists settlements, charges and the treasury workspace", async () => {
+  const [page, schema, sqlite, partiesRoute, documentsRoute, paymentsRoute, financeRoute, treasuryRoute] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("db/schema.ts", root), "utf8"),
     readFile(new URL("lib/sqlite.ts", root), "utf8"),
@@ -269,25 +289,49 @@ test("persists settlements and the finance workspace", async () => {
     readFile(new URL("app/api/documents/route.ts", root), "utf8"),
     readFile(new URL("app/api/payments/route.ts", root), "utf8"),
     readFile(new URL("app/api/finance/route.ts", root), "utf8"),
+    readFile(new URL("app/api/treasury/route.ts", root), "utf8"),
   ]);
 
   assert.match(page, /Finance/);
-  assert.match(page, /Régler le solde/);
+  assert.match(page, /Encaisser/);
+  assert.match(page, /Payer/);
+  assert.match(page, /Banknote/);
+  assert.match(page, /Historique des paiements/);
+  assert.match(page, /\/api\/payments\?party_id=/);
+  assert.match(page, /Fiche client complète/);
+  assert.match(page, /Fiche fournisseur complète/);
   assert.match(page, /SettlementModal/);
-  assert.match(page, /FinanceEntryModal/);
+  assert.match(page, /FinanceWorkspacePage/);
+  assert.match(page, /FinanceEntryFormModal/);
+  assert.match(page, /TreasuryEntryFormModal/);
+  assert.match(page, /États des règlements/);
+  assert.match(page, /Journal de trésorerie/);
+  assert.match(page, /Crédit disponible/);
   assert.match(page, /PartyEditorModal/);
   assert.match(page, /DocumentDetailsModal/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS payments/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS finance_entries/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS treasury_entries/);
   assert.match(sqlite, /settleParty/);
+  assert.match(sqlite, /credit/);
   assert.match(sqlite, /createFinanceEntry/);
+  assert.match(sqlite, /updateFinanceEntry/);
   assert.match(sqlite, /deleteFinanceEntry/);
+  assert.match(sqlite, /listTreasuryLedger/);
+  assert.match(sqlite, /createTreasuryEntry/);
+  assert.match(sqlite, /updateTreasuryEntry/);
+  assert.match(sqlite, /deleteTreasuryEntry/);
+  assert.match(sqlite, /updateDocument/);
   assert.match(sqlite, /updateParty/);
   assert.match(sqlite, /deleteParty/);
   assert.match(sqlite, /deleteDocument/);
   assert.match(partiesRoute, /export async function PATCH/);
   assert.match(partiesRoute, /export async function DELETE/);
   assert.match(documentsRoute, /export async function DELETE/);
+  assert.match(documentsRoute, /export async function PATCH/);
   assert.match(paymentsRoute, /settleParty/);
   assert.match(financeRoute, /createFinanceEntry/);
+  assert.match(financeRoute, /updateFinanceEntry/);
+  assert.match(treasuryRoute, /listTreasuryLedger/);
+  assert.match(treasuryRoute, /createTreasuryEntry/);
 });

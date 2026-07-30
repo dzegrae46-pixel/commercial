@@ -3,7 +3,7 @@ import {
   deleteDocument,
   listDocuments,
   SqliteValidationError,
-  type DocumentDirection,
+  updateDocument,
 } from "@/lib/sqlite";
 
 export const dynamic = "force-dynamic";
@@ -18,20 +18,35 @@ function errorResponse(error: unknown) {
 }
 
 export function GET(request: Request) {
-  const direction = new URL(request.url).searchParams.get("direction");
-  const validDirection = direction === "purchases" || direction === "sales"
-    ? direction as DocumentDirection
-    : undefined;
-  return Response.json(
-    { documents: listDocuments(validDirection) },
-    { headers: { "Cache-Control": "no-store" } },
-  );
+  try {
+    const params = new URL(request.url).searchParams;
+    const direction = params.get("direction");
+    if (direction !== null && direction !== "purchases" && direction !== "sales") {
+      throw new SqliteValidationError("Le paramètre direction doit être purchases ou sales.");
+    }
+    const partyId = params.get("party_id");
+    return Response.json(
+      { documents: listDocuments(direction ?? undefined, partyId ?? undefined) },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    return errorResponse(error);
+  }
 }
 
 export async function POST(request: Request) {
   try {
     const document = createDocument(await request.json());
     return Response.json({ document }, { status: 201 });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const document = updateDocument(await request.json());
+    return Response.json({ document });
   } catch (error) {
     return errorResponse(error);
   }
