@@ -35,11 +35,11 @@ test("contains the compact workspace views and company settings", async () => {
   assert.match(page, /CreateModal/);
   assert.match(page, /DocumentEditor/);
   assert.match(page, /SimpleDocumentEditor/);
-  assert.match(page, /pure-table-backdrop/);
+  assert.match(page, /document-editor-page/);
   assert.match(page, /pure-document-table/);
   assert.match(page, /pure-add-line-button/);
   assert.match(page, /pure-delete-line/);
-  assert.match(page, /Aucune ligne dans ce document/);
+  assert.match(page, /Le document est vide/);
   assert.match(page, /setLines\(\(rows\) => rows\.filter\(\(line\) => line\.key !== key\)\)/);
   assert.doesNotMatch(page, /rows\.length === 1\s*\?\s*\[emptyDocumentLine/);
   assert.match(page, /list="pure-party-options"/);
@@ -87,8 +87,21 @@ test("contains the compact workspace views and company settings", async () => {
   assert.match(page, /document-row-actions/);
   assert.match(page, /company\.logoDataUrl/);
   assert.match(page, /Aperçu avant impression/);
-  assert.match(page, /Bon DE Livraison/);
+  assert.match(page, /Bon De Livraison/);
   assert.match(page, /print-col-label/);
+  assert.match(page, /amountInFrenchWords/);
+  assert.match(page, /print-manager-signature/);
+  assert.match(page, /Total Net à payé/);
+  assert.match(page, /article_sku/);
+  assert.match(page, /readUploadedImage/);
+  assert.match(page, /entity-photo-upload/);
+  assert.match(page, /article-photo-upload/);
+  assert.match(page, /image_url: imageUrl/);
+  assert.match(page, /Ancien solde/);
+  assert.match(page, /previous_balance/);
+  assert.match(page, /activityLine1/);
+  assert.match(page, /taxArticle/);
+  assert.match(page, /example-gsr-logo\.svg/);
   assert.match(page, /filterActive/);
   assert.match(page, /viewMode/);
   assert.match(page, /lucide-react/);
@@ -142,9 +155,18 @@ test("keeps the visual system compact and production-ready", async () => {
   assert.match(css, /\.print-lines-table/);
   assert.match(css, /\.document-print-button/);
   assert.match(css, /\.print-preview-backdrop/);
-  assert.match(css, /"Cooper Black"/);
-  assert.match(css, /grid-template-columns:\s*35%\s+6%\s+59%/);
-  assert.match(css, /width:\s*32mm/);
+  assert.match(css, /\.entity-photo-upload/);
+  assert.match(css, /\.article-photo-upload/);
+  assert.match(css, /\.settlement-balance-preview/);
+  assert.match(css, /grid-template-columns:\s*35%\s+9%\s+56%/);
+  assert.match(css, /\.print-company-logo[^}]*\{[^}]*height:\s*36mm/s);
+  assert.match(css, /\.print-preview-backdrop \.print-company-header[^}]*position:\s*relative/s);
+  assert.match(css, /\.print-preview-backdrop \.print-company-logo[^}]*position:\s*absolute/s);
+  assert.match(css, /\.print-preview-backdrop \.print-company-identity[^}]*margin:\s*0 auto/s);
+  assert.match(css, /font-family:\s*"Segoe UI",\s*Calibri,\s*Arial,\s*sans-serif/);
+  assert.match(css, /\.print-company-identity h1[^}]*font-size:\s*22pt/s);
+  assert.match(css, /\.print-lines-table td[^}]*font-size:\s*9pt/s);
+  assert.match(css, /\.documents-modern-table \.document-print-button:hover[^}]*color:\s*#fff/s);
   assert.match(css, /@media print/);
   assert.match(css, /size:\s*A4 portrait/);
   assert.match(css, /font-family:\s*"Inter"/);
@@ -162,6 +184,7 @@ test("keeps the visual system compact and production-ready", async () => {
     access(new URL("public/products/imac-24.png", root)),
     access(new URL("public/products/macbook-air-13.png", root)),
     access(new URL("public/products/macbook-pro-16.png", root)),
+    access(new URL("public/example-gsr-logo.svg", root)),
   ]);
 });
 
@@ -185,12 +208,10 @@ test("persists the three-level catalog and clean seeds in offline SQLite", async
   assert.match(schema, /image_url TEXT NOT NULL/);
   assert.match(schema, /is_deleted INTEGER NOT NULL/);
   assert.match(schema, /articles_category_idx/);
-  assert.match(schema, /Google Pixel 9 Pro/);
-  assert.match(schema, /Amazon Echo Dot/);
-  assert.match(schema, /MacBook Pro M1 Pro 14/);
-  assert.match(schema, /iMac M1 24/);
-  assert.match(schema, /MacBook Air M1 13/);
-  assert.match(schema, /MacBook Pro M3 Max 16/);
+  assert.match(schema, /JURA SCHOOL/);
+  assert.match(schema, /TECH DISTRIBUTION BÉJAÏA/);
+  assert.match(schema, /Formation Fibre/);
+  assert.match(schema, /ART0049/);
   assert.match(sqlite, /node:sqlite/);
   assert.match(sqlite, /data\/axxam\.sqlite/);
   assert.match(sqlite, /DatabaseSync/);
@@ -210,13 +231,11 @@ test("persists the three-level catalog and clean seeds in offline SQLite", async
     schema.indexOf("export const ARTICLE_SEEDS"),
   );
   const partySeedNames = [...partySeedSource.matchAll(/name:\s*"([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(partySeedNames, ["Google", "Amazon", "Google", "Amazon"]);
+  assert.deepEqual(partySeedNames, ["JURA SCHOOL", "TECH DISTRIBUTION BÉJAÏA"]);
 
   const articleSeedSource = schema.slice(schema.indexOf("export const ARTICLE_SEEDS"));
   const articleSeedNames = [...articleSeedSource.matchAll(/name:\s*"([^"]+)"/g)].map((match) => match[1]);
-  assert.equal(articleSeedNames.length, 6);
-  assert.deepEqual(articleSeedNames.slice(0, 2), ["Google Pixel 9 Pro", "Amazon Echo Dot"]);
-  assert.equal(articleSeedNames.slice(2).length, 4);
+  assert.deepEqual(articleSeedNames, ["Formation Fibre"]);
 });
 
 test("supports detailed article organization and the dedicated product grid", async () => {
@@ -237,10 +256,8 @@ test("supports detailed article organization and the dedicated product grid", as
   assert.match(page, /Description complète/);
   assert.match(page, /Mètre \(M\)/);
   assert.match(page, /Bobine/);
-  assert.match(page, /\/products\/macbook-pro-14\.png/);
-  assert.match(page, /\/products\/imac-24\.png/);
-  assert.match(page, /\/products\/macbook-air-13\.png/);
-  assert.match(page, /\/products\/macbook-pro-16\.png/);
+  assert.match(page, /Importer une photo/);
+  assert.match(page, /image\/png,image\/jpeg,image\/webp/);
   assert.match(page, /article-product-card/);
   assert.match(page, /article-card-image/);
   assert.match(page, /article-hierarchy/);
@@ -291,13 +308,28 @@ test("persists party location details and documents from quotes through returns"
   assert.match(schema, /address TEXT NOT NULL/);
   assert.match(schema, /city TEXT NOT NULL/);
   assert.match(schema, /head_office TEXT NOT NULL/);
+  assert.match(schema, /tax_article TEXT NOT NULL/);
+  assert.match(schema, /rib TEXT NOT NULL/);
   assert.match(partiesRoute, /createParty/);
   assert.match(partiesRoute, /listParties/);
 
   assert.match(page, /<option>Devis<\/option>/);
-  assert.match(page, /Créer la facture/);
+  assert.match(page, /Transférer vers/);
   assert.match(page, /Créer un retour/);
-  assert.match(page, /convertQuoteToInvoice/);
+  assert.match(page, /transferDocument/);
+  assert.match(page, /QuickPartyCreateModal/);
+  assert.match(page, /quick-party-details/);
+  assert.match(page, /detailsOpen/);
+  assert.match(page, /head_office: headOffice/);
+  assert.match(page, /tax_article: taxArticle/);
+  assert.match(page, />N° article</);
+  assert.match(page, />RIB</);
+  assert.match(page, /Informations fiscales/);
+  assert.match(page, />NIS</);
+  assert.match(page, /offerSettlementAfterDocument/);
+  assert.match(sqlite, /allowedDocumentTransfers/);
+  assert.match(sqlite, /validateDocumentTransfer/);
+  assert.match(sqlite, /transferred_invoice/);
   assert.match(page, /confirmReturn/);
   assert.match(page, /Afficher la description complète/);
   assert.match(page, /showFullDescription/);
@@ -352,14 +384,19 @@ test("persists settlements, charges and the treasury workspace", async () => {
   assert.match(page, /finance-card-charges/);
   assert.match(page, /finance-card-treasury/);
   assert.match(page, /finance-card-settlements/);
+  assert.ok(page.indexOf("finance-card-treasury") > page.indexOf("finance-card-settlements"));
   assert.match(page, /Vue d’ensemble/);
   assert.match(page, /Crédit disponible/);
   assert.match(page, /PartyEditorModal/);
   assert.match(page, /DocumentDetailsModal/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS payments/);
+  assert.match(schema, /previous_balance REAL/);
+  assert.match(schema, /PAYMENT_COLUMN_MIGRATIONS/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS finance_entries/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS treasury_entries/);
   assert.match(sqlite, /settleParty/);
+  assert.match(sqlite, /INSERT INTO payments \(party_id, direction, amount, previous_balance/);
+  assert.match(sqlite, /a\.sku AS article_sku/);
   assert.match(sqlite, /credit/);
   assert.match(sqlite, /createFinanceEntry/);
   assert.match(sqlite, /updateFinanceEntry/);
@@ -381,4 +418,64 @@ test("persists settlements, charges and the treasury workspace", async () => {
   assert.match(financeRoute, /updateFinanceEntry/);
   assert.match(treasuryRoute, /listTreasuryLedger/);
   assert.match(treasuryRoute, /createTreasuryEntry/);
+});
+
+test("manages employees, payroll, party balances and duplicate document lines", async () => {
+  const [page, css, schema, sqlite, employeesRoute] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("lib/sqlite.ts", root), "utf8"),
+    readFile(new URL("app/api/employees/route.ts", root), "utf8"),
+  ]);
+
+  assert.doesNotMatch(page, /aria-label="Recherche globale"/);
+  assert.match(page, /Employés &amp; paie/);
+  assert.match(page, /EmployeeFormModal/);
+  assert.match(page, /AttendanceFormModal/);
+  assert.match(page, /SalaryPaymentModal/);
+  assert.match(page, /Le paiement créera automatiquement une charge/);
+  assert.match(page, /duplicate-line-notice/);
+  assert.match(page, /est déjà dans le tableau/);
+  assert.match(page, /resolveDuplicate\("add"\)/);
+  assert.doesNotMatch(page, /className="documents-portfolio-summary"/);
+  assert.match(page, /documents-modern-table/);
+  assert.match(page, /document-editor-page-content/);
+  assert.match(page, /<section className="document-editor-page"/);
+  assert.match(page, /document-fullscreen-mode/);
+  assert.match(page, /document-fullscreen-editor/);
+  assert.match(page, /document-screen-header/);
+  assert.match(page, /document-summary-bar/);
+  assert.match(page, /document-title-type/);
+  assert.match(page, /document-party-input/);
+  assert.doesNotMatch(page, /className="document-type-segmented"/);
+  assert.match(page, /document-command-grid/);
+  assert.doesNotMatch(page, /className="document-lines-toolbar"/);
+  assert.match(page, /!activeDocumentEditor && <aside className="sidebar">/);
+  assert.match(page, /table-header-with-tabs/);
+  assert.match(page, /aria-label="Types de documents"/);
+  assert.doesNotMatch(page, /pure-table-editor" role="dialog"/);
+  assert.match(css, /\.finance-card-employees/);
+  assert.match(css, /\.employee-table/);
+  assert.match(css, /\.documents-workspace-card/);
+  assert.match(css, /\.document-editor-page/);
+  assert.match(css, /\.app-shell\.document-fullscreen-mode/);
+  assert.match(css, /\.document-screen-content/);
+  assert.match(css, /\.document-line-builder/);
+  assert.match(css, /\.document-command-grid/);
+  assert.match(css, /\.document-title-type/);
+  assert.match(css, /\.document-transfer-menu/);
+  assert.match(css, /\.document-command-bar/);
+  assert.match(css, /\.document-summary-grand-total/);
+  assert.match(css, /\.duplicate-line-notice/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS employees/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS employee_attendance/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS salary_payments/);
+  assert.match(sqlite, /payEmployeeSalary/);
+  assert.match(sqlite, /INSERT INTO finance_entries/);
+  assert.match(sqlite, /mergeDocumentLines/);
+  assert.match(sqlite, /WHEN d\.type = 'invoice'/);
+  assert.match(sqlite, /WHEN d\.type = 'delivery' AND NOT EXISTS/);
+  assert.match(employeesRoute, /action === "pay_salary"/);
+  assert.match(employeesRoute, /recordEmployeeAttendance/);
 });

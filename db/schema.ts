@@ -48,9 +48,12 @@ export const CREATE_PARTIES_TABLE_SQL = `
     city TEXT NOT NULL DEFAULT '',
     head_office TEXT NOT NULL DEFAULT '',
     category TEXT NOT NULL DEFAULT '',
+    image_url TEXT NOT NULL DEFAULT '',
     nif TEXT NOT NULL DEFAULT '',
     nis TEXT NOT NULL DEFAULT '',
     rc TEXT NOT NULL DEFAULT '',
+    tax_article TEXT NOT NULL DEFAULT '',
+    rib TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )
@@ -130,6 +133,7 @@ export const CREATE_PAYMENTS_TABLE_SQL = `
     party_id INTEGER NOT NULL REFERENCES parties(id) ON DELETE RESTRICT,
     direction TEXT NOT NULL CHECK(direction IN ('incoming', 'outgoing')),
     amount REAL NOT NULL CHECK(amount > 0),
+    previous_balance REAL,
     payment_date TEXT NOT NULL,
     method TEXT NOT NULL DEFAULT 'Virement',
     note TEXT NOT NULL DEFAULT '',
@@ -139,6 +143,15 @@ export const CREATE_PAYMENTS_TABLE_SQL = `
 
 export const CREATE_PAYMENTS_PARTY_INDEX_SQL =
   "CREATE INDEX IF NOT EXISTS payments_party_idx ON payments (party_id, payment_date DESC)";
+
+/** Nullable on legacy rows because their exact pre-payment balance cannot be
+ * reconstructed reliably after later documents or payments have been added. */
+export const PAYMENT_COLUMN_MIGRATIONS = [
+  {
+    name: "previous_balance",
+    sql: "ALTER TABLE payments ADD COLUMN previous_balance REAL",
+  },
+] as const;
 
 /** Independent operating expenses and charges shown in the Finance workspace. */
 export const CREATE_FINANCE_ENTRIES_TABLE_SQL = `
@@ -158,6 +171,66 @@ export const CREATE_FINANCE_ENTRIES_TABLE_SQL = `
 
 export const CREATE_FINANCE_ENTRIES_DATE_INDEX_SQL =
   "CREATE INDEX IF NOT EXISTS finance_entries_date_idx ON finance_entries (entry_date DESC, id DESC)";
+
+/** Employees, attendance and payroll stay local in the same SQLite file. */
+export const CREATE_EMPLOYEES_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS employees (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    job_title TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    base_salary REAL NOT NULL DEFAULT 0 CHECK(base_salary >= 0),
+    hire_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Actif' CHECK(status IN ('Actif', 'Inactif')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )
+`;
+
+export const CREATE_EMPLOYEES_NAME_INDEX_SQL =
+  "CREATE INDEX IF NOT EXISTS employees_name_idx ON employees (name COLLATE NOCASE)";
+
+export const CREATE_EMPLOYEE_ATTENDANCE_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS employee_attendance (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    work_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Présent' CHECK(status IN ('Présent', 'Absent', 'Congé')),
+    check_in TEXT NOT NULL DEFAULT '',
+    check_out TEXT NOT NULL DEFAULT '',
+    hours REAL NOT NULL DEFAULT 0 CHECK(hours >= 0),
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(employee_id, work_date)
+  )
+`;
+
+export const CREATE_EMPLOYEE_ATTENDANCE_DATE_INDEX_SQL =
+  "CREATE INDEX IF NOT EXISTS employee_attendance_date_idx ON employee_attendance (work_date DESC, employee_id)";
+
+/** A salary payment owns one generated finance charge. The treasury ledger is
+ * already derived from paid finance entries, so payroll is deducted once. */
+export const CREATE_SALARY_PAYMENTS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS salary_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE RESTRICT,
+    finance_entry_id INTEGER NOT NULL UNIQUE REFERENCES finance_entries(id) ON DELETE RESTRICT,
+    payroll_month TEXT NOT NULL,
+    base_amount REAL NOT NULL DEFAULT 0,
+    bonus REAL NOT NULL DEFAULT 0,
+    deduction REAL NOT NULL DEFAULT 0,
+    amount REAL NOT NULL CHECK(amount > 0),
+    payment_date TEXT NOT NULL,
+    method TEXT NOT NULL DEFAULT 'Virement',
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(employee_id, payroll_month)
+  )
+`;
+
+export const CREATE_SALARY_PAYMENTS_EMPLOYEE_INDEX_SQL =
+  "CREATE INDEX IF NOT EXISTS salary_payments_employee_idx ON salary_payments (employee_id, payment_date DESC)";
 
 /** Manual treasury adjustments. Customer/supplier payments and operating
  * charges are merged into the treasury ledger at read time, so they are never
@@ -250,6 +323,10 @@ export const PARTY_COLUMN_MIGRATIONS = [
     sql: "ALTER TABLE parties ADD COLUMN category TEXT NOT NULL DEFAULT ''",
   },
   {
+    name: "image_url",
+    sql: "ALTER TABLE parties ADD COLUMN image_url TEXT NOT NULL DEFAULT ''",
+  },
+  {
     name: "nif",
     sql: "ALTER TABLE parties ADD COLUMN nif TEXT NOT NULL DEFAULT ''",
   },
@@ -260,6 +337,14 @@ export const PARTY_COLUMN_MIGRATIONS = [
   {
     name: "rc",
     sql: "ALTER TABLE parties ADD COLUMN rc TEXT NOT NULL DEFAULT ''",
+  },
+  {
+    name: "tax_article",
+    sql: "ALTER TABLE parties ADD COLUMN tax_article TEXT NOT NULL DEFAULT ''",
+  },
+  {
+    name: "rib",
+    sql: "ALTER TABLE parties ADD COLUMN rib TEXT NOT NULL DEFAULT ''",
   },
   // SQLite only permits a constant default in ADD COLUMN. New databases use
   // CURRENT_TIMESTAMP above; a legacy row keeps an empty historical timestamp.
@@ -311,174 +396,73 @@ export type PartySeed = {
   city: string;
   headOffice: string;
   category: string;
+  imageUrl: string;
   nif: string;
   nis: string;
   rc: string;
+  taxArticle: string;
+  rib: string;
 };
 
 /**
- * A clean offline database starts with only Google and Amazon in each list.
- * Fiscal values are intentionally blank: they must come from the user's own
- * legal records rather than being invented as demo data.
+ * A clean offline database starts with exactly one customer and one supplier.
+ * They remain intentionally simple and can be replaced from the UI.
  */
 export const PARTY_SEEDS: readonly PartySeed[] = [
   {
     kind: "client",
-    name: "Google",
-    contactPhone: "+1 650 253 0000",
-    contactName: "Google Business",
-    email: "contact@google.com",
-    address: "1600 Amphitheatre Parkway",
-    city: "Mountain View",
-    headOffice: "Google LLC, Mountain View",
-    category: "Technologie",
+    name: "JURA SCHOOL",
+    contactPhone: "0770 00 00 00",
+    contactName: "Administration",
+    email: "contact@juraschool.dz",
+    address: "Cité Edimco",
+    city: "Béjaïa",
+    headOffice: "Cité Edimco, Béjaïa",
+    category: "Éducation",
+    imageUrl: "",
     nif: "",
     nis: "",
     rc: "",
-  },
-  {
-    kind: "client",
-    name: "Amazon",
-    contactPhone: "+1 206 266 1000",
-    contactName: "Amazon Business",
-    email: "contact@amazon.com",
-    address: "410 Terry Avenue North",
-    city: "Seattle",
-    headOffice: "Amazon.com, Inc., Seattle",
-    category: "Commerce en ligne",
-    nif: "",
-    nis: "",
-    rc: "",
+    taxArticle: "",
+    rib: "",
   },
   {
     kind: "supplier",
-    name: "Google",
-    contactPhone: "+1 650 253 0000",
-    contactName: "Google Business",
-    email: "contact@google.com",
-    address: "1600 Amphitheatre Parkway",
-    city: "Mountain View",
-    headOffice: "Google LLC, Mountain View",
-    category: "Technologie",
+    name: "TECH DISTRIBUTION BÉJAÏA",
+    contactPhone: "0559 00 00 00",
+    contactName: "Service commercial",
+    email: "commercial@techdistribution.dz",
+    address: "Zone industrielle",
+    city: "Béjaïa",
+    headOffice: "Zone industrielle, Béjaïa",
+    category: "Informatique",
+    imageUrl: "",
     nif: "",
     nis: "",
     rc: "",
-  },
-  {
-    kind: "supplier",
-    name: "Amazon",
-    contactPhone: "+1 206 266 1000",
-    contactName: "Amazon Business",
-    email: "contact@amazon.com",
-    address: "410 Terry Avenue North",
-    city: "Seattle",
-    headOffice: "Amazon.com, Inc., Seattle",
-    category: "Commerce en ligne",
-    nif: "",
-    nis: "",
-    rc: "",
+    taxArticle: "",
+    rib: "",
   },
 ];
 
 /**
- * The seed runs once per database.  It gives a clean offline installation two
- * brand examples plus the four catalogue cards used by the Articles grid.
+ * The seed runs once per database and creates exactly one starter article.
  */
 export const ARTICLE_SEEDS: readonly ArticleSeed[] = [
   {
-    name: "Google Pixel 9 Pro",
-    sku: "ART-GOO-001",
-    brand: "Google",
-    brandLogo: "/brands/google.png",
-    category: "Électronique",
-    subcategory: "Smartphones",
-    subsubcategory: "Android premium",
-    description: "Smartphone Google Pixel 9 Pro avec écran OLED et appareil photo avancé.",
-    unit: "Unité",
+    name: "Formation Fibre",
+    sku: "ART0049",
+    brand: "GSR",
+    brandLogo: "",
+    category: "Formation",
+    subcategory: "Réseaux",
+    subsubcategory: "Fibre optique",
+    description: "Formation pratique en installation et maintenance de réseaux fibre optique.",
+    unit: "Séance",
     imageUrl: "",
-    purchasePrice: 95_000,
-    salePrice: 119_900,
-    stock: 18,
-    status: "En stock",
-  },
-  {
-    name: "Amazon Echo Dot",
-    sku: "ART-AMZ-002",
-    brand: "Amazon",
-    brandLogo: "/brands/amazon.svg",
-    category: "Maison connectée",
-    subcategory: "Audio",
-    subsubcategory: "Assistants vocaux",
-    description: "Enceinte connectée compacte Amazon Echo Dot avec assistant vocal Alexa.",
-    unit: "Unité",
-    imageUrl: "",
-    purchasePrice: 6_200,
-    salePrice: 8_900,
-    stock: 7,
-    status: "Stock faible",
-  },
-  {
-    name: "MacBook Pro M1 Pro 14\" 512GB",
-    sku: "ART-APP-003",
-    brand: "Apple",
-    brandLogo: "",
-    category: "Informatique",
-    subcategory: "Ordinateurs",
-    subsubcategory: "Ordinateurs portables",
-    description: "MacBook Pro 14 pouces avec puce M1 Pro, 16 Go de mémoire et SSD 512 Go.",
-    unit: "Unité",
-    imageUrl: "/products/macbook-pro-14.png",
-    purchasePrice: 218_000,
-    salePrice: 249_900,
-    stock: 12,
-    status: "En stock",
-  },
-  {
-    name: "iMac M1 24\" 4K",
-    sku: "ART-APP-004",
-    brand: "Apple",
-    brandLogo: "",
-    category: "Informatique",
-    subcategory: "Ordinateurs",
-    subsubcategory: "Ordinateurs de bureau",
-    description: "iMac 24 pouces M1 avec écran Retina 4,5K et 512 Go de stockage.",
-    unit: "Unité",
-    imageUrl: "/products/imac-24.png",
-    purchasePrice: 175_000,
-    salePrice: 197_900,
-    stock: 11,
-    status: "En stock",
-  },
-  {
-    name: "MacBook Air M1 13\" 256GB",
-    sku: "ART-APP-005",
-    brand: "Apple",
-    brandLogo: "",
-    category: "Informatique",
-    subcategory: "Ordinateurs",
-    subsubcategory: "Ordinateurs portables",
-    description: "MacBook Air 13 pouces avec puce M1, format fin et SSD 256 Go.",
-    unit: "Unité",
-    imageUrl: "/products/macbook-air-13.png",
-    purchasePrice: 145_000,
-    salePrice: 169_900,
-    stock: 10,
-    status: "Stock faible",
-  },
-  {
-    name: "MacBook Pro M3 Max 16\"",
-    sku: "ART-APP-006",
-    brand: "Apple",
-    brandLogo: "",
-    category: "Informatique",
-    subcategory: "Ordinateurs",
-    subsubcategory: "Stations de travail mobiles",
-    description: "MacBook Pro 16 pouces avec puce M3 Max pour les charges de travail créatives exigeantes.",
-    unit: "Unité",
-    imageUrl: "/products/macbook-pro-16.png",
-    purchasePrice: 312_000,
-    salePrice: 359_900,
-    stock: 8,
+    purchasePrice: 1_000,
+    salePrice: 1_500,
+    stock: 6,
     status: "Stock faible",
   },
 ];

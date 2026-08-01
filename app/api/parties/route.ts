@@ -43,7 +43,8 @@ export function GET(request: Request) {
 /**
  * POST /api/parties
  * Body: { kind, name, contact_phone, contact_name, email, address, city,
- *         head_office, category, nif, nis, rc }.
+ *         head_office, category, image_url, nif, nis, rc, tax_article, rib }.
+ * `image_url` accepts an uploaded image encoded as a data URL.
  */
 export async function POST(request: Request) {
   try {

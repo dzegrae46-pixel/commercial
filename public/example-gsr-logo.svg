@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-labelledby="title desc">
+  <title id="title">Logo exemple GSR</title>
+  <desc id="desc">Monogramme bleu et orange inspiré du document de référence</desc>
+  <rect width="180" height="180" rx="18" fill="#ffffff"/>
+  <rect x="19" y="35" width="91" height="112" rx="8" fill="#174a63"/>
+  <path d="M38 20h96v118H38z" fill="none" stroke="#d48b2d" stroke-width="12"/>
+  <path d="M122 9h39v116h-39z" fill="#174a63"/>
+  <path d="M144 9h17v45h-17z" fill="#d48b2d"/>
+  <rect x="47" y="63" width="78" height="55" rx="5" fill="#d48b2d" stroke="#ffffff" stroke-width="4"/>
+  <text x="86" y="99" text-anchor="middle" fill="#ffffff" font-family="Georgia,serif" font-size="30" font-weight="700">GSR</text>
+  <text x="90" y="163" text-anchor="middle" fill="#174a63" font-family="Arial,sans-serif" font-size="9" font-weight="700">GÉNIE SYSTÈME RÉSEAU</text>
+</svg>

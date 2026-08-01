@@ -13,6 +13,10 @@ import {
   CREATE_DOCUMENTS_INDEX_SQL,
   CREATE_DOCUMENTS_PARTY_INDEX_SQL,
   CREATE_DOCUMENTS_TABLE_SQL,
+  CREATE_EMPLOYEES_NAME_INDEX_SQL,
+  CREATE_EMPLOYEES_TABLE_SQL,
+  CREATE_EMPLOYEE_ATTENDANCE_DATE_INDEX_SQL,
+  CREATE_EMPLOYEE_ATTENDANCE_TABLE_SQL,
   CREATE_FINANCE_ENTRIES_DATE_INDEX_SQL,
   CREATE_FINANCE_ENTRIES_TABLE_SQL,
   CREATE_PARTIES_KIND_NAME_INDEX_SQL,
@@ -21,9 +25,12 @@ import {
   CREATE_PAYMENTS_TABLE_SQL,
   CREATE_STOCK_MOVEMENTS_INDEX_SQL,
   CREATE_STOCK_MOVEMENTS_TABLE_SQL,
+  CREATE_SALARY_PAYMENTS_EMPLOYEE_INDEX_SQL,
+  CREATE_SALARY_PAYMENTS_TABLE_SQL,
   CREATE_TREASURY_ENTRIES_DATE_INDEX_SQL,
   CREATE_TREASURY_ENTRIES_TABLE_SQL,
   DOCUMENT_COLUMN_MIGRATIONS,
+  PAYMENT_COLUMN_MIGRATIONS,
   PARTY_COLUMN_MIGRATIONS,
   PARTY_SEEDS,
 } from "../db/schema";
@@ -73,9 +80,12 @@ export type PartyRecord = {
   city: string;
   head_office: string;
   category: string;
+  image_url: string;
   nif: string;
   nis: string;
   rc: string;
+  tax_article: string;
+  rib: string;
   created_at: string;
   updated_at: string;
   billed: number;
@@ -90,6 +100,7 @@ export type PaymentRecord = {
   party_id: number;
   direction: "incoming" | "outgoing";
   amount: number;
+  previous_balance: number | null;
   payment_date: string;
   method: string;
   note: string;
@@ -109,6 +120,49 @@ export type FinanceEntryRecord = {
   note: string;
   created_at: string;
   updated_at: string;
+  source?: "manual" | "salary";
+  salary_payment_id?: number | null;
+};
+
+export type EmployeeRecord = {
+  id: number;
+  name: string;
+  job_title: string;
+  phone: string;
+  base_salary: number;
+  hire_date: string;
+  status: "Actif" | "Inactif";
+  created_at: string;
+  updated_at: string;
+};
+
+export type EmployeeAttendanceRecord = {
+  id: number;
+  employee_id: number;
+  work_date: string;
+  status: "Présent" | "Absent" | "Congé";
+  check_in: string;
+  check_out: string;
+  hours: number;
+  note: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SalaryPaymentRecord = {
+  id: number;
+  employee_id: number;
+  employee_name: string;
+  finance_entry_id: number;
+  payroll_month: string;
+  base_amount: number;
+  bonus: number;
+  deduction: number;
+  amount: number;
+  payment_date: string;
+  method: string;
+  note: string;
+  created_at: string;
 };
 
 export type TreasuryDirection = "in" | "out";
@@ -170,6 +224,7 @@ export type DocumentLineRecord = {
   id: number;
   document_id: number;
   article_id: number;
+  article_sku: string;
   designation: string;
   description: string;
   unit: string;
@@ -247,12 +302,7 @@ const DOCUMENT_DEMO_SEEDS: readonly {
   quantity: number;
   unitPrice: number;
   status: string;
-}[] = [
-  { number: "ACH-BR-TEST-GOOGLE", direction: "purchases", type: "delivery", partyName: "Google", sku: "ART-GOO-001", quantity: 1, unitPrice: 95_000, status: "Reçu" },
-  { number: "ACH-FAC-TEST-AMAZON", direction: "purchases", type: "invoice", partyName: "Amazon", sku: "ART-AMZ-002", quantity: 2, unitPrice: 6_200, status: "Payée" },
-  { number: "VTE-BL-TEST-GOOGLE", direction: "sales", type: "delivery", partyName: "Google", sku: "ART-GOO-001", quantity: 1, unitPrice: 119_900, status: "Livré" },
-  { number: "VTE-FAC-TEST-AMAZON", direction: "sales", type: "invoice", partyName: "Amazon", sku: "ART-AMZ-002", quantity: 2, unitPrice: 8_900, status: "Payée" },
-];
+}[] = [];
 
 function documentLabel(type: DocumentType, direction?: DocumentDirection): string {
   if (type === "delivery" && direction === "purchases") return "Bon de réception";
@@ -269,6 +319,30 @@ function asInputObject(value: unknown): InputObject {
 
 function cleanText(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value.trim() : fallback;
+}
+
+const MAX_PERSISTED_IMAGE_LENGTH = 5 * 1024 * 1024;
+
+/** Uploaded pictures are persisted as data URLs in the local SQLite file.
+ * App-relative and HTTPS URLs remain accepted for bundled/example assets. */
+function normalizedImageUrl(value: unknown, fallback = ""): string {
+  if (value === undefined) return fallback;
+  if (value === null || value === "") return "";
+  if (typeof value !== "string") {
+    throw new SqliteValidationError("L’image est invalide.");
+  }
+  const imageUrl = value.trim();
+  if (!imageUrl) return "";
+  if (imageUrl.length > MAX_PERSISTED_IMAGE_LENGTH) {
+    throw new SqliteValidationError("L’image est trop volumineuse (5 Mo maximum).");
+  }
+  const isLocalAsset = imageUrl.startsWith("/") && !imageUrl.startsWith("//");
+  const isHttpsAsset = /^https:\/\/[^\s]+$/i.test(imageUrl);
+  const isImageDataUrl = /^data:image\/(?:png|jpe?g|webp|gif);base64,[a-z0-9+/=\s]+$/i.test(imageUrl);
+  if (!isLocalAsset && !isHttpsAsset && !isImageDataUrl) {
+    throw new SqliteValidationError("Utilisez une image PNG, JPEG, WebP ou GIF valide.");
+  }
+  return imageUrl;
 }
 
 function requiredText(value: unknown, field: string): string {
@@ -449,9 +523,16 @@ function openDatabase() {
   database.exec(CREATE_STOCK_MOVEMENTS_TABLE_SQL);
   database.exec(CREATE_STOCK_MOVEMENTS_INDEX_SQL);
   database.exec(CREATE_PAYMENTS_TABLE_SQL);
+  migratePaymentColumns(database);
   database.exec(CREATE_PAYMENTS_PARTY_INDEX_SQL);
   database.exec(CREATE_FINANCE_ENTRIES_TABLE_SQL);
   database.exec(CREATE_FINANCE_ENTRIES_DATE_INDEX_SQL);
+  database.exec(CREATE_EMPLOYEES_TABLE_SQL);
+  database.exec(CREATE_EMPLOYEES_NAME_INDEX_SQL);
+  database.exec(CREATE_EMPLOYEE_ATTENDANCE_TABLE_SQL);
+  database.exec(CREATE_EMPLOYEE_ATTENDANCE_DATE_INDEX_SQL);
+  database.exec(CREATE_SALARY_PAYMENTS_TABLE_SQL);
+  database.exec(CREATE_SALARY_PAYMENTS_EMPLOYEE_INDEX_SQL);
   database.exec(CREATE_TREASURY_ENTRIES_TABLE_SQL);
   database.exec(CREATE_TREASURY_ENTRIES_DATE_INDEX_SQL);
 
@@ -481,6 +562,15 @@ function migrateDocumentColumns(database: DatabaseSync) {
   const existing = new Set(columns.map((column) => String(column.name)));
 
   for (const migration of DOCUMENT_COLUMN_MIGRATIONS) {
+    if (!existing.has(migration.name)) database.exec(migration.sql);
+  }
+}
+
+function migratePaymentColumns(database: DatabaseSync) {
+  const columns = database.prepare("PRAGMA table_info(payments)").all();
+  const existing = new Set(columns.map((column) => String(column.name)));
+
+  for (const migration of PAYMENT_COLUMN_MIGRATIONS) {
     if (!existing.has(migration.name)) database.exec(migration.sql);
   }
 }
@@ -569,8 +659,8 @@ function seedPartiesOnce(database: DatabaseSync) {
   const insertParty = database.prepare(`
     INSERT INTO parties (
       kind, name, contact_phone, contact_name, email, address, city,
-      head_office, category, nif, nis, rc
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      head_office, category, image_url, nif, nis, rc, tax_article, rib
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   database.exec("BEGIN IMMEDIATE");
@@ -587,9 +677,12 @@ function seedPartiesOnce(database: DatabaseSync) {
         party.city,
         party.headOffice,
         party.category,
+        party.imageUrl,
         party.nif,
         party.nis,
         party.rc,
+        party.taxArticle,
+        party.rib,
       );
     }
     database.prepare("INSERT INTO app_meta (key, value) VALUES (?, ?)").run(PARTIES_SEED_KEY, "1");
@@ -601,9 +694,8 @@ function seedPartiesOnce(database: DatabaseSync) {
 }
 
 /**
- * The only starter documents are the requested Google/Amazon rows.  They are
- * regular SQLite documents (with lines) so quote, invoice, return and stock
- * actions can be tested without any front-end-only fixtures.
+ * A clean database has no commercial history. The marker still prevents a
+ * future hot reload from unexpectedly inserting demo documents.
  */
 function seedDemoDocumentsOnce(database: DatabaseSync) {
   const seeded = database.prepare("SELECT value FROM app_meta WHERE key = ?").get(DOCUMENT_SEED_KEY);
@@ -683,11 +775,11 @@ function seedDemoDocumentsOnce(database: DatabaseSync) {
  * delete their local database or lose the already-open SQLite handle.
  */
 function ensurePartyStorage(database: DatabaseSync) {
-  if (globalForSqlite.__axxamPartiesReady) return;
   database.exec(CREATE_PARTIES_TABLE_SQL);
   migratePartyColumns(database);
   database.exec(CREATE_PARTIES_KIND_NAME_INDEX_SQL);
   database.exec(CREATE_APP_META_TABLE_SQL);
+  if (globalForSqlite.__axxamPartiesReady) return;
   seedPartiesOnce(database);
   globalForSqlite.__axxamPartiesReady = true;
 }
@@ -722,9 +814,16 @@ function getDatabase() {
   // These CREATE IF NOT EXISTS calls also upgrade a long-running development
   // process whose global SQLite connection predates the finance endpoints.
   database.exec(CREATE_PAYMENTS_TABLE_SQL);
+  migratePaymentColumns(database);
   database.exec(CREATE_PAYMENTS_PARTY_INDEX_SQL);
   database.exec(CREATE_FINANCE_ENTRIES_TABLE_SQL);
   database.exec(CREATE_FINANCE_ENTRIES_DATE_INDEX_SQL);
+  database.exec(CREATE_EMPLOYEES_TABLE_SQL);
+  database.exec(CREATE_EMPLOYEES_NAME_INDEX_SQL);
+  database.exec(CREATE_EMPLOYEE_ATTENDANCE_TABLE_SQL);
+  database.exec(CREATE_EMPLOYEE_ATTENDANCE_DATE_INDEX_SQL);
+  database.exec(CREATE_SALARY_PAYMENTS_TABLE_SQL);
+  database.exec(CREATE_SALARY_PAYMENTS_EMPLOYEE_INDEX_SQL);
   database.exec(CREATE_TREASURY_ENTRIES_TABLE_SQL);
   database.exec(CREATE_TREASURY_ENTRIES_DATE_INDEX_SQL);
   ensureDocumentDemoSeeds(database);
@@ -782,7 +881,7 @@ function listLinesForDocument(database: DatabaseSync, documentId: number): Docum
   return database.prepare(`
     SELECT dl.id, dl.document_id, dl.article_id, dl.designation, dl.description, dl.unit,
       dl.quantity, dl.unit_price, dl.discount_percent, dl.tax_rate, dl.line_total,
-      a.image_url
+      a.sku AS article_sku, a.image_url
     FROM document_lines dl
     INNER JOIN articles a ON a.id = dl.article_id
     WHERE dl.document_id = ?
@@ -879,6 +978,28 @@ function normalizeLine(
   };
 }
 
+/** The document table keeps one row per catalogue article. Repeated input is
+ * merged defensively here as well as in the UI, so imports and API clients
+ * cannot create duplicate article rows. */
+function mergeDocumentLines(lines: NormalizedLine[]): NormalizedLine[] {
+  const merged = new Map<number, NormalizedLine>();
+  for (const line of lines) {
+    const existing = merged.get(line.article.id);
+    if (!existing) {
+      merged.set(line.article.id, line);
+      continue;
+    }
+    const quantity = roundQuantity(existing.quantity + line.quantity);
+    const net = quantity * existing.unitPrice * (1 - existing.discountPercent / 100);
+    merged.set(line.article.id, {
+      ...existing,
+      quantity,
+      lineTotal: roundMoney(net * (1 + existing.taxRate / 100)),
+    });
+  }
+  return [...merged.values()];
+}
+
 function getSourceLinesAsInput(database: DatabaseSync, documentId: number): InputObject[] {
   return listLinesForDocument(database, documentId).map((line) => ({
     articleId: line.article_id,
@@ -935,6 +1056,39 @@ function validateReturnLines(database: DatabaseSync, source: DocumentRecord, lin
 function shouldApplyStock(type: DocumentType, source: DocumentRecord | null): boolean {
   if (type === "delivery" || type === "return") return true;
   return type === "invoice" && !source?.stock_applied;
+}
+
+const allowedDocumentTransfers: Partial<Record<DocumentType, DocumentType[]>> = {
+  quote: ["order"],
+  order: ["delivery", "invoice"],
+  delivery: ["invoice"],
+};
+
+function validateDocumentTransfer(database: DatabaseSync, source: DocumentRecord, targetType: DocumentType) {
+  const allowedTargets = allowedDocumentTransfers[source.type] ?? [];
+  if (!allowedTargets.includes(targetType)) {
+    throw new SqliteValidationError(`Le transfert ${documentLabel(source.type, source.direction)} → ${documentLabel(targetType, source.direction)} n’est pas autorisé.`);
+  }
+  if (source.type === "order") {
+    const existingSuccessor = database.prepare(`
+      SELECT number
+      FROM documents
+      WHERE source_document_id = ? AND type IN ('delivery', 'invoice')
+      LIMIT 1
+    `).get(source.id) as { number?: string } | undefined;
+    if (existingSuccessor?.number) {
+      throw new SqliteValidationError(`Cette commande a déjà été transférée vers ${existingSuccessor.number}.`);
+    }
+  }
+  const existing = database.prepare(`
+    SELECT number
+    FROM documents
+    WHERE source_document_id = ? AND type = ?
+    LIMIT 1
+  `).get(source.id, targetType) as { number?: string } | undefined;
+  if (existing?.number) {
+    throw new SqliteValidationError(`Ce document a déjà été transféré vers ${existing.number}.`);
+  }
 }
 
 function makeDocumentNumber(database: DatabaseSync, direction: DocumentDirection, type: DocumentType): string {
@@ -1175,11 +1329,17 @@ const partyBalanceSql = `
   COALESCE((
     SELECT SUM(CASE
       WHEN d.type = 'invoice' THEN d.total
+      WHEN d.type = 'delivery' AND NOT EXISTS (
+        SELECT 1
+        FROM documents transferred_invoice
+        WHERE transferred_invoice.source_document_id = d.id
+          AND transferred_invoice.type = 'invoice'
+      ) THEN d.total
       WHEN d.type = 'return' AND EXISTS (
         SELECT 1
         FROM documents source
         WHERE source.id = d.source_document_id
-          AND source.type = 'invoice'
+          AND source.type IN ('invoice', 'delivery')
       ) THEN -d.total
       ELSE 0
     END)
@@ -1206,7 +1366,7 @@ const partyPaidSql = `
 
 const partySelectSql = `
   p.id, p.kind, p.name, p.contact_phone, p.contact_name, p.email, p.address, p.city,
-  p.head_office, p.category, p.nif, p.nis, p.rc, p.created_at, p.updated_at,
+  p.head_office, p.category, p.image_url, p.nif, p.nis, p.rc, p.tax_article, p.rib, p.created_at, p.updated_at,
   ${partyBalanceSql} AS billed,
   ${partyPaidSql} AS paid,
   MAX(0, ${partyBalanceSql} - ${partyPaidSql}) AS balance,
@@ -1249,9 +1409,12 @@ export function createParty(value: unknown): PartyRecord {
   const city = optionalPartyText(input, ["city"], "La ville", 120);
   const headOffice = optionalPartyText(input, ["head_office", "headOffice"], "Le siÃ¨ge", 300);
   const category = optionalPartyText(input, ["category"], "La catÃ©gorie", 120);
+  const imageUrl = normalizedImageUrl(firstDefinedValue(input, ["image_url", "imageUrl", "photo", "logo"]));
   const nif = optionalPartyText(input, ["nif"], "Le NIF", 120);
   const nis = optionalPartyText(input, ["nis"], "Le NIS", 120);
   const rc = optionalPartyText(input, ["rc"], "Le RC", 120);
+  const taxArticle = optionalPartyText(input, ["tax_article", "taxArticle"], "Le numéro d’article", 120);
+  const rib = optionalPartyText(input, ["rib"], "Le RIB", 160);
 
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new SqliteValidationError("Lâ€™e-mail est invalide.");
@@ -1268,8 +1431,8 @@ export function createParty(value: unknown): PartyRecord {
   const result = database.prepare(`
     INSERT INTO parties (
       kind, name, contact_phone, contact_name, email, address, city,
-      head_office, category, nif, nis, rc
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      head_office, category, image_url, nif, nis, rc, tax_article, rib
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     kind,
     name,
@@ -1280,9 +1443,12 @@ export function createParty(value: unknown): PartyRecord {
     city,
     headOffice,
     category,
+    imageUrl,
     nif,
     nis,
     rc,
+    taxArticle,
+    rib,
   );
   return getPartyById(database, Number(result.lastInsertRowid));
 }
@@ -1292,6 +1458,8 @@ export function updateParty(value: unknown): PartyRecord {
   const id = requiredId(input.id, "Le tiers");
   const database = getDatabase();
   const existing = getPartyById(database, id);
+  const imageValue = firstDefinedValue(input, ["image_url", "imageUrl", "photo", "logo"]);
+  const imageUrl = normalizedImageUrl(imageValue, existing.image_url);
   const name = optionalPartyText(input, ["name"], "Le nom du tiers", 160) || existing.name;
   const contactPhone = optionalPartyText(input, ["contact_phone", "contactPhone", "phone", "contact"], "Le téléphone", 64);
   const contactName = optionalPartyText(input, ["contact_name", "contactName"], "Le contact", 160);
@@ -1303,6 +1471,8 @@ export function updateParty(value: unknown): PartyRecord {
   const nif = optionalPartyText(input, ["nif"], "Le NIF", 120);
   const nis = optionalPartyText(input, ["nis"], "Le NIS", 120);
   const rc = optionalPartyText(input, ["rc"], "Le RC", 120);
+  const taxArticle = optionalPartyText(input, ["tax_article", "taxArticle"], "Le numéro d’article", 120);
+  const rib = optionalPartyText(input, ["rib"], "Le RIB", 160);
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new SqliteValidationError("L’e-mail est invalide.");
 
   const duplicate = database.prepare("SELECT id FROM parties WHERE kind = ? AND name = ? COLLATE NOCASE AND id <> ?")
@@ -1312,7 +1482,7 @@ export function updateParty(value: unknown): PartyRecord {
   database.prepare(`
     UPDATE parties
     SET name = ?, contact_phone = ?, contact_name = ?, email = ?, address = ?, city = ?,
-      head_office = ?, category = ?, nif = ?, nis = ?, rc = ?, updated_at = CURRENT_TIMESTAMP
+      head_office = ?, category = ?, image_url = ?, nif = ?, nis = ?, rc = ?, tax_article = ?, rib = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(
     name,
@@ -1323,9 +1493,12 @@ export function updateParty(value: unknown): PartyRecord {
     input.city === undefined ? existing.city : city,
     input.head_office === undefined && input.headOffice === undefined ? existing.head_office : headOffice,
     input.category === undefined ? existing.category : category,
+    imageUrl,
     input.nif === undefined ? existing.nif : nif,
     input.nis === undefined ? existing.nis : nis,
     input.rc === undefined ? existing.rc : rc,
+    input.tax_article === undefined && input.taxArticle === undefined ? existing.tax_article : taxArticle,
+    input.rib === undefined ? existing.rib : rib,
     id,
   );
   return getPartyById(database, id);
@@ -1381,18 +1554,19 @@ export function settleParty(value: unknown): SettlementRecord {
     // snapshot atomic. Advances are allowed even when no invoice is open.
     const party = getPartyById(database, partyId);
     const result = database.prepare(`
-      INSERT INTO payments (party_id, direction, amount, payment_date, method, note)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO payments (party_id, direction, amount, previous_balance, payment_date, method, note)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(
       party.id,
       party.kind === "client" ? "incoming" : "outgoing",
       amount,
+      party.balance,
       paymentDate,
       method,
       note,
     );
     const row = database.prepare(`
-      SELECT id, party_id, direction, amount, payment_date, method, note, created_at
+      SELECT id, party_id, direction, amount, previous_balance, payment_date, method, note, created_at
       FROM payments WHERE id = ?
     `).get(Number(result.lastInsertRowid));
     return {
@@ -1406,9 +1580,187 @@ export function listPayments(partyId?: unknown): PaymentRecord[] {
   const database = getDatabase();
   const id = partyId === undefined ? undefined : requiredId(partyId, "Le tiers");
   const rows = id
-    ? database.prepare("SELECT id, party_id, direction, amount, payment_date, method, note, created_at FROM payments WHERE party_id = ? ORDER BY payment_date DESC, id DESC").all(id)
-    : database.prepare("SELECT id, party_id, direction, amount, payment_date, method, note, created_at FROM payments ORDER BY payment_date DESC, id DESC").all();
+    ? database.prepare("SELECT id, party_id, direction, amount, previous_balance, payment_date, method, note, created_at FROM payments WHERE party_id = ? ORDER BY payment_date DESC, id DESC").all(id)
+    : database.prepare("SELECT id, party_id, direction, amount, previous_balance, payment_date, method, note, created_at FROM payments ORDER BY payment_date DESC, id DESC").all();
   return rows as unknown as PaymentRecord[];
+}
+
+function readEmployee(database: DatabaseSync, id: number): EmployeeRecord {
+  const row = database.prepare(`
+    SELECT id, name, job_title, phone, base_salary, hire_date, status, created_at, updated_at
+    FROM employees WHERE id = ?
+  `).get(id);
+  if (!row) throw new SqliteValidationError("Employé introuvable.");
+  return row as unknown as EmployeeRecord;
+}
+
+export function listEmployees(): EmployeeRecord[] {
+  return getDatabase().prepare(`
+    SELECT id, name, job_title, phone, base_salary, hire_date, status, created_at, updated_at
+    FROM employees
+    ORDER BY CASE status WHEN 'Actif' THEN 0 ELSE 1 END, name COLLATE NOCASE, id
+  `).all() as unknown as EmployeeRecord[];
+}
+
+export function createEmployee(value: unknown): EmployeeRecord {
+  const input = asInputObject(value);
+  const name = requiredText(input.name, "Le nom de l’employé");
+  const baseSalary = roundMoney(optionalNumber(input.base_salary ?? input.baseSalary) ?? 0);
+  if (baseSalary < 0) throw new SqliteValidationError("Le salaire ne peut pas être négatif.");
+  const hireDate = normalizeDocumentDate(input.hire_date ?? input.hireDate ?? input.date);
+  const status = cleanText(input.status, "Actif") === "Inactif" ? "Inactif" : "Actif";
+  const database = getDatabase();
+  const result = database.prepare(`
+    INSERT INTO employees (name, job_title, phone, base_salary, hire_date, status)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(name, cleanText(input.job_title ?? input.jobTitle), cleanText(input.phone), baseSalary, hireDate, status);
+  return readEmployee(database, Number(result.lastInsertRowid));
+}
+
+export function updateEmployee(value: unknown): EmployeeRecord {
+  const input = asInputObject(value);
+  const id = requiredId(input.id, "L’employé");
+  const database = getDatabase();
+  const existing = readEmployee(database, id);
+  const name = input.name === undefined ? existing.name : requiredText(input.name, "Le nom de l’employé");
+  const baseSalary = roundMoney(input.base_salary === undefined && input.baseSalary === undefined
+    ? existing.base_salary
+    : optionalNumber(input.base_salary ?? input.baseSalary) ?? 0);
+  if (baseSalary < 0) throw new SqliteValidationError("Le salaire ne peut pas être négatif.");
+  const status = input.status === undefined ? existing.status : cleanText(input.status) === "Inactif" ? "Inactif" : "Actif";
+  database.prepare(`
+    UPDATE employees
+    SET name = ?, job_title = ?, phone = ?, base_salary = ?, hire_date = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(
+    name,
+    input.job_title === undefined && input.jobTitle === undefined ? existing.job_title : cleanText(input.job_title ?? input.jobTitle),
+    input.phone === undefined ? existing.phone : cleanText(input.phone),
+    baseSalary,
+    input.hire_date === undefined && input.hireDate === undefined ? existing.hire_date : normalizeDocumentDate(input.hire_date ?? input.hireDate),
+    status,
+    id,
+  );
+  return readEmployee(database, id);
+}
+
+export function deleteEmployee(employeeId: unknown): EmployeeRecord {
+  const id = requiredId(employeeId, "L’employé");
+  return inTransaction((database) => {
+    const employee = readEmployee(database, id);
+    const salary = database.prepare("SELECT id FROM salary_payments WHERE employee_id = ? LIMIT 1").get(id);
+    if (salary) throw new SqliteValidationError("Cet employé possède un historique de salaires et ne peut pas être supprimé. Passez-le en inactif.");
+    database.prepare("DELETE FROM employees WHERE id = ?").run(id);
+    return employee;
+  });
+}
+
+export function listEmployeeAttendance(employeeId?: unknown): EmployeeAttendanceRecord[] {
+  const database = getDatabase();
+  const id = employeeId === undefined ? undefined : requiredId(employeeId, "L’employé");
+  const sql = `
+    SELECT id, employee_id, work_date, status, check_in, check_out, hours, note, created_at, updated_at
+    FROM employee_attendance
+    ${id === undefined ? "" : "WHERE employee_id = ?"}
+    ORDER BY work_date DESC, id DESC
+  `;
+  return (id === undefined ? database.prepare(sql).all() : database.prepare(sql).all(id)) as unknown as EmployeeAttendanceRecord[];
+}
+
+export function recordEmployeeAttendance(value: unknown): EmployeeAttendanceRecord {
+  const input = asInputObject(value);
+  const employeeId = requiredId(input.employee_id ?? input.employeeId, "L’employé");
+  const workDate = normalizeDocumentDate(input.work_date ?? input.workDate ?? input.date);
+  const requestedStatus = cleanText(input.status, "Présent");
+  const status = requestedStatus === "Absent" || requestedStatus === "Congé" ? requestedStatus : "Présent";
+  const hours = roundQuantity(optionalNumber(input.hours) ?? 0);
+  if (hours < 0 || hours > 24) throw new SqliteValidationError("Le nombre d’heures doit être compris entre 0 et 24.");
+  const database = getDatabase();
+  readEmployee(database, employeeId);
+  database.prepare(`
+    INSERT INTO employee_attendance (employee_id, work_date, status, check_in, check_out, hours, note)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(employee_id, work_date) DO UPDATE SET
+      status = excluded.status,
+      check_in = excluded.check_in,
+      check_out = excluded.check_out,
+      hours = excluded.hours,
+      note = excluded.note,
+      updated_at = CURRENT_TIMESTAMP
+  `).run(employeeId, workDate, status, cleanText(input.check_in ?? input.checkIn), cleanText(input.check_out ?? input.checkOut), hours, cleanText(input.note));
+  return database.prepare(`
+    SELECT id, employee_id, work_date, status, check_in, check_out, hours, note, created_at, updated_at
+    FROM employee_attendance WHERE employee_id = ? AND work_date = ?
+  `).get(employeeId, workDate) as unknown as EmployeeAttendanceRecord;
+}
+
+export function listSalaryPayments(employeeId?: unknown): SalaryPaymentRecord[] {
+  const database = getDatabase();
+  const id = employeeId === undefined ? undefined : requiredId(employeeId, "L’employé");
+  const sql = `
+    SELECT salary.id, salary.employee_id, employee.name AS employee_name, salary.finance_entry_id,
+      salary.payroll_month, salary.base_amount, salary.bonus, salary.deduction, salary.amount,
+      salary.payment_date, salary.method, salary.note, salary.created_at
+    FROM salary_payments salary
+    INNER JOIN employees employee ON employee.id = salary.employee_id
+    ${id === undefined ? "" : "WHERE salary.employee_id = ?"}
+    ORDER BY salary.payment_date DESC, salary.id DESC
+  `;
+  return (id === undefined ? database.prepare(sql).all() : database.prepare(sql).all(id)) as unknown as SalaryPaymentRecord[];
+}
+
+export function payEmployeeSalary(value: unknown): { payment: SalaryPaymentRecord; financeEntry: FinanceEntryRecord } {
+  const input = asInputObject(value);
+  const employeeId = requiredId(input.employee_id ?? input.employeeId, "L’employé");
+  const payrollMonth = cleanText(input.payroll_month ?? input.payrollMonth);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(payrollMonth)) throw new SqliteValidationError("Le mois de paie est invalide.");
+  const paymentDate = normalizeDocumentDate(input.payment_date ?? input.paymentDate ?? input.date);
+  return inTransaction((database) => {
+    const employee = readEmployee(database, employeeId);
+    const baseAmount = roundMoney(optionalNumber(input.base_amount ?? input.baseAmount) ?? employee.base_salary);
+    const bonus = roundMoney(optionalNumber(input.bonus) ?? 0);
+    const deduction = roundMoney(optionalNumber(input.deduction) ?? 0);
+    const amount = roundMoney(baseAmount + bonus - deduction);
+    if (baseAmount < 0 || bonus < 0 || deduction < 0 || amount <= 0) {
+      throw new SqliteValidationError("Le montant net du salaire doit être supérieur à zéro.");
+    }
+    const duplicate = database.prepare("SELECT id FROM salary_payments WHERE employee_id = ? AND payroll_month = ?").get(employee.id, payrollMonth);
+    if (duplicate) throw new SqliteValidationError("Le salaire de cet employé est déjà payé pour ce mois.");
+    const note = cleanText(input.note);
+    const financeResult = database.prepare(`
+      INSERT INTO finance_entries (kind, label, category, amount, entry_date, status, note)
+      VALUES ('charge', ?, 'Salaires', ?, ?, 'Payée', ?)
+    `).run(`Salaire ${employee.name} · ${payrollMonth}`, amount, paymentDate, note);
+    const financeEntryId = Number(financeResult.lastInsertRowid);
+    const salaryResult = database.prepare(`
+      INSERT INTO salary_payments (
+        employee_id, finance_entry_id, payroll_month, base_amount, bonus, deduction,
+        amount, payment_date, method, note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      employee.id,
+      financeEntryId,
+      payrollMonth,
+      baseAmount,
+      bonus,
+      deduction,
+      amount,
+      paymentDate,
+      cleanText(input.method, "Virement") || "Virement",
+      note,
+    );
+    const payment = listSalaryPayments(employee.id).find((row) => row.id === Number(salaryResult.lastInsertRowid));
+    if (!payment) throw new SqliteValidationError("Le paiement du salaire n’a pas pu être relu.");
+    const financeEntry = database.prepare(`
+      SELECT finance.id, finance.kind, finance.label, finance.category, finance.amount,
+        finance.entry_date, finance.status, finance.note, finance.created_at, finance.updated_at,
+        'salary' AS source, salary.id AS salary_payment_id
+      FROM finance_entries finance
+      INNER JOIN salary_payments salary ON salary.finance_entry_id = finance.id
+      WHERE finance.id = ?
+    `).get(financeEntryId) as unknown as FinanceEntryRecord;
+    return { payment, financeEntry };
+  });
 }
 
 function normalizeFinanceKind(value: unknown): FinanceEntryKind {
@@ -1418,8 +1770,13 @@ function normalizeFinanceKind(value: unknown): FinanceEntryKind {
 
 export function listFinanceEntries(): FinanceEntryRecord[] {
   return getDatabase().prepare(`
-    SELECT id, kind, label, category, amount, entry_date, status, note, created_at, updated_at
-    FROM finance_entries ORDER BY entry_date DESC, id DESC
+    SELECT finance.id, finance.kind, finance.label, finance.category, finance.amount,
+      finance.entry_date, finance.status, finance.note, finance.created_at, finance.updated_at,
+      CASE WHEN salary.id IS NULL THEN 'manual' ELSE 'salary' END AS source,
+      salary.id AS salary_payment_id
+    FROM finance_entries finance
+    LEFT JOIN salary_payments salary ON salary.finance_entry_id = finance.id
+    ORDER BY finance.entry_date DESC, finance.id DESC
   `).all() as unknown as FinanceEntryRecord[];
 }
 
@@ -1443,8 +1800,10 @@ export function createFinanceEntry(value: unknown): FinanceEntryRecord {
     cleanText(input.note),
   );
   const row = getDatabase().prepare(`
-    SELECT id, kind, label, category, amount, entry_date, status, note, created_at, updated_at
-    FROM finance_entries WHERE id = ?
+    SELECT finance.id, finance.kind, finance.label, finance.category, finance.amount,
+      finance.entry_date, finance.status, finance.note, finance.created_at, finance.updated_at,
+      'manual' AS source, NULL AS salary_payment_id
+    FROM finance_entries finance WHERE finance.id = ?
   `).get(Number(result.lastInsertRowid));
   return row as unknown as FinanceEntryRecord;
 }
@@ -1453,10 +1812,18 @@ export function deleteFinanceEntry(entryId: unknown): FinanceEntryRecord {
   const id = requiredId(entryId, "La dépense");
   const database = getDatabase();
   const row = database.prepare(`
-    SELECT id, kind, label, category, amount, entry_date, status, note, created_at, updated_at
-    FROM finance_entries WHERE id = ?
+    SELECT finance.id, finance.kind, finance.label, finance.category, finance.amount,
+      finance.entry_date, finance.status, finance.note, finance.created_at, finance.updated_at,
+      CASE WHEN salary.id IS NULL THEN 'manual' ELSE 'salary' END AS source,
+      salary.id AS salary_payment_id
+    FROM finance_entries finance
+    LEFT JOIN salary_payments salary ON salary.finance_entry_id = finance.id
+    WHERE finance.id = ?
   `).get(id);
   if (!row) throw new SqliteValidationError("Dépense introuvable.");
+  if ((row as Record<string, unknown>).salary_payment_id) {
+    throw new SqliteValidationError("Une charge de salaire reste liée à l’historique de paie et ne peut pas être supprimée ici.");
+  }
   database.prepare("DELETE FROM finance_entries WHERE id = ?").run(id);
   return row as unknown as FinanceEntryRecord;
 }
@@ -1470,6 +1837,8 @@ export function updateFinanceEntry(value: unknown): FinanceEntryRecord {
     FROM finance_entries WHERE id = ?
   `).get(id) as Record<string, unknown> | undefined;
   if (!existing) throw new SqliteValidationError("Charge introuvable.");
+  const salaryPayment = database.prepare("SELECT id FROM salary_payments WHERE finance_entry_id = ?").get(id);
+  if (salaryPayment) throw new SqliteValidationError("Une charge de salaire se modifie depuis la fiche employé.");
   const kind = input.kind === undefined ? String(existing.kind) : normalizeFinanceKind(input.kind);
   const label = input.label === undefined ? String(existing.label) : requiredText(input.label, "Le libellé");
   const amount = roundMoney(input.amount === undefined ? rowNumber(existing.amount) : optionalNumber(input.amount) ?? 0);
@@ -1484,7 +1853,8 @@ export function updateFinanceEntry(value: unknown): FinanceEntryRecord {
     WHERE id = ?
   `).run(kind, label, category, amount, entryDate, status, note, id);
   return database.prepare(`
-    SELECT id, kind, label, category, amount, entry_date, status, note, created_at, updated_at
+    SELECT id, kind, label, category, amount, entry_date, status, note, created_at, updated_at,
+      'manual' AS source, NULL AS salary_payment_id
     FROM finance_entries WHERE id = ?
   `).get(id) as unknown as FinanceEntryRecord;
 }
@@ -1657,7 +2027,7 @@ export function createArticle(value: unknown): ArticleRecord {
     cleanText(input.subsubcategory),
     cleanText(input.description),
     cleanText(input.unit, "Unité") || "Unité",
-    cleanText(input.imageUrl ?? input.image_url),
+    normalizedImageUrl(firstDefinedValue(input, ["image_url", "imageUrl", "photo"])),
     purchasePrice,
     salePrice,
     stock,
@@ -1702,7 +2072,7 @@ export function updateArticle(value: unknown): ArticleRecord {
     cleanText(input.subsubcategory, existing.subsubcategory),
     cleanText(input.description, existing.description),
     cleanText(input.unit, existing.unit) || "Unité",
-    cleanText(input.imageUrl ?? input.image_url, existing.image_url),
+    normalizedImageUrl(firstDefinedValue(input, ["image_url", "imageUrl", "photo"]), existing.image_url),
     purchasePrice,
     salePrice,
     stock,
@@ -1835,6 +2205,7 @@ export function createDocument(value: unknown): DocumentRecord {
     requiredText(requestedPartyName, "Le tiers"),
   );
   const partyName = party.name;
+  if (source && type !== "return") validateDocumentTransfer(database, source, type);
   const documentDiscount = clampPercent(input.discount ?? input.discountPercent ?? input.discount_percent, 0, "La remise");
   const documentTaxRate = clampPercent(input.taxRate ?? input.tax_rate, 0, "La TVA");
   const rawLines = Array.isArray(input.lines) ? input.lines : [];
@@ -1843,7 +2214,7 @@ export function createDocument(value: unknown): DocumentRecord {
     : source && type === "return"
       ? getSourceLinesAsInput(database, source.id)
       : [input];
-  const lines = fallbackLine.map((line) => normalizeLine(database, line, direction, documentDiscount, documentTaxRate));
+  const lines = mergeDocumentLines(fallbackLine.map((line) => normalizeLine(database, line, direction, documentDiscount, documentTaxRate)));
   if (!lines.length) throw new SqliteValidationError("Ajoutez au moins une ligne au document.");
 
   if (type === "return") {
@@ -1979,7 +2350,7 @@ export function updateDocument(value: unknown): DocumentRecord {
   const documentTaxRate = clampPercent(input.taxRate ?? input.tax_rate, 0, "La TVA");
   const rawLines = Array.isArray(input.lines) ? input.lines : [];
   if (!rawLines.length) throw new SqliteValidationError("Ajoutez au moins une ligne au document.");
-  const lines = rawLines.map((line) => normalizeLine(database, line, direction, documentDiscount, documentTaxRate));
+  const lines = mergeDocumentLines(rawLines.map((line) => normalizeLine(database, line, direction, documentDiscount, documentTaxRate)));
   const subtotal = roundMoney(lines.reduce((total, line) => total + line.quantity * line.unitPrice, 0));
   const discountAmount = roundMoney(lines.reduce(
     (total, line) => total + line.quantity * line.unitPrice * line.discountPercent / 100,
