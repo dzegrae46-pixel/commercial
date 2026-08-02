@@ -14,20 +14,20 @@ export async function generateMetadata(): Promise<Metadata> {
   const description = "Un espace compact pour gérer clients, fournisseurs, achats, ventes et documents.";
 
   return {
-    title: "Axxam Workspace",
+    title: "Commercial",
     description,
     icons: {
       icon: "/favicon.svg",
       shortcut: "/favicon.svg",
     },
     openGraph: {
-      title: "Axxam Workspace",
+      title: "Commercial",
       description,
-      images: [{ url: imageUrl, width: 1659, height: 948, alt: "Axxam Workspace — Achats, ventes et finance" }],
+      images: [{ url: imageUrl, width: 1659, height: 948, alt: "Commercial — Achats, ventes et finance" }],
     },
     twitter: {
       card: "summary_large_image",
-      title: "Axxam Workspace",
+      title: "Commercial",
       description,
       images: [imageUrl],
     },

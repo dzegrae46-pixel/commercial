@@ -119,7 +119,7 @@ test("keeps the visual system compact and production-ready", async () => {
     readFile(new URL("package.json", root), "utf8"),
   ]);
 
-  assert.match(layout, /Axxam Workspace/);
+  assert.match(layout, /Commercial/);
   assert.match(layout, /generateMetadata/);
   assert.match(layout, /og\.png/);
   assert.match(layout, /lang="fr"/);

@@ -1265,7 +1265,7 @@ function ClientsTable({
 
   return (
     <TableCard title="Tous les clients" count={`${filtered.length} clients`} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode}>
-      <table>
+      <table className="parties-table clients-table">
         <thead><tr><th>Client</th><th>Contact</th><th>Statut contact</th><th>Total facturé</th><th>Solde</th><th>Compte</th><th>Dernière activité</th><th /></tr></thead>
         <tbody>
           {filtered.map((client) => (
@@ -1333,7 +1333,7 @@ function SuppliersTable({
 
   return (
     <TableCard title="Tous les fournisseurs" count={`${filtered.length} fournisseurs`} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode}>
-      <table>
+      <table className="parties-table suppliers-table">
         <thead><tr><th>Fournisseur</th><th>Contact</th><th>Statut contact</th><th>Catégorie</th><th>Total achats</th><th>Solde</th><th>Compte</th><th /></tr></thead>
         <tbody>
           {filtered.map((supplier) => (
@@ -5025,7 +5025,7 @@ export default function WorkspaceApp() {
   const page = useSyncExternalStore(subscribeToPage, readPageFromUrl, () => "dashboard") as PageKey;
   const company = useSyncExternalStore(subscribeToCompany, readCompanySettings, () => DEFAULT_COMPANY);
   useEffect(() => {
-    document.title = `${company.name} Workspace`;
+    document.title = "Commercial";
   }, [company.name]);
   useEffect(() => {
     if (!company.feedbackEnabled && page === "feedback") window.location.hash = "dashboard";

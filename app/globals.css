@@ -8629,3 +8629,91 @@ td strong {
 .inline-create-row input, .client-category-row input { flex: 1; min-width: 0; }
 .client-category-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; }
 .client-category-row { padding: 8px; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; }
+
+/* Impression GSR : texte plus grand, net et centré comme sur la fiche papier. */
+.print-preview-backdrop .print-document-sheet,
+.print-preview-backdrop .print-company-identity,
+.print-preview-backdrop .print-lines-table {
+  font-family: "Segoe UI", Calibri, Arial, sans-serif;
+}
+
+.print-preview-backdrop .print-document-sheet { font-size: 11pt; }
+.print-preview-backdrop .print-company-identity h1 {
+  font-size: 27pt;
+  line-height: 1.05;
+  margin-bottom: 3mm;
+}
+.print-preview-backdrop .print-company-identity p {
+  font-size: 10.5pt;
+  line-height: 1.35;
+}
+.print-preview-backdrop .print-company-registration { font-size: 9.6pt; line-height: 1.35; }
+.print-preview-backdrop .print-company-address { font-size: 10.2pt; }
+.print-preview-backdrop .print-company-phone { font-size: 15pt; line-height: 1.2; }
+.print-preview-backdrop .print-document-title h2 { font-size: 20pt; line-height: 1.1; }
+.print-preview-backdrop .print-due-label,
+.print-preview-backdrop .print-party-card dt,
+.print-preview-backdrop .print-party-card dd,
+.print-preview-backdrop .print-document-number { font-size: 10.5pt; }
+.print-preview-backdrop .print-lines-table th {
+  font-size: 10.5pt;
+  height: 9mm;
+  padding: 1.5mm 2mm;
+}
+.print-preview-backdrop .print-lines-table td,
+.print-preview-backdrop .print-lines-table td strong {
+  font-size: 10.5pt;
+  line-height: 1.25;
+  min-height: 10mm;
+  padding: 2mm;
+}
+.print-preview-backdrop .print-document-note strong,
+.print-preview-backdrop .print-document-note p,
+.print-preview-backdrop .print-grand-total dt,
+.print-preview-backdrop .print-grand-total dd,
+.print-preview-backdrop .print-manager-signature { font-size: 10.5pt; }
+.print-preview-backdrop .print-grand-total dt,
+.print-preview-backdrop .print-grand-total dd { font-weight: 700; }
+
+/* Les lignes Clients/Fournisseurs ne sont plus écrasées par la colonne actions. */
+.parties-table {
+  min-width: 1120px;
+  table-layout: fixed;
+  width: 100%;
+}
+.parties-table th,
+.parties-table td {
+  overflow: visible;
+  white-space: normal;
+  word-break: normal;
+}
+.parties-table tbody td {
+  height: auto;
+  min-height: 66px;
+  vertical-align: middle;
+}
+.parties-table th:nth-child(1) { width: 22%; }
+.parties-table th:nth-child(2) { width: 18%; }
+.parties-table th:nth-child(3) { width: 12%; }
+.parties-table th:nth-child(4) { width: 12%; }
+.parties-table th:nth-child(5) { width: 11%; }
+.parties-table th:nth-child(6) { width: 10%; }
+.parties-table th:nth-child(7) { width: 12%; }
+.parties-table th:nth-child(8) { width: 150px; }
+.parties-table .identity-cell,
+.parties-table .identity-cell > div { min-width: 0; }
+.parties-table .identity-cell > div { overflow: visible; }
+.parties-table .identity-cell strong,
+.parties-table .identity-cell small,
+.parties-table td > strong,
+.parties-table td > small {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: break-word;
+}
+.parties-table .party-row-actions {
+  min-width: 150px;
+  width: 150px;
+  white-space: nowrap;
+}
