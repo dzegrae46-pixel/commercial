@@ -5252,6 +5252,29 @@ td strong {
   flex: 0 0 auto;
 }
 
+.category-create-form {
+  align-items: end;
+  background: linear-gradient(135deg, #f7f8ff, #f4fbf8);
+  border: 1px solid #dce3f1;
+  border-radius: 10px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(170px, 1fr) repeat(3, minmax(120px, .72fr)) auto;
+  padding: 10px;
+}
+
+.category-create-copy { align-items: center; display: flex; gap: 9px; min-width: 0; }
+.category-create-copy > svg { color: var(--blue); flex: 0 0 auto; }
+.category-create-copy span { display: grid; gap: 2px; }
+.category-create-copy strong { color: var(--ink); font-size: 11px; }
+.category-create-copy small { color: var(--subtle); font-size: 9px; }
+.category-create-form label { color: var(--muted); display: grid; font-size: 9px; font-weight: 700; gap: 3px; text-transform: uppercase; }
+.category-create-form input,
+.category-create-form select { background: white; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); height: 34px; min-width: 0; padding: 0 8px; text-transform: none; width: 100%; }
+.category-create-form input:focus,
+.category-create-form select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); outline: 0; }
+.category-create-form .primary-button { height: 34px; white-space: nowrap; }
+
 .category-tree-toolbar {
   align-items: center;
   display: flex;
@@ -5565,6 +5588,7 @@ td strong {
 }
 
 @media (max-width: 620px) {
+  .category-create-form { grid-template-columns: 1fr; }
   .simple-document-table-heading .secondary-button {
     font-size: 0;
     gap: 0;

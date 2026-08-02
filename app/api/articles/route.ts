@@ -1,6 +1,7 @@
 import {
   createArticle,
   deleteArticle,
+  getNextArticleSku,
   listArticles,
   listCategoryTree,
   SqliteValidationError,
@@ -22,7 +23,7 @@ export function GET(request: Request) {
   const url = new URL(request.url);
   const query = url.searchParams.get("q") ?? url.searchParams.get("query") ?? "";
   return Response.json(
-    { articles: listArticles(query), categories: listCategoryTree() },
+    { articles: listArticles(query), categories: listCategoryTree(), next_sku: getNextArticleSku() },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

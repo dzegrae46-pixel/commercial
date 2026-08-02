@@ -33,6 +33,24 @@ export const CREATE_ARTICLES_SKU_INDEX_SQL =
 export const CREATE_ARTICLES_CATEGORY_INDEX_SQL =
   "CREATE INDEX IF NOT EXISTS articles_category_idx ON articles (category, subcategory, subsubcategory)";
 
+/** Standalone catalog nodes keep empty categories visible and editable before
+ * the first article is assigned to them. */
+export const CREATE_CATALOG_CATEGORIES_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS catalog_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    level INTEGER NOT NULL CHECK(level IN (1, 2, 3)),
+    name TEXT NOT NULL COLLATE NOCASE,
+    category TEXT NOT NULL DEFAULT '' COLLATE NOCASE,
+    subcategory TEXT NOT NULL DEFAULT '' COLLATE NOCASE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(level, name, category, subcategory)
+  )
+`;
+
+export const CREATE_CATALOG_CATEGORIES_INDEX_SQL =
+  "CREATE INDEX IF NOT EXISTS catalog_categories_tree_idx ON catalog_categories (level, category, subcategory, name COLLATE NOCASE)";
+
 /**
  * Shared third-parties for the Clients and Suppliers views.  `kind` is kept on
  * the record (instead of separate tables) so a business can legitimately be

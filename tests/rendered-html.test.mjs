@@ -239,10 +239,13 @@ test("persists the three-level catalog and clean seeds in offline SQLite", async
 });
 
 test("supports detailed article organization and the dedicated product grid", async () => {
-  const [page, schema, css] = await Promise.all([
+  const [page, schema, css, sqlite, categoriesRoute, articlesRoute] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("db/schema.ts", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("lib/sqlite.ts", root), "utf8"),
+    readFile(new URL("app/api/categories/route.ts", root), "utf8"),
+    readFile(new URL("app/api/articles/route.ts", root), "utf8"),
   ]);
 
   assert.match(page, /subcategory: string/);
@@ -267,6 +270,8 @@ test("supports detailed article organization and the dedicated product grid", as
   assert.match(page, /article-third-category-options/);
   assert.match(page, /CategoryManagerModal/);
   assert.match(page, /Catégories disponibles/);
+  assert.match(page, /Ajouter une catégorie/);
+  assert.match(page, /Créez une branche vide/);
   assert.match(page, /Arborescence du catalogue/);
   assert.match(page, /Tout déplier/);
   assert.match(page, /Tout replier/);
@@ -277,6 +282,14 @@ test("supports detailed article organization and the dedicated product grid", as
   assert.match(page, /viewMode=\{viewMode\}/);
   assert.doesNotMatch(page, /viewMode="grid"/);
   assert.match(page, /method: "DELETE"/);
+  assert.match(categoriesRoute, /export async function POST/);
+  assert.match(schema, /CREATE_CATALOG_CATEGORIES_TABLE_SQL/);
+  assert.match(sqlite, /addArticleCategory/);
+  assert.match(sqlite, /getNextArticleSku/);
+  assert.match(articlesRoute, /next_sku/);
+  assert.match(page, /Référence \/ code-barres/);
+  assert.match(page, /event\.key !== "Enter"/);
+  assert.match(page, /label: "Ventes"/);
   assert.match(schema, /CREATE_ARTICLES_CATEGORY_INDEX_SQL/);
   assert.match(css, /grid-template-columns:\s*repeat\(4,minmax\(0,1fr\)\)/);
   assert.match(css, /\.article-product-card:hover/);

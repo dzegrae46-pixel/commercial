@@ -8,6 +8,8 @@ import {
   CREATE_ARTICLES_CATEGORY_INDEX_SQL,
   CREATE_ARTICLES_SKU_INDEX_SQL,
   CREATE_ARTICLES_TABLE_SQL,
+  CREATE_CATALOG_CATEGORIES_INDEX_SQL,
+  CREATE_CATALOG_CATEGORIES_TABLE_SQL,
   CREATE_CLIENT_CATEGORIES_NAME_INDEX_SQL,
   CREATE_CLIENT_CATEGORIES_TABLE_SQL,
   CREATE_DOCUMENT_LINES_INDEX_SQL,
@@ -87,6 +89,7 @@ export type CategoryTree = {
 
 export type CategoryMutationResult = {
   updated: number;
+  created?: number;
   categories: CategoryTree[];
 };
 
@@ -635,6 +638,9 @@ function openDatabase() {
   database.exec(CREATE_ARTICLES_SKU_INDEX_SQL);
   database.exec(CREATE_ARTICLES_CATEGORY_INDEX_SQL);
   seedCatalogOnce(database);
+  database.exec(CREATE_CATALOG_CATEGORIES_TABLE_SQL);
+  database.exec(CREATE_CATALOG_CATEGORIES_INDEX_SQL);
+  backfillCatalogCategories(database);
   ensurePartyStorage(database);
   ensureClientCategoryStorage(database);
   ensureDocumentStorage(database);
@@ -1302,8 +1308,58 @@ export function listArticles(query = ""): ArticleRecord[] {
   ].join(" ").toLocaleLowerCase("fr").includes(normalizedQuery));
 }
 
+function registerCatalogPath(database: DatabaseSync, category: string, subcategory = "", thirdLevel = "") {
+  const insert = database.prepare(`
+    INSERT OR IGNORE INTO catalog_categories (level, name, category, subcategory)
+    VALUES (?, ?, ?, ?)
+  `);
+  const normalizedCategory = cleanText(category, "Non classée") || "Non classée";
+  const normalizedSubcategory = cleanText(subcategory);
+  const normalizedThirdLevel = cleanText(thirdLevel);
+  insert.run(1, normalizedCategory, "", "");
+  if (normalizedSubcategory) insert.run(2, normalizedSubcategory, normalizedCategory, "");
+  if (normalizedSubcategory && normalizedThirdLevel) insert.run(3, normalizedThirdLevel, normalizedCategory, normalizedSubcategory);
+}
+
+function backfillCatalogCategories(database: DatabaseSync) {
+  database.exec(`
+    INSERT OR IGNORE INTO catalog_categories (level, name, category, subcategory)
+    SELECT 1, category, '', '' FROM articles
+    WHERE is_deleted = 0 AND TRIM(category) <> '';
+
+    INSERT OR IGNORE INTO catalog_categories (level, name, category, subcategory)
+    SELECT 2, subcategory, category, '' FROM articles
+    WHERE is_deleted = 0 AND TRIM(category) <> '' AND TRIM(subcategory) <> '';
+
+    INSERT OR IGNORE INTO catalog_categories (level, name, category, subcategory)
+    SELECT 3, subsubcategory, category, subcategory FROM articles
+    WHERE is_deleted = 0 AND TRIM(category) <> '' AND TRIM(subcategory) <> '' AND TRIM(subsubcategory) <> '';
+  `);
+}
+
 export function listCategoryTree(): CategoryTree[] {
   const categories = new Map<string, Map<string, Set<string>>>();
+  const database = getDatabase();
+  const storedNodes = database.prepare(`
+    SELECT level, name, category, subcategory
+    FROM catalog_categories
+    ORDER BY level, category COLLATE NOCASE, subcategory COLLATE NOCASE, name COLLATE NOCASE
+  `).all() as unknown as { level: number; name: string; category: string; subcategory: string }[];
+  for (const node of storedNodes) {
+    if (node.level === 1) {
+      if (!categories.has(node.name)) categories.set(node.name, new Map());
+      continue;
+    }
+    const childCategories = categories.get(node.category) ?? new Map<string, Set<string>>();
+    if (node.level === 2) {
+      if (!childCategories.has(node.name)) childCategories.set(node.name, new Set());
+    } else if (node.level === 3) {
+      const grandchildren = childCategories.get(node.subcategory) ?? new Set<string>();
+      grandchildren.add(node.name);
+      childCategories.set(node.subcategory, grandchildren);
+    }
+    categories.set(node.category, childCategories);
+  }
   for (const article of listArticles()) {
     const category = article.category || "Non classée";
     const subcategory = article.subcategory || "Sans sous-catégorie";
@@ -1322,6 +1378,28 @@ export function listCategoryTree(): CategoryTree[] {
       subcategories: [...grandchildren].sort((left, right) => left.localeCompare(right, "fr")),
     })).sort((left, right) => left.name.localeCompare(right.name, "fr")),
   })).sort((left, right) => left.name.localeCompare(right.name, "fr"));
+}
+
+export function addArticleCategory(value: unknown): CategoryMutationResult {
+  const input = asInputObject(value);
+  const level = optionalNumber(input.level);
+  if (level !== 1 && level !== 2 && level !== 3) {
+    throw new SqliteValidationError("Le niveau de catégorie doit être 1, 2 ou 3.");
+  }
+  const name = requiredText(input.name, "Le nom de la catégorie");
+  const category = level === 1 ? "" : requiredText(input.category, "La catégorie parente");
+  const subcategory = level === 3 ? requiredText(input.subcategory, "La sous-catégorie parente") : "";
+  if (level === 1 && normalizeLookup(name) === normalizeLookup("Non classée")) {
+    throw new SqliteValidationError("La catégorie système « Non classée » existe déjà.");
+  }
+  const database = getDatabase();
+  const result = database.prepare(`
+    INSERT OR IGNORE INTO catalog_categories (level, name, category, subcategory)
+    VALUES (?, ?, ?, ?)
+  `).run(level, name, category, subcategory);
+  if (!result.changes) throw new SqliteValidationError("Cette catégorie existe déjà à ce niveau.");
+  if (level >= 2) registerCatalogPath(database, category, level === 3 ? subcategory : name, level === 3 ? name : "");
+  return { updated: 0, created: Number(result.changes), categories: listCategoryTree() };
 }
 
 function categoryMutationInput(value: unknown) {
@@ -1368,7 +1446,33 @@ export function renameArticleCategory(value: unknown): CategoryMutationResult {
             AND subsubcategory = ? COLLATE NOCASE
         `).run(nextName, category, subcategory, currentName);
 
-  if (!result.changes) throw new SqliteValidationError("Cette catégorie n’existe plus.");
+  let storedChanges = 0;
+  if (level === 1) {
+    storedChanges += Number(database.prepare(`
+      UPDATE catalog_categories SET name = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE level = 1 AND name = ? COLLATE NOCASE
+    `).run(nextName, currentName).changes);
+    storedChanges += Number(database.prepare(`
+      UPDATE catalog_categories SET category = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE level IN (2, 3) AND category = ? COLLATE NOCASE
+    `).run(nextName, currentName).changes);
+  } else if (level === 2) {
+    storedChanges += Number(database.prepare(`
+      UPDATE catalog_categories SET name = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE level = 2 AND category = ? COLLATE NOCASE AND name = ? COLLATE NOCASE
+    `).run(nextName, category, currentName).changes);
+    storedChanges += Number(database.prepare(`
+      UPDATE catalog_categories SET subcategory = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE level = 3 AND category = ? COLLATE NOCASE AND subcategory = ? COLLATE NOCASE
+    `).run(nextName, category, currentName).changes);
+  } else {
+    storedChanges += Number(database.prepare(`
+      UPDATE catalog_categories SET name = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE level = 3 AND category = ? COLLATE NOCASE
+        AND subcategory = ? COLLATE NOCASE AND name = ? COLLATE NOCASE
+    `).run(nextName, category, subcategory, currentName).changes);
+  }
+  if (!result.changes && !storedChanges) throw new SqliteValidationError("Cette catégorie n’existe plus.");
   return { updated: Number(result.changes), categories: listCategoryTree() };
 }
 
@@ -1403,7 +1507,26 @@ export function deleteArticleCategory(value: unknown): CategoryMutationResult {
             AND subsubcategory = ? COLLATE NOCASE
         `).run(category, subcategory, currentName);
 
-  if (!result.changes) throw new SqliteValidationError("Cette catégorie n’existe plus.");
+  const storedResult = level === 1
+    ? database.prepare(`
+        DELETE FROM catalog_categories
+        WHERE (level = 1 AND name = ? COLLATE NOCASE)
+          OR (level IN (2, 3) AND category = ? COLLATE NOCASE)
+      `).run(currentName, currentName)
+    : level === 2
+      ? database.prepare(`
+          DELETE FROM catalog_categories
+          WHERE category = ? COLLATE NOCASE
+            AND ((level = 2 AND name = ? COLLATE NOCASE)
+              OR (level = 3 AND subcategory = ? COLLATE NOCASE))
+        `).run(category, currentName, currentName)
+      : database.prepare(`
+          DELETE FROM catalog_categories
+          WHERE level = 3 AND category = ? COLLATE NOCASE
+            AND subcategory = ? COLLATE NOCASE AND name = ? COLLATE NOCASE
+        `).run(category, subcategory, currentName);
+
+  if (!result.changes && !storedResult.changes) throw new SqliteValidationError("Cette catégorie n’existe plus.");
   return { updated: Number(result.changes), categories: listCategoryTree() };
 }
 
@@ -2374,11 +2497,24 @@ export function listTreasuryLedger(): TreasuryLedgerRecord[] {
   );
 }
 
+function nextArticleSkuInDatabase(database: DatabaseSync): string {
+  const rows = database.prepare("SELECT sku FROM articles WHERE sku LIKE 'ART-%'").all() as unknown as { sku: string }[];
+  const lastOrder = rows.reduce((maximum, row) => {
+    const match = /^ART-(\d+)$/i.exec(String(row.sku));
+    return match ? Math.max(maximum, Number(match[1])) : maximum;
+  }, 0);
+  return `ART-${String(lastOrder + 1).padStart(5, "0")}`;
+}
+
+export function getNextArticleSku(): string {
+  return nextArticleSkuInDatabase(getDatabase());
+}
+
 export function createArticle(value: unknown): ArticleRecord {
   const input = asInputObject(value);
   const name = requiredText(input.name, "Le nom de l’article");
-  const sku = requiredText(input.sku, "La référence");
   const database = getDatabase();
+  const sku = cleanText(input.sku) || nextArticleSkuInDatabase(database);
   const duplicate = database.prepare("SELECT id FROM articles WHERE sku = ?").get(sku);
   if (duplicate) throw new SqliteValidationError("Cette référence existe déjà.");
 
@@ -2417,7 +2553,9 @@ export function createArticle(value: unknown): ArticleRecord {
     stock,
     cleanText(input.status, statusForStock(stock)) || statusForStock(stock),
   );
-  return getArticleById(database, Number(result.lastInsertRowid));
+  const article = getArticleById(database, Number(result.lastInsertRowid));
+  registerCatalogPath(database, article.category, article.subcategory, article.subsubcategory);
+  return article;
 }
 
 export function updateArticle(value: unknown): ArticleRecord {
@@ -2473,7 +2611,9 @@ export function updateArticle(value: unknown): ArticleRecord {
     cleanText(input.status, statusForStock(stock)) || statusForStock(stock),
     id,
   );
-  return getArticleById(database, id);
+  const article = getArticleById(database, id);
+  registerCatalogPath(database, article.category, article.subcategory, article.subsubcategory);
+  return article;
 }
 
 /**

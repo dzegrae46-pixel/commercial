@@ -2353,12 +2353,17 @@ function CategoryManagerModal({
   notify: (message: string) => void;
 }) {
   const [articles, setArticles] = useState(initialArticles);
+  const [catalogTree, setCatalogTree] = useState<CategoryTree[]>(() => categoryTreeForArticles(initialArticles));
   const [editing, setEditing] = useState<CategoryEditTarget | null>(null);
   const [draftName, setDraftName] = useState("");
+  const [newLevel, setNewLevel] = useState<1 | 2 | 3>(1);
+  const [newName, setNewName] = useState("");
+  const [newCategory, setNewCategory] = useState("");
+  const [newSubcategory, setNewSubcategory] = useState("");
   const [busyKey, setBusyKey] = useState("");
   const [error, setError] = useState("");
   const [collapsedBranches, setCollapsedBranches] = useState<Set<string>>(() => new Set());
-  const tree = categoryTreeForArticles(articles);
+  const tree = catalogTree;
   const levelTwoCount = tree.reduce((total, category) => total + category.subcategories.length, 0);
   const levelThreeCount = tree.reduce(
     (total, category) => total + category.subcategories.reduce((subtotal, subcategory) => subtotal + subcategory.subcategories.length, 0),
@@ -2388,11 +2393,69 @@ function CategoryManagerModal({
   }).length;
 
   const refreshArticles = async () => {
-    const response = await fetch("/api/articles", { cache: "no-store" });
-    const payload = await response.json() as { articles?: ArticleRecord[]; error?: string };
-    if (!response.ok) throw new Error(payload.error || "Impossible de recharger les catégories.");
-    setArticles(payload.articles ?? []);
+    const [articlesResponse, categoriesResponse] = await Promise.all([
+      fetch("/api/articles", { cache: "no-store" }),
+      fetch("/api/categories", { cache: "no-store" }),
+    ]);
+    const articlesPayload = await articlesResponse.json() as { articles?: ArticleRecord[]; error?: string };
+    const categoriesPayload = await categoriesResponse.json() as { categories?: CategoryTree[]; error?: string };
+    if (!articlesResponse.ok) throw new Error(articlesPayload.error || "Impossible de recharger les catégories.");
+    if (!categoriesResponse.ok) throw new Error(categoriesPayload.error || "Impossible de recharger l’arborescence.");
+    setArticles(articlesPayload.articles ?? []);
+    setCatalogTree(categoriesPayload.categories ?? []);
     onChanged();
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/categories", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json() as { categories?: CategoryTree[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "Impossible de charger l’arborescence.");
+        setCatalogTree(payload.categories ?? []);
+      })
+      .catch((requestError: Error) => {
+        if (requestError.name !== "AbortError") setError(requestError.message);
+      });
+    return () => controller.abort();
+  }, []);
+
+  const selectedNewCategory = tree.find((item) => item.name === newCategory);
+  const availableNewSubcategories = selectedNewCategory?.subcategories ?? [];
+
+  const addCategory = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const name = newName.trim();
+    if (!name) {
+      setError("Le nom de la nouvelle catégorie est obligatoire.");
+      return;
+    }
+    if (newLevel >= 2 && !newCategory) {
+      setError("Choisissez la catégorie parente.");
+      return;
+    }
+    if (newLevel === 3 && !newSubcategory) {
+      setError("Choisissez la sous-catégorie parente.");
+      return;
+    }
+    setBusyKey("create");
+    setError("");
+    try {
+      const response = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ level: newLevel, name, category: newCategory, subcategory: newSubcategory }),
+      });
+      const payload = await response.json() as { created?: number; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Impossible d’ajouter la catégorie.");
+      setNewName("");
+      await refreshArticles();
+      notify(`« ${name} » ajoutée au niveau ${newLevel}`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Impossible d’ajouter la catégorie.");
+    } finally {
+      setBusyKey("");
+    }
   };
 
   const startEditing = (target: CategoryEditTarget) => {
@@ -2511,7 +2574,7 @@ function CategoryManagerModal({
     <div className="modal-backdrop category-manager-backdrop" role="presentation" onMouseDown={onClose}>
       <div className="modal-card expanded-modal category-manager-modal" role="dialog" aria-modal="true" aria-labelledby="category-manager-title" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-header">
-          <div><h2 id="category-manager-title">Catégories disponibles</h2><p>Consultez, renommez ou supprimez les trois niveaux du catalogue.</p></div>
+          <div><h2 id="category-manager-title">Catégories disponibles</h2><p>Ajoutez, consultez, renommez ou supprimez les trois niveaux du catalogue.</p></div>
           <button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
         </div>
         <div className="category-manager-summary">
@@ -2521,6 +2584,14 @@ function CategoryManagerModal({
         </div>
         <p className="category-manager-note"><CircleHelp size={15} /> Un renommage s’applique à tous les articles concernés. Une suppression conserve les articles mais retire leur classement à ce niveau.</p>
         {error && <p className="form-error" role="alert">{error}</p>}
+        <form className="category-create-form" onSubmit={addCategory}>
+          <div className="category-create-copy"><Plus size={16} /><span><strong>Ajouter une catégorie</strong><small>Créez une branche vide avant d’y affecter des articles.</small></span></div>
+          <label><span>Niveau</span><select value={newLevel} onChange={(event) => { const level = Number(event.target.value) as 1 | 2 | 3; setNewLevel(level); setNewCategory(""); setNewSubcategory(""); }}><option value={1}>Niveau 1</option><option value={2}>Niveau 2</option><option value={3}>Niveau 3</option></select></label>
+          {newLevel >= 2 && <label><span>Catégorie parente</span><select value={newCategory} onChange={(event) => { setNewCategory(event.target.value); setNewSubcategory(""); }} required><option value="">Choisir…</option>{tree.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>}
+          {newLevel === 3 && <label><span>Sous-catégorie</span><select value={newSubcategory} onChange={(event) => setNewSubcategory(event.target.value)} required><option value="">Choisir…</option>{availableNewSubcategories.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>}
+          <label className="category-create-name"><span>Nom</span><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Nouvelle catégorie" required /></label>
+          <button type="submit" className="primary-button" disabled={Boolean(busyKey)}><Plus size={15} />{busyKey === "create" ? "Ajout…" : "Ajouter"}</button>
+        </form>
         <div className="category-tree-toolbar">
           <div><strong>Arborescence du catalogue</strong><span>Catégorie → Sous-catégorie → Niveau 3</span></div>
           <div>
@@ -3067,7 +3138,7 @@ function Dashboard({
   const activeSuppliers = new Set(filteredPurchases.map((row) => row.party)).size;
   const dashboardKpis: { value: string; label: string; trend: string; tone: string; icon: LucideIcon; direction: "up" | "down" }[] = [
     { value: formatDa(invoicedSales.reduce((sum, row) => sum + Math.abs(row.total ?? amountOf(row)), 0)), label: "Chiffre d'Affaires", trend: `${invoicedSales.length} facture${invoicedSales.length === 1 ? "" : "s"}`, tone: "primary", icon: WalletCards, direction: "up" },
-    { value: String(filteredSales.length), label: "Documents de vente", trend: "Sur la période", tone: "success", icon: ShoppingBasket, direction: "up" },
+    { value: String(filteredSales.length), label: "Ventes", trend: `${filteredSales.length} vente${filteredSales.length === 1 ? "" : "s"} sur la période`, tone: "success", icon: ShoppingBasket, direction: "up" },
     { value: String(clients.length), label: "Clients", trend: `${activeClients} actif${activeClients === 1 ? "" : "s"}`, tone: "warning", icon: Users, direction: "up" },
     { value: String(suppliers.length), label: "Fournisseurs", trend: `${activeSuppliers} actif${activeSuppliers === 1 ? "" : "s"}`, tone: "info", icon: Truck, direction: "up" },
     { value: formatDa(recordedPurchases.reduce((sum, row) => sum + Math.abs(row.total ?? amountOf(row)), 0)), label: "Achats enregistrés", trend: `${recordedPurchases.length} document${recordedPurchases.length === 1 ? "" : "s"}`, tone: "danger", icon: BarChart3, direction: "up" },
@@ -3796,7 +3867,7 @@ function SimpleDocumentEditor({
       || normalizeLabel(row.sku) === normalizedQuery
       || normalizeLabel(`${row.name} · ${row.sku}`) === normalizedQuery,
     );
-    setArticleQuery(query);
+    setArticleQuery(article ? `${article.name} · ${article.sku}` : query);
     setSelectedArticleId(article?.id ?? null);
     if (article) {
       setDraftUnitPrice(String(priceForParty(article, selectedParty)));
@@ -3973,6 +4044,11 @@ function SimpleDocumentEditor({
                   list="pure-article-options"
                   value={articleQuery}
                   onChange={(event) => selectDraftArticle(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    event.preventDefault();
+                    selectDraftArticle(event.currentTarget.value);
+                  }}
                   placeholder={articleRequest.loading ? "Chargement…" : "Rechercher par nom ou référence"}
                   aria-label="Rechercher un article à ajouter"
                 />
@@ -4505,14 +4581,17 @@ function ArticleFormModal({
     fetch("/api/articles", { signal: controller.signal, cache: "no-store" })
       .then((response) => {
         if (!response.ok) throw new Error("Catégories indisponibles");
-        return response.json() as Promise<{ categories?: CategoryTree[] }>;
+        return response.json() as Promise<{ categories?: CategoryTree[]; next_sku?: string }>;
       })
-      .then((payload) => setCategoryTree(payload.categories ?? []))
+      .then((payload) => {
+        setCategoryTree(payload.categories ?? []);
+        if (!article && payload.next_sku) setSku((current) => current.trim() ? current : payload.next_sku || "");
+      })
       .catch((requestError: Error) => {
         if (requestError.name !== "AbortError") setCategoryTree([]);
       });
     return () => controller.abort();
-  }, []);
+  }, [article]);
 
   useEffect(() => {
     void fetch("/api/client-categories", { cache: "no-store" }).then(async (response) => {
@@ -4594,7 +4673,7 @@ function ArticleFormModal({
         <div className="modal-header"><div><h2 id="article-editor-title">{article ? "Organiser l’article" : "Nouvel article"}</h2><p>Catégorie, sous-catégories, unité, prix, stock et description.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
         <div className="form-grid">
           <label className="field-label">Désignation<input autoFocus required value={name} onChange={(event) => setName(event.target.value)} placeholder="MacBook Pro 14 pouces" /></label>
-          <label className="field-label">Référence / SKU<input required value={sku} onChange={(event) => setSku(event.target.value)} placeholder="ART-INFO-001" /></label>
+          <label className="field-label">Référence / code-barres<input value={sku} onChange={(event) => setSku(event.target.value)} placeholder="Automatique · ART-00001" /><small>Générée automatiquement. Cliquez ici puis scannez pour utiliser le code-barres du produit.</small></label>
         </div>
         <div className="form-grid">
           <label className="field-label">Marque<input value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="Apple" /></label>
