@@ -1,0 +1,12 @@
+# CloudLinux Passenger configuration for geniesysteme.com.
+# Keep the SQLite database outside the Git repository so deployments preserve data.
+PassengerAppRoot "/home/czuwsbch/commercial-app"
+PassengerBaseURI "/"
+PassengerNodejs "/home/czuwsbch/nodevenv/commercial-app/24/bin/node"
+PassengerAppType node
+PassengerStartupFile app_wrapper.cjs
+PassengerAppLogFile "/home/czuwsbch/commercial-app/logs/passenger.log"
+
+<IfModule LiteSpeed>
+  SetEnv AXXAM_SQLITE_PATH /home/czuwsbch/axxam-data/axxam.sqlite
+</IfModule>

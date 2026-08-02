@@ -43,3 +43,6 @@ next-env.d.ts
 /data/*.sqlite
 /data/*.sqlite-*
 /data/*.log
+/logs/
+/tmp/
+/tsconfig.tsbuildinfo

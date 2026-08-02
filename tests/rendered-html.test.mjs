@@ -479,3 +479,39 @@ test("manages employees, payroll, party balances and duplicate document lines", 
   assert.match(employeesRoute, /action === "pay_salary"/);
   assert.match(employeesRoute, /recordEmployeeAttendance/);
 });
+
+test("supports monthly references, contact status, balance charts and margin tariffs", async () => {
+  const [page, css, schema, sqlite, partiesRoute, employeesRoute] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("lib/sqlite.ts", root), "utf8"),
+    readFile(new URL("app/api/parties/route.ts", root), "utf8"),
+    readFile(new URL("app/api/employees/route.ts", root), "utf8"),
+  ]);
+
+  assert.match(sqlite, /return `\$\{prefix\}-\$\{yearMonth\}\$\{String\(order\)\.padStart\(5, "0"\)\}`/);
+  assert.match(sqlite, /migrateDocumentNumbers/);
+  assert.match(sqlite, /document_number_yyyymm_v1/);
+  assert.match(schema, /sale_prices_json TEXT NOT NULL DEFAULT '\[\]'/);
+  assert.match(schema, /purchase_prices_json TEXT NOT NULL DEFAULT '\[\]'/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS client_categories/);
+  assert.match(sqlite, /normalizePurchasePrices/);
+  assert.match(sqlite, /listClientCategories/);
+  assert.match(page, /Prix achat par categorie client/);
+  assert.match(page, /Gérer les catégories clients/);
+  assert.match(schema, /contact_status TEXT NOT NULL DEFAULT 'Actif'/);
+  assert.match(sqlite, /listPartyBalanceHistory/);
+  assert.match(partiesRoute, /get\("history"\) === "balance"/);
+  assert.match(sqlite, /updateSalaryPayment/);
+  assert.match(employeesRoute, /action === "update_salary"/);
+  assert.match(page, /Période du tableau de bord/);
+  assert.match(page, /Fournisseurs/);
+  assert.match(page, /PartyBalanceHistoryChart/);
+  assert.match(page, /Tarifs de vente/);
+  assert.match(page, /margin_percent/);
+  assert.match(page, /Imprimé à \{company\.city\} le/);
+  assert.match(page, /FINANCE_CHARGE_CATEGORIES/);
+  assert.match(css, /\.balance-history-chart/);
+  assert.match(css, /\.article-price-tiers/);
+});

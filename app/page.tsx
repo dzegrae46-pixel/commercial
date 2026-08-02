@@ -78,6 +78,7 @@ type CompanySettings = {
   rib: string;
   bank: string;
   address: string;
+  city: string;
   phone: string;
 };
 
@@ -99,12 +100,14 @@ type ClientRecord = {
   city?: string;
   headOffice?: string;
   category?: string;
+  clientCategory?: string;
   nif?: string;
   nis?: string;
   rc?: string;
   taxArticle?: string;
   rib?: string;
   imageUrl?: string;
+  contactStatus?: string;
 };
 
 type SupplierRecord = {
@@ -130,6 +133,7 @@ type SupplierRecord = {
   taxArticle?: string;
   rib?: string;
   imageUrl?: string;
+  contactStatus?: string;
 };
 
 type DocumentRecord = {
@@ -217,6 +221,7 @@ type ApiPartyRecord = {
   city: string;
   head_office: string;
   category: string;
+  client_category: string;
   nif: string;
   nis: string;
   rc: string;
@@ -228,6 +233,19 @@ type ApiPartyRecord = {
   balance: number;
   status: string;
   image_url: string;
+  contact_status: string;
+};
+
+type PartyBalanceHistoryRecord = {
+  id: string;
+  event_date: string;
+  created_at: string;
+  kind: "document" | "payment";
+  label: string;
+  reference: string;
+  delta: number;
+  balance: number;
+  credit: number;
 };
 
 type PaymentRecord = {
@@ -331,7 +349,9 @@ type ArticleRecord = {
   unit: string;
   image_url: string;
   purchase_price: number;
+  purchase_prices: { client_category: string; purchase_price: number }[];
   sale_price: number;
+  sale_prices: { label: string; margin_percent: number; sale_price: number }[];
   stock: number;
   status: string;
   updated_at: string;
@@ -344,6 +364,8 @@ type CategoryTree = {
     subcategories: string[];
   }[];
 };
+
+type ClientCategoryRecord = { id: number; name: string; created_at?: string; updated_at?: string };
 
 type CategoryEditTarget = {
   key: string;
@@ -360,6 +382,7 @@ type CreatePayload = {
   documentType: string;
   contactName?: string;
   category?: string;
+  clientCategory?: string;
   email?: string;
   address?: string;
   city?: string;
@@ -370,6 +393,7 @@ type CreatePayload = {
   taxArticle?: string;
   rib?: string;
   imageUrl?: string;
+  contactStatus?: string;
   articleName?: string;
   articleId?: number;
   articleDescription?: string;
@@ -538,6 +562,7 @@ const DEFAULT_COMPANY: CompanySettings = {
   rib: "00500152400242521092",
   bank: "BDL AGENCE BEJAIA PLAINE 152 CITE TOBBAI",
   address: "Cité route Azib Ahmed, Izi Ouzou",
+  city: "Béjaïa",
   phone: "0772 023 970 / 0559 030 467",
 };
 const COMPANY_STORAGE_KEY = "axxam-company-settings-v2";
@@ -604,6 +629,7 @@ const readCompanySettings = (): CompanySettings => {
       rib: cleanCompanyValue(stored.rib, DEFAULT_COMPANY.rib, 80),
       bank: cleanCompanyValue(stored.bank, DEFAULT_COMPANY.bank),
       address: cleanCompanyValue(stored.address, DEFAULT_COMPANY.address),
+      city: cleanCompanyValue(stored.city, DEFAULT_COMPANY.city, 80),
       phone: cleanCompanyValue(stored.phone, DEFAULT_COMPANY.phone, 80),
     };
   } catch {
@@ -635,6 +661,7 @@ const persistCompanySettings = (nextSettings: CompanySettings) => {
     rib: cleanCompanyValue(nextSettings.rib, DEFAULT_COMPANY.rib, 80),
     bank: cleanCompanyValue(nextSettings.bank, DEFAULT_COMPANY.bank),
     address: cleanCompanyValue(nextSettings.address, DEFAULT_COMPANY.address),
+    city: cleanCompanyValue(nextSettings.city, DEFAULT_COMPANY.city, 80),
     phone: cleanCompanyValue(nextSettings.phone, DEFAULT_COMPANY.phone, 80),
   };
   const serialized = JSON.stringify(cleaned);
@@ -841,12 +868,14 @@ const toClientRecord = (party: ApiPartyRecord): ClientRecord => ({
   city: party.city || undefined,
   headOffice: party.head_office || undefined,
   category: party.category || undefined,
+  clientCategory: party.client_category || party.category || "Standard",
   nif: party.nif || undefined,
   nis: party.nis || undefined,
   rc: party.rc || undefined,
   taxArticle: party.tax_article || undefined,
   rib: party.rib || undefined,
   imageUrl: party.image_url || undefined,
+  contactStatus: party.contact_status || "Actif",
   billed: formatDa(party.billed ?? 0),
   paid: formatDa(party.paid ?? 0),
   credit: formatDa(party.credit ?? 0),
@@ -872,6 +901,7 @@ const toSupplierRecord = (party: ApiPartyRecord): SupplierRecord => ({
   taxArticle: party.tax_article || undefined,
   rib: party.rib || undefined,
   imageUrl: party.image_url || undefined,
+  contactStatus: party.contact_status || "Actif",
   category: party.category || "Général",
   purchases: formatDa(party.billed ?? 0),
   paid: formatDa(party.paid ?? 0),
@@ -1198,19 +1228,20 @@ function ClientsTable({
   onSettle: (client: ClientRecord) => void;
 }) {
   const filtered = rows.filter((client) => {
-    const matchesSearch = `${client.name} ${client.contact} ${client.email} ${client.contactName ?? ""} ${client.nif ?? ""} ${client.nis ?? ""} ${client.rc ?? ""} ${client.taxArticle ?? ""} ${client.rib ?? ""}`.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = `${client.name} ${client.contact} ${client.email} ${client.contactName ?? ""} ${client.contactStatus ?? ""} ${client.nif ?? ""} ${client.nis ?? ""} ${client.rc ?? ""} ${client.taxArticle ?? ""} ${client.rib ?? ""}`.toLowerCase().includes(search.toLowerCase());
     return matchesSearch && (!filterActive || client.balance !== "0 DA");
   });
 
   return (
     <TableCard title="Tous les clients" count={`${filtered.length} clients`} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode}>
       <table>
-        <thead><tr><th>Client</th><th>Contact</th><th>Total facturé</th><th>Solde</th><th>Statut</th><th>Dernière activité</th><th /></tr></thead>
+        <thead><tr><th>Client</th><th>Contact</th><th>Statut contact</th><th>Total facturé</th><th>Solde</th><th>Compte</th><th>Dernière activité</th><th /></tr></thead>
         <tbody>
           {filtered.map((client) => (
             <tr key={client.name}>
-              <td><div className="identity-cell"><EntityLogo name={client.name} tone={client.color} kind="client" imageUrl={client.imageUrl} /><div><strong>{client.name}</strong><small>{client.email}</small></div></div></td>
+              <td><div className="identity-cell"><EntityLogo name={client.name} tone={client.color} kind="client" imageUrl={client.imageUrl} /><div><strong>{client.name}</strong><small>{client.email}</small><small>Catégorie : {client.clientCategory || "Standard"}</small></div></div></td>
               <td>{client.contactName ? <><strong>{client.contactName}</strong><small>{client.contact}{client.city ? ` · ${client.city}` : ""}</small></> : <><span>{client.contact}</span>{client.city && <small>{client.city}</small>}</>}</td>
+              <td><StatusBadge label={client.contactStatus || "Actif"} tone={client.contactStatus === "Bloqué" ? "red" : client.contactStatus === "Inactif" ? "gray" : client.contactStatus === "Prospect" ? "blue" : "green"} /></td>
               <td className="number">{client.billed}</td>
               <td className="number">{client.balance}</td>
               <td><StatusBadge label={client.status} tone={client.balance === "0 DA" ? "green" : "orange"} /></td>
@@ -1228,7 +1259,7 @@ function ClientsTable({
               </td>
             </tr>
           ))}
-          {!filtered.length && <EmptyRow columns={7} />}
+          {!filtered.length && <EmptyRow columns={8} />}
         </tbody>
       </table>
     </TableCard>
@@ -1265,19 +1296,20 @@ function SuppliersTable({
   onSettle: (supplier: SupplierRecord) => void;
 }) {
   const filtered = rows.filter((supplier) => {
-    const matchesSearch = `${supplier.name} ${supplier.contact} ${supplier.category} ${supplier.nif ?? ""} ${supplier.nis ?? ""} ${supplier.rc ?? ""} ${supplier.taxArticle ?? ""} ${supplier.rib ?? ""}`.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = `${supplier.name} ${supplier.contact} ${supplier.category} ${supplier.contactStatus ?? ""} ${supplier.nif ?? ""} ${supplier.nis ?? ""} ${supplier.rc ?? ""} ${supplier.taxArticle ?? ""} ${supplier.rib ?? ""}`.toLowerCase().includes(search.toLowerCase());
     return matchesSearch && (!filterActive || supplier.balance !== "0 DA");
   });
 
   return (
     <TableCard title="Tous les fournisseurs" count={`${filtered.length} fournisseurs`} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode}>
       <table>
-        <thead><tr><th>Fournisseur</th><th>Contact</th><th>Catégorie</th><th>Total achats</th><th>Solde</th><th>Statut</th><th /></tr></thead>
+        <thead><tr><th>Fournisseur</th><th>Contact</th><th>Statut contact</th><th>Catégorie</th><th>Total achats</th><th>Solde</th><th>Compte</th><th /></tr></thead>
         <tbody>
           {filtered.map((supplier) => (
             <tr key={supplier.name}>
               <td><div className="identity-cell"><EntityLogo name={supplier.name} tone={supplier.color} kind="supplier" imageUrl={supplier.imageUrl} /><strong>{supplier.name}</strong></div></td>
               <td>{supplier.contactName ? <><strong>{supplier.contactName}</strong><small>{supplier.contact}{supplier.city ? ` · ${supplier.city}` : ""}</small></> : <><span>{supplier.contact}</span>{supplier.city && <small>{supplier.city}</small>}</>}</td>
+              <td><StatusBadge label={supplier.contactStatus || "Actif"} tone={supplier.contactStatus === "Bloqué" ? "red" : supplier.contactStatus === "Inactif" ? "gray" : supplier.contactStatus === "Prospect" ? "blue" : "green"} /></td>
               <td><span className="soft-label">{supplier.category}</span></td>
               <td className="number">{supplier.purchases}</td>
               <td className="number">{supplier.balance}</td>
@@ -1295,7 +1327,7 @@ function SuppliersTable({
               </td>
             </tr>
           ))}
-          {!filtered.length && <EmptyRow columns={7} />}
+          {!filtered.length && <EmptyRow columns={8} />}
         </tbody>
       </table>
     </TableCard>
@@ -1471,12 +1503,50 @@ function PrintableDocument({
       </section>
 
       <section className="print-manager-signature">
-        <div><span>En date du :</span><strong>{displayedDate}</strong></div>
+        <div><span>Imprimé à {company.city} le :</span><strong>{displayedDate}</strong></div>
         <div><span>Le Gérant :</span><i /></div>
       </section>
       </article>
     </div>,
     document.body,
+  );
+}
+
+function PartyBalanceHistoryChart({ rows }: { rows: PartyBalanceHistoryRecord[] }) {
+  if (!rows.length) return <p className="party-history-message">Aucun mouvement de solde enregistré.</p>;
+  const width = 720;
+  const height = 190;
+  const padding = 22;
+  const maximum = Math.max(...rows.map((row) => row.balance), 1);
+  const points = rows.map((row, index) => {
+    const x = rows.length === 1 ? width / 2 : padding + index * (width - padding * 2) / (rows.length - 1);
+    const y = height - padding - row.balance / maximum * (height - padding * 2);
+    return `${x},${y}`;
+  }).join(" ");
+  return (
+    <div className="balance-history-panel">
+      <div className="balance-chart-summary"><span>Évolution du solde</span><strong>{formatDa(rows.at(-1)?.balance ?? 0)}</strong></div>
+      <svg className="balance-history-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Évolution du solde du tiers">
+        <defs><linearGradient id="balance-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#4f46e5" stopOpacity=".25" /><stop offset="1" stopColor="#4f46e5" stopOpacity="0" /></linearGradient></defs>
+        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} className="balance-chart-axis" />
+        <polygon points={`${padding},${height - padding} ${points} ${width - padding},${height - padding}`} fill="url(#balance-fill)" />
+        <polyline points={points} className="balance-chart-line" />
+        {points.split(" ").map((point, index) => {
+          const [cx, cy] = point.split(",");
+          return <circle key={rows[index].id} cx={cx} cy={cy} r="4" className={rows[index].delta >= 0 ? "balance-point-up" : "balance-point-down"}><title>{rows[index].label} · {formatDa(rows[index].balance)}</title></circle>;
+        })}
+      </svg>
+      <div className="balance-event-list">
+        {rows.slice().reverse().map((row) => (
+          <div key={row.id}>
+            <span className={`balance-event-icon ${row.delta >= 0 ? "up" : "down"}`}>{row.delta >= 0 ? <ArrowDownRight size={15} /> : <Banknote size={15} />}</span>
+            <span><strong>{row.label}</strong><small>{formatDocumentDate(row.event_date)} · {row.reference}</small></span>
+            <b className={row.delta >= 0 ? "due" : "paid"}>{row.delta >= 0 ? "+" : "−"}{formatDa(Math.abs(row.delta))}</b>
+            <em>Solde {formatDa(row.balance)}</em>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1500,6 +1570,8 @@ function PartyDetailsModal({
     loading: true,
     error: "",
   });
+  const [balanceHistory, setBalanceHistory] = useState<{ rows: PartyBalanceHistoryRecord[]; loading: boolean; error: string }>({ rows: [], loading: true, error: "" });
+  const [balanceHistoryOpen, setBalanceHistoryOpen] = useState(false);
   const total = numberFromDa("billed" in party ? party.billed : party.purchases);
   const paid = numberFromDa(party.paid);
   const credit = numberFromDa(party.credit);
@@ -1523,6 +1595,21 @@ function PartyDetailsModal({
       active = false;
       controller.abort();
     };
+  }, [party.id, paymentVersion]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    fetch(`/api/parties?history=balance&party_id=${party.id}`, { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as { history?: PartyBalanceHistoryRecord[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "Impossible de charger l’historique du solde.");
+        if (active) setBalanceHistory({ rows: payload.history ?? [], loading: false, error: "" });
+      })
+      .catch((error: Error) => {
+        if (active && error.name !== "AbortError") setBalanceHistory({ rows: [], loading: false, error: error.message });
+      });
+    return () => { active = false; controller.abort(); };
   }, [party.id, paymentVersion]);
 
   return (
@@ -1557,7 +1644,8 @@ function PartyDetailsModal({
               <div><dt>Contact principal</dt><dd>{party.contactName || "—"}</dd></div>
               <div><dt>Téléphone</dt><dd>{party.contact || "—"}</dd></div>
               <div><dt>E-mail</dt><dd>{party.email === "E-mail non renseigné" ? "—" : party.email || "—"}</dd></div>
-              <div><dt>Catégorie</dt><dd>{party.category || "—"}</dd></div>
+              <div><dt>Catégorie</dt><dd>{kind === "client" && "clientCategory" in party ? party.clientCategory || "Standard" : party.category || "—"}</dd></div>
+              <div><dt>Statut contact</dt><dd><StatusBadge label={party.contactStatus || "Actif"} tone={party.contactStatus === "Actif" ? "green" : "blue"} /></dd></div>
               <div className="party-info-wide"><dt>Adresse</dt><dd>{party.address || "—"}</dd></div>
               <div><dt>Ville</dt><dd>{party.city || "—"}</dd></div>
               <div><dt>Siège social</dt><dd>{party.headOffice || "—"}</dd></div>
@@ -1570,7 +1658,15 @@ function PartyDetailsModal({
           </section>
 
           <section className="payment-history-card">
-            <div className="party-section-title"><Banknote size={17} /><div><h3>Historique des paiements</h3><p>{paymentRequest.rows.length} règlement{paymentRequest.rows.length === 1 ? "" : "s"} enregistré{paymentRequest.rows.length === 1 ? "" : "s"}</p></div></div>
+            <div className="party-section-title payment-history-heading">
+              <button className={`balance-history-toggle ${balanceHistoryOpen ? "active" : ""}`} type="button" onClick={() => setBalanceHistoryOpen((value) => !value)} title="Afficher le graphe du solde" aria-label="Afficher le graphe du solde"><BarChart3 size={18} /></button>
+              <Banknote size={17} /><div><h3>Historique des paiements</h3><p>{paymentRequest.rows.length} règlement{paymentRequest.rows.length === 1 ? "" : "s"} enregistré{paymentRequest.rows.length === 1 ? "" : "s"}</p></div>
+            </div>
+            {balanceHistoryOpen && (
+              balanceHistory.loading ? <p className="party-history-message">Chargement du solde…</p>
+                : balanceHistory.error ? <p className="party-history-message error">{balanceHistory.error}</p>
+                  : <PartyBalanceHistoryChart rows={balanceHistory.rows} />
+            )}
             <div className="payment-history-scroll" aria-live="polite">
               {paymentRequest.loading && <p className="party-history-message">Chargement de l’historique…</p>}
               {!paymentRequest.loading && paymentRequest.error && <p className="party-history-message error">{paymentRequest.error}</p>}
@@ -1598,7 +1694,26 @@ function PartyDetailsModal({
   );
 }
 
-function PartyEditorModal({ party, kind, onClose, onSaved }: { party: PartyRow; kind: "client" | "supplier"; onClose: () => void; onSaved: (party: ApiPartyRecord) => void }) {
+function ClientCategoryManagerModal({ categories, onClose, onChanged }: { categories: ClientCategoryRecord[]; onClose: () => void; onChanged: () => Promise<void> }) {
+  const [rows, setRows] = useState(categories.map((category) => ({ ...category })));
+  const [newName, setNewName] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const save = async (body: Record<string, unknown>, method: "POST" | "PATCH" | "DELETE") => {
+    setSaving(true); setError("");
+    try {
+      const response = await fetch("/api/client-categories", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const payload = await response.json() as { category?: ClientCategoryRecord; error?: string };
+      if (!response.ok || !payload.category) throw new Error(payload.error || "Impossible de modifier la catégorie.");
+      setRows((current) => method === "POST" ? [...current, payload.category as ClientCategoryRecord].sort((a, b) => a.name.localeCompare(b.name)) : method === "DELETE" ? current.filter((row) => row.id !== Number(body.id)) : current.map((row) => row.id === payload.category?.id ? payload.category as ClientCategoryRecord : row));
+      setNewName("");
+      await onChanged();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Impossible de modifier la catégorie."); } finally { setSaving(false); }
+  };
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal-card compact-modal client-category-manager" role="dialog" aria-modal="true" aria-labelledby="client-category-title" onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><h2 id="client-category-title">Catégories clients</h2><p>Créez les segments utilisés pour les prix d’achat par client.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div><div className="inline-create-row"><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Nouvelle catégorie" /><button type="button" className="primary-button" disabled={!newName.trim() || saving} onClick={() => void save({ name: newName.trim() }, "POST")}><Plus size={15} /> Ajouter</button></div><div className="client-category-list">{rows.map((row) => <div className="client-category-row" key={row.id}><input value={row.name} onChange={(event) => setRows((current) => current.map((item) => item.id === row.id ? { ...item, name: event.target.value } : item))} /><button type="button" className="secondary-button" disabled={saving || !row.name.trim()} onClick={() => void save({ id: row.id, name: row.name.trim() }, "PATCH")}><Save size={15} /> Enregistrer</button><button type="button" className="icon-button danger-text" disabled={saving} onClick={() => void save({ id: row.id }, "DELETE")} aria-label={`Supprimer ${row.name}`}><Trash2 size={16} /></button></div>)}</div>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Terminé</button></div></div></div>;
+}
+
+function PartyEditorModal({ party, kind, clientCategories = [], onClose, onSaved }: { party: PartyRow; kind: "client" | "supplier"; clientCategories?: ClientCategoryRecord[]; onClose: () => void; onSaved: (party: ApiPartyRecord) => void }) {
   const [name, setName] = useState(party.name);
   const [contact, setContact] = useState(party.contact === "—" ? "" : party.contact);
   const [contactName, setContactName] = useState(party.contactName || "");
@@ -1607,19 +1722,29 @@ function PartyEditorModal({ party, kind, onClose, onSaved }: { party: PartyRow; 
   const [address, setAddress] = useState(party.address || "");
   const [headOffice, setHeadOffice] = useState(party.headOffice || "");
   const [category, setCategory] = useState(party.category || "");
+  const [clientCategory, setClientCategory] = useState("clientCategory" in party ? party.clientCategory || "Standard" : "Standard");
+  const [availableClientCategories, setAvailableClientCategories] = useState(clientCategories);
   const [nif, setNif] = useState(party.nif || "");
   const [nis, setNis] = useState(party.nis || "");
   const [rc, setRc] = useState(party.rc || "");
   const [taxArticle, setTaxArticle] = useState(party.taxArticle || "");
   const [rib, setRib] = useState(party.rib || "");
   const [imageUrl, setImageUrl] = useState(party.imageUrl || "");
+  const [contactStatus, setContactStatus] = useState(party.contactStatus || "Actif");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const photoInput = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (availableClientCategories.length) return;
+    void fetch("/api/client-categories", { cache: "no-store" }).then(async (response) => {
+      const payload = await response.json() as { categories?: ClientCategoryRecord[] };
+      if (response.ok) setAvailableClientCategories(payload.categories ?? []);
+    }).catch(() => undefined);
+  }, [availableClientCategories.length]);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError("");
     try {
-      const response = await fetch("/api/parties", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: party.id, name, contact_phone: contact, contact_name: contactName, email, city, address, head_office: headOffice, category, nif, nis, rc, tax_article: taxArticle, rib, image_url: imageUrl }) });
+      const response = await fetch("/api/parties", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: party.id, name, contact_phone: contact, contact_name: contactName, email, city, address, head_office: headOffice, category, client_category: clientCategory, nif, nis, rc, tax_article: taxArticle, rib, image_url: imageUrl, contact_status: contactStatus }) });
       const payload = await response.json() as { party?: ApiPartyRecord; error?: string };
       if (!response.ok || !payload.party) throw new Error(payload.error || "Impossible de modifier le tiers.");
       onSaved(payload.party);
@@ -1628,8 +1753,8 @@ function PartyEditorModal({ party, kind, onClose, onSaved }: { party: PartyRow; 
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card expanded-modal party-editor-modal" role="dialog" aria-modal="true" aria-labelledby="party-edit-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
     <div className="modal-header"><div><h2 id="party-edit-title">Modifier {kind === "client" ? "le client" : "le fournisseur"}</h2><p>Coordonnées et informations fiscales complètes.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
     <div className="party-editor-sections">
-      <section><div className="form-section-label"><ContactRound size={15} /><span>Identité et contact</span></div><div className="entity-photo-upload"><EntityLogo name={name || party.name} tone={party.color} kind={kind} imageUrl={imageUrl} /><div><strong>Photo du {kind === "client" ? "client" : "fournisseur"}</strong><small>PNG, JPG ou WebP · 1,5 Mo maximum</small><span><button type="button" className="secondary-button" onClick={() => photoInput.current?.click()}><Upload size={15} /> Importer</button>{imageUrl && <button type="button" className="text-button danger-text" onClick={() => setImageUrl("")}>Supprimer</button>}</span></div><input ref={photoInput} className="hidden-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void readUploadedImage(file).then(setImageUrl).catch((reason: Error) => setError(reason.message)); }} /></div><div className="form-grid"><label className="field-label">Nom<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label className="field-label">Contact<input value={contactName} onChange={(event) => setContactName(event.target.value)} /></label><label className="field-label">Téléphone<input value={contact} onChange={(event) => setContact(event.target.value)} /></label><label className="field-label">E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label></div></section>
-      <section><div className="form-section-label"><MapPin size={15} /><span>Adresse et organisation</span></div><div className="form-grid"><label className="field-label">Adresse<input value={address} onChange={(event) => setAddress(event.target.value)} /></label><label className="field-label">Ville<input value={city} onChange={(event) => setCity(event.target.value)} /></label><label className="field-label">Siège social<input value={headOffice} onChange={(event) => setHeadOffice(event.target.value)} /></label><label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} /></label></div></section>
+      <section><div className="form-section-label"><ContactRound size={15} /><span>Identité et contact</span></div><div className="entity-photo-upload"><EntityLogo name={name || party.name} tone={party.color} kind={kind} imageUrl={imageUrl} /><div><strong>Photo du {kind === "client" ? "client" : "fournisseur"}</strong><small>PNG, JPG ou WebP · 1,5 Mo maximum</small><span><button type="button" className="secondary-button" onClick={() => photoInput.current?.click()}><Upload size={15} /> Importer</button>{imageUrl && <button type="button" className="text-button danger-text" onClick={() => setImageUrl("")}>Supprimer</button>}</span></div><input ref={photoInput} className="hidden-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void readUploadedImage(file).then(setImageUrl).catch((reason: Error) => setError(reason.message)); }} /></div><div className="form-grid"><label className="field-label">Nom<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label className="field-label">Statut contact<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Actif</option><option>Prospect</option><option>Inactif</option><option>Bloqué</option></select></label><label className="field-label">Contact<input value={contactName} onChange={(event) => setContactName(event.target.value)} /></label><label className="field-label">Téléphone<input value={contact} onChange={(event) => setContact(event.target.value)} /></label><label className="field-label">E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label></div></section>
+      <section><div className="form-section-label"><MapPin size={15} /><span>Adresse et organisation</span></div><div className="form-grid"><label className="field-label">Adresse<input value={address} onChange={(event) => setAddress(event.target.value)} /></label><label className="field-label">Ville<input value={city} onChange={(event) => setCity(event.target.value)} /></label><label className="field-label">Siège social<input value={headOffice} onChange={(event) => setHeadOffice(event.target.value)} /></label>{kind === "client" ? <label className="field-label">Catégorie client<select value={clientCategory} onChange={(event) => setClientCategory(event.target.value)}>{availableClientCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label> : <label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} /></label>}</div></section>
       <section><div className="form-section-label"><ReceiptText size={15} /><span>Informations fiscales</span></div><div className="form-grid form-grid-three"><label className="field-label">NIF<input value={nif} onChange={(event) => setNif(event.target.value)} /></label><label className="field-label">NIS<input value={nis} onChange={(event) => setNis(event.target.value)} /></label><label className="field-label">RC<input value={rc} onChange={(event) => setRc(event.target.value)} /></label><label className="field-label">N° article<input value={taxArticle} onChange={(event) => setTaxArticle(event.target.value)} /></label><label className="field-label">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} /></label></div></section>
     </div>
     {error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div>
@@ -1650,6 +1775,8 @@ function QuickPartyCreateModal({
   const [name, setName] = useState("");
   const [contactName, setContactName] = useState("");
   const [category, setCategory] = useState("");
+  const [clientCategory, setClientCategory] = useState("Standard");
+  const [clientPriceCategories, setClientPriceCategories] = useState<ClientCategoryRecord[]>([]);
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
@@ -1661,10 +1788,18 @@ function QuickPartyCreateModal({
   const [taxArticle, setTaxArticle] = useState("");
   const [rib, setRib] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [contactStatus, setContactStatus] = useState("Actif");
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const photoInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (kind !== "client") return;
+    void fetch("/api/client-categories", { cache: "no-store" }).then(async (response) => {
+      const payload = await response.json() as { categories?: ClientCategoryRecord[] };
+      if (response.ok) setClientPriceCategories(payload.categories ?? []);
+    }).catch(() => undefined);
+  }, [kind]);
   const label = kind === "client" ? "client" : "fournisseur";
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1681,12 +1816,14 @@ function QuickPartyCreateModal({
         city,
         head_office: headOffice,
         category,
+        client_category: kind === "client" ? clientCategory : undefined,
         nif,
         nis,
         rc,
         tax_article: taxArticle,
         rib,
         image_url: imageUrl,
+        contact_status: contactStatus,
       });
       onCreated(party);
     } catch (reason) {
@@ -1714,6 +1851,7 @@ function QuickPartyCreateModal({
                 <div className="form-grid">
                   <label className="field-label">Nom du contact<span className="input-with-icon"><ContactRound size={15} /><input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Nom et prénom" /></span></label>
                   <label className="field-label">E-mail<span className="input-with-icon"><Mail size={15} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="contact@entreprise.dz" /></span></label>
+                  <label className="field-label">Statut du contact<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Actif</option><option>Prospect</option><option>Inactif</option><option>Bloqué</option></select></label>
                 </div>
                 <div className="form-section-label"><MapPin size={15} /><span>Adresse et organisation</span></div>
                 <div className="form-grid">
@@ -1722,6 +1860,7 @@ function QuickPartyCreateModal({
                 </div>
                 {kind === "supplier" && <div className="form-grid"><label className="field-label">Siège social<span className="input-with-icon"><Building2 size={15} /><input value={headOffice} onChange={(event) => setHeadOffice(event.target.value)} placeholder="Ville, pays ou adresse du siège" /></span></label><label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Informatique, transport…" /></label></div>}
 
+                {kind === "client" && <label className="field-label">Catégorie client<select value={clientCategory} onChange={(event) => setClientCategory(event.target.value)}>{[...clientPriceCategories.map((item) => item.name), clientCategory].filter((name, index, values) => name && values.indexOf(name) === index).map((name) => <option key={name} value={name}>{name}</option>)}</select></label>}
                 <div className="form-section-label fiscal-label"><ReceiptText size={15} /><span>Informations fiscales</span><small>Facultatif</small></div>
                 <div className="form-grid quick-party-fiscal-grid">
                   <label className="field-label">NIF<input value={nif} onChange={(event) => setNif(event.target.value)} placeholder="N° fiscal" /></label>
@@ -1808,6 +1947,7 @@ function FinanceWorkspacePage({
   onEditEmployee,
   onRecordAttendance,
   onPaySalary,
+  onEditSalaryPayment,
 }: {
   entries: FinanceEntry[];
   parties: PartyRow[];
@@ -1830,6 +1970,7 @@ function FinanceWorkspacePage({
   onEditEmployee: (employee: EmployeeRecord) => void;
   onRecordAttendance: (employee: EmployeeRecord) => void;
   onPaySalary: (employee: EmployeeRecord) => void;
+  onEditSalaryPayment: (employee: EmployeeRecord, payment: SalaryPaymentRecord) => void;
 }) {
   const [section, setSection] = useState<"overview" | "charges" | "settlements" | "treasury" | "employees">("overview");
   const filtered = entries.filter((entry) => `${entry.label} ${entry.category} ${entry.kind} ${entry.note}`.toLowerCase().includes(search.toLowerCase()));
@@ -1958,7 +2099,7 @@ function FinanceWorkspacePage({
                     <td>{employee.job_title || "—"}</td>
                     <td className="number"><strong>{formatDa(employee.base_salary)}</strong></td>
                     <td><span className="attendance-pill"><ClipboardList size={14} /> {presentDays} présent{presentDays === 1 ? "" : "s"}</span></td>
-                    <td>{lastPayment ? <div className="salary-last-payment"><strong>{formatDa(lastPayment.amount)}</strong><small>{formatDocumentDate(lastPayment.payment_date)}</small></div> : <span className="muted-cell">Non payé</span>}</td>
+                    <td>{lastPayment ? <div className="salary-last-payment"><span><strong>{formatDa(lastPayment.amount)}</strong><small>{formatDocumentDate(lastPayment.payment_date)}</small></span><button type="button" className="icon-button salary-edit-button" onClick={() => onEditSalaryPayment(employee, lastPayment)} aria-label={`Modifier le paiement de ${employee.name}`} title="Modifier ce paiement"><Pencil size={14} /></button></div> : <span className="muted-cell">Non payé</span>}</td>
                     <td><StatusBadge label={employee.status} tone={employee.status === "Actif" ? "green" : "gray"} /></td>
                     <td><div className="employee-row-actions"><button type="button" className="secondary-button" onClick={() => onRecordAttendance(employee)}><ClipboardList size={15} /> Pointage</button><button type="button" className="cash-action" onClick={() => onPaySalary(employee)} disabled={employee.status !== "Actif"}><Banknote size={15} /> Payer</button><button type="button" className="icon-button" onClick={() => onEditEmployee(employee)} aria-label={`Modifier ${employee.name}`}><Pencil size={15} /></button></div></td>
                   </tr>;
@@ -2044,35 +2185,51 @@ function AttendanceFormModal({ employee, onClose, onSaved }: { employee: Employe
   </form></div>;
 }
 
-function SalaryPaymentModal({ employee, onClose, onSaved }: { employee: EmployeeRecord; onClose: () => void; onSaved: (payment: SalaryPaymentRecord) => void }) {
-  const [payrollMonth, setPayrollMonth] = useState(new Date().toISOString().slice(0, 7));
-  const [baseAmount, setBaseAmount] = useState(employee.base_salary);
-  const [bonus, setBonus] = useState(0);
-  const [deduction, setDeduction] = useState(0);
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
-  const [method, setMethod] = useState("Virement");
-  const [note, setNote] = useState("");
+function SalaryPaymentModal({ employee, payment, onClose, onSaved }: { employee: EmployeeRecord; payment?: SalaryPaymentRecord; onClose: () => void; onSaved: (payment: SalaryPaymentRecord) => void }) {
+  const [payrollMonth, setPayrollMonth] = useState(payment?.payroll_month ?? new Date().toISOString().slice(0, 7));
+  const [baseAmount, setBaseAmount] = useState(payment?.base_amount ?? employee.base_salary);
+  const [bonus, setBonus] = useState(payment?.bonus ?? 0);
+  const [deduction, setDeduction] = useState(payment?.deduction ?? 0);
+  const [paymentDate, setPaymentDate] = useState(payment?.payment_date ?? new Date().toISOString().slice(0, 10));
+  const [method, setMethod] = useState(payment?.method ?? "Virement");
+  const [note, setNote] = useState(payment?.note ?? "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const netSalary = Math.max(0, baseAmount + bonus - deduction);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError("");
     try {
-      const response = await fetch("/api/employees", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "pay_salary", employeeId: employee.id, payrollMonth, baseAmount, bonus, deduction, paymentDate, method, note }) });
+      const response = await fetch("/api/employees", { method: payment ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: payment ? "update_salary" : "pay_salary", ...(payment ? { id: payment.id } : {}), employeeId: employee.id, payrollMonth, baseAmount, bonus, deduction, paymentDate, method, note }) });
       const payload = await response.json() as { payment?: SalaryPaymentRecord; error?: string };
       if (!response.ok || !payload.payment) throw new Error(payload.error || "Impossible de payer le salaire.");
       onSaved(payload.payment);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Impossible de payer le salaire."); } finally { setSaving(false); }
   };
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card compact-modal salary-payment-modal" role="dialog" aria-modal="true" aria-labelledby="salary-payment-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
-    <div className="modal-header"><div><h2 id="salary-payment-title">Payer {employee.name}</h2><p>Le paiement créera automatiquement une charge « Salaires » et une sortie de trésorerie.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+    <div className="modal-header"><div><h2 id="salary-payment-title">{payment ? "Modifier le paiement" : "Payer"} · {employee.name}</h2><p>{payment ? "La charge et la sortie de trésorerie liées seront corrigées automatiquement." : "Le paiement créera automatiquement une charge « Salaires » et une sortie de trésorerie."}</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
     <div className="form-grid"><label className="field-label">Mois de paie<input type="month" value={payrollMonth} onChange={(event) => setPayrollMonth(event.target.value)} required /></label><label className="field-label">Date de paiement<input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} required /></label></div>
     <div className="salary-calculation-grid"><label className="field-label">Salaire de base<input type="number" min="0" step="0.01" value={baseAmount || ""} onChange={(event) => setBaseAmount(Number(event.target.value))} required /></label><label className="field-label">Prime<input type="number" min="0" step="0.01" value={bonus || ""} onChange={(event) => setBonus(Number(event.target.value))} /></label><label className="field-label">Retenue<input type="number" min="0" step="0.01" value={deduction || ""} onChange={(event) => setDeduction(Number(event.target.value))} /></label></div>
     <div className="salary-net-card"><span>Net à payer</span><strong>{formatDa(netSalary)}</strong><small>Déduit de la trésorerie après validation</small></div>
     <label className="field-label">Mode<select value={method} onChange={(event) => setMethod(event.target.value)}><option>Virement</option><option>Espèces</option><option>Chèque</option></select></label><label className="field-label">Note<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Facultatif" /></label>
-    {error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving || netSalary <= 0}><Banknote size={16} />{saving ? "Paiement…" : `Payer ${formatDa(netSalary)}`}</button></div>
+    {error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving || netSalary <= 0}><Banknote size={16} />{saving ? "Enregistrement…" : payment ? `Mettre à jour ${formatDa(netSalary)}` : `Payer ${formatDa(netSalary)}`}</button></div>
   </form></div>;
 }
+
+const FINANCE_CHARGE_CATEGORIES = [
+  "Achats & approvisionnement",
+  "Loyer & charges locatives",
+  "Électricité, gaz & eau",
+  "Téléphone & Internet",
+  "Transport & carburant",
+  "Salaires & cotisations",
+  "Impôts & taxes",
+  "Banque & assurances",
+  "Maintenance & réparation",
+  "Marketing & publicité",
+  "Fournitures de bureau",
+  "Honoraires",
+  "Autres charges",
+] as const;
 
 function FinanceEntryFormModal({ entry, onClose, onSaved }: { entry: FinanceEntry | null; onClose: () => void; onSaved: (entry: FinanceEntry) => void }) {
   const [kind, setKind] = useState<FinanceEntry["kind"]>(entry?.kind ?? "expense");
@@ -2093,7 +2250,7 @@ function FinanceEntryFormModal({ entry, onClose, onSaved }: { entry: FinanceEntr
       onSaved(payload.entry);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Impossible d’enregistrer la charge."); } finally { setSaving(false); }
   };
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card compact-modal finance-form-modal" role="dialog" aria-modal="true" aria-labelledby="finance-form-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}><div className="modal-header"><div><h2 id="finance-form-title">{entry ? "Modifier la charge" : "Nouvelle charge"}</h2><p>Cette opération sera intégrée automatiquement à la trésorerie.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div><label className="field-label">Type<select value={kind} onChange={(event) => setKind(event.target.value as FinanceEntry["kind"])}><option value="expense">Dépense</option><option value="charge">Charge</option></select></label><label className="field-label">Libellé<input value={label} onChange={(event) => setLabel(event.target.value)} required placeholder="Loyer, transport, publicité…" /></label><div className="form-grid"><label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Exploitation" /></label><label className="field-label">Montant (DA)<input type="number" min="0.01" step="0.01" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value))} required /></label></div><div className="form-grid"><label className="field-label">Date<input type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} required /></label><label className="field-label">Statut<select value={status} onChange={(event) => setStatus(event.target.value)}><option>Payée</option><option>À payer</option><option>Prévue</option></select></label></div><label className="field-label">Note (facultatif)<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div></form></div>;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card compact-modal finance-form-modal" role="dialog" aria-modal="true" aria-labelledby="finance-form-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}><div className="modal-header"><div><h2 id="finance-form-title">{entry ? "Modifier la charge" : "Nouvelle charge"}</h2><p>Cette opération sera intégrée automatiquement à la trésorerie.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div><label className="field-label">Type<select value={kind} onChange={(event) => setKind(event.target.value as FinanceEntry["kind"])}><option value="expense">Dépense</option><option value="charge">Charge</option></select></label><label className="field-label">Libellé<input value={label} onChange={(event) => setLabel(event.target.value)} required placeholder="Loyer, transport, publicité…" /></label><div className="form-grid"><label className="field-label">Catégorie<select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="" disabled>Choisir une catégorie</option>{entry?.category && !FINANCE_CHARGE_CATEGORIES.includes(entry.category as typeof FINANCE_CHARGE_CATEGORIES[number]) && <option>{entry.category}</option>}{FINANCE_CHARGE_CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select></label><label className="field-label">Montant (DA)<input type="number" min="0.01" step="0.01" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value))} required /></label></div><div className="form-grid"><label className="field-label">Date<input type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} required /></label><label className="field-label">Statut<select value={status} onChange={(event) => setStatus(event.target.value)}><option>Payée</option><option>À payer</option><option>Prévue</option></select></label></div><label className="field-label">Note (facultatif)<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div></form></div>;
 }
 
 function FinanceEntryDetailsModal({ entry, onClose }: { entry: FinanceEntry; onClose: () => void }) {
@@ -2517,7 +2674,7 @@ function ArticlesTable({
                 <div className="article-card-title"><span className="sku-code">{article.sku}</span><h2>{article.name}</h2></div>
                 <p>{article.description || "Description non renseignée."}</p>
                 <div className="article-hierarchy"><span>{article.category || "Sans catégorie"}</span>{article.subcategory && <><i>›</i><span>{article.subcategory}</span></>}{article.subsubcategory && <><i>›</i><span>{article.subsubcategory}</span></>}</div>
-                <div className="article-card-prices"><div><small>Prix achat</small><strong>{money(article.purchase_price)}</strong></div><div><small>Prix vente</small><strong>{money(article.sale_price)}</strong></div></div>
+                <div className="article-card-prices"><div><small>Prix achat</small><strong>{money(article.purchase_price)}</strong></div><div><small>Prix vente · {article.sale_prices?.length || 1} tarif{(article.sale_prices?.length || 1) === 1 ? "" : "s"}</small><strong>{money(article.sale_price)}</strong></div></div>
               </div>
               <footer><span className={`stock-value ${article.stock <= 10 ? "low" : ""}`}>{article.stock} {article.unit || "unité"}{article.stock > 1 && article.unit === "unité" ? "s" : ""}</span><button type="button" className="secondary-button" onClick={() => onEdit(article)}><Pencil size={14} /> Organiser</button></footer>
             </article>
@@ -2527,7 +2684,7 @@ function ArticlesTable({
       )}
       {!loading && !request.error && viewMode === "list" && (
         <div className="table-scroll"><table><thead><tr><th>Article</th><th>Catégorisation</th><th>Unité</th><th>Prix d’achat</th><th>Prix de vente</th><th>Stock</th><th>Statut</th><th /></tr></thead><tbody>
-          {filtered.map((article) => <tr key={article.id}><td><div className="identity-cell"><ProductVisual article={article} className="table-product-visual" /><div><strong>{article.name}</strong><small>{article.description || article.brand}</small></div></div></td><td><div className="article-hierarchy"><span>{article.category || "Sans catégorie"}</span>{article.subcategory && <><i>›</i><span>{article.subcategory}</span></>}{article.subsubcategory && <><i>›</i><span>{article.subsubcategory}</span></>}</div></td><td><span className="soft-label">{article.unit || "unité"}</span></td><td className="number">{money(article.purchase_price)}</td><td className="number">{money(article.sale_price)}</td><td><span className={`stock-value ${article.stock <= 10 ? "low" : ""}`}>{article.stock}</span></td><td><StatusBadge label={article.status} tone={article.stock <= 10 ? "orange" : "green"} /></td><td><RowActions label={article.name} notify={notify} onEdit={() => onEdit(article)} onDelete={() => void deleteArticle(article)} /></td></tr>)}
+          {filtered.map((article) => <tr key={article.id}><td><div className="identity-cell"><ProductVisual article={article} className="table-product-visual" /><div><strong>{article.name}</strong><small>{article.description || article.brand}</small></div></div></td><td><div className="article-hierarchy"><span>{article.category || "Sans catégorie"}</span>{article.subcategory && <><i>›</i><span>{article.subcategory}</span></>}{article.subsubcategory && <><i>›</i><span>{article.subsubcategory}</span></>}</div></td><td><span className="soft-label">{article.unit || "unité"}</span></td><td className="number">{money(article.purchase_price)}</td><td className="number"><strong>{money(article.sale_price)}</strong><small>{article.sale_prices?.length || 1} tarif{(article.sale_prices?.length || 1) === 1 ? "" : "s"}</small></td><td><span className={`stock-value ${article.stock <= 10 ? "low" : ""}`}>{article.stock}</span></td><td><StatusBadge label={article.status} tone={article.stock <= 10 ? "orange" : "green"} /></td><td><RowActions label={article.name} notify={notify} onEdit={() => onEdit(article)} onDelete={() => void deleteArticle(article)} /></td></tr>)}
           {!filtered.length && <EmptyRow columns={8} />}
         </tbody></table></div>
       )}
@@ -2827,19 +2984,39 @@ function Dashboard({
   purchases,
   sales,
   clients,
+  suppliers,
 }: {
   onViewSales: () => void;
   purchases: DocumentRecord[];
   sales: DocumentRecord[];
   clients: ClientRecord[];
+  suppliers: SupplierRecord[];
 }) {
+  const [period, setPeriod] = useState<"day" | "week" | "month" | "all">("day");
   const [productDirection, setProductDirection] = useState<"sales" | "purchases">("purchases");
   const [partyDirection, setPartyDirection] = useState<"clients" | "suppliers">("clients");
+  const now = new Date();
+  const localIsoDate = (date: Date) => {
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+    return local.toISOString().slice(0, 10);
+  };
+  const today = localIsoDate(now);
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+  const periodIncludes = (row: DocumentRecord) => {
+    const date = row.rawDate || "";
+    if (period === "all") return true;
+    if (period === "day") return date === today;
+    if (period === "month") return date.startsWith(today.slice(0, 7));
+    return date >= localIsoDate(weekStart) && date <= today;
+  };
+  const filteredSales = sales.filter(periodIncludes);
+  const filteredPurchases = purchases.filter(periodIncludes);
   const activities = [
-    ...sales.map((row) => ({ ...row, workspace: "Ventes" })),
-    ...purchases.map((row) => ({ ...row, workspace: "Achats" })),
+    ...filteredSales.map((row) => ({ ...row, workspace: "Ventes" })),
+    ...filteredPurchases.map((row) => ({ ...row, workspace: "Achats" })),
   ].slice(0, 2);
-  const productDocuments = productDirection === "sales" ? sales : purchases;
+  const productDocuments = productDirection === "sales" ? filteredSales : filteredPurchases;
   const amountOf = (row: DocumentRecord) => {
     const quantity = Math.max(Number(row.quantity) || 0, 0);
     const unitPrice = Math.max(Number(row.unitPrice) || 0, 0);
@@ -2875,7 +3052,7 @@ function Dashboard({
   const productDonutBackground = productDonutSegments.length
     ? `conic-gradient(${productDonutSegments.join(", ")})`
     : "conic-gradient(#eef2ff 0 100%)";
-  const partyDocuments = partyDirection === "clients" ? sales : purchases;
+  const partyDocuments = partyDirection === "clients" ? filteredSales : filteredPurchases;
   const partyTotals = new Map<string, number>();
   partyDocuments.forEach((row) => {
     partyTotals.set(row.party, (partyTotals.get(row.party) ?? 0) + amountOf(row));
@@ -2884,19 +3061,26 @@ function Dashboard({
     .sort((first, second) => second.value - first.value)
     .slice(0, 5);
   const maximumPartyAmount = Math.max(...partyRanking.map(({ value }) => value), 1);
-  const invoicedSales = sales.filter((row) => row.type === "Facture");
-  const recordedPurchases = purchases.filter((row) => row.type === "Facture" || row.type === "Bon de réception");
+  const invoicedSales = filteredSales.filter((row) => row.type === "Facture");
+  const recordedPurchases = filteredPurchases.filter((row) => row.type === "Facture" || row.type === "Bon de réception");
+  const activeClients = new Set(filteredSales.map((row) => row.party)).size;
+  const activeSuppliers = new Set(filteredPurchases.map((row) => row.party)).size;
   const dashboardKpis: { value: string; label: string; trend: string; tone: string; icon: LucideIcon; direction: "up" | "down" }[] = [
     { value: formatDa(invoicedSales.reduce((sum, row) => sum + Math.abs(row.total ?? amountOf(row)), 0)), label: "Chiffre d'Affaires", trend: `${invoicedSales.length} facture${invoicedSales.length === 1 ? "" : "s"}`, tone: "primary", icon: WalletCards, direction: "up" },
-    { value: String(sales.length), label: "Documents de vente", trend: "Base locale", tone: "success", icon: ShoppingBasket, direction: "up" },
-    { value: String(clients.length), label: "Clients", trend: "Répertoire actuel", tone: "warning", icon: Users, direction: "up" },
+    { value: String(filteredSales.length), label: "Documents de vente", trend: "Sur la période", tone: "success", icon: ShoppingBasket, direction: "up" },
+    { value: String(clients.length), label: "Clients", trend: `${activeClients} actif${activeClients === 1 ? "" : "s"}`, tone: "warning", icon: Users, direction: "up" },
+    { value: String(suppliers.length), label: "Fournisseurs", trend: `${activeSuppliers} actif${activeSuppliers === 1 ? "" : "s"}`, tone: "info", icon: Truck, direction: "up" },
     { value: formatDa(recordedPurchases.reduce((sum, row) => sum + Math.abs(row.total ?? amountOf(row)), 0)), label: "Achats enregistrés", trend: `${recordedPurchases.length} document${recordedPurchases.length === 1 ? "" : "s"}`, tone: "danger", icon: BarChart3, direction: "up" },
   ];
   return (
     <div className="dashboard">
       <div className="dashboard-heading">
         <div><h1>Vue d’ensemble</h1><p>Les chiffres essentiels de votre activité.</p></div>
-        <StatusBadge label="Données enregistrées" tone="blue" />
+        <div className="dashboard-period" aria-label="Période du tableau de bord">
+          {([['day', 'Jour'], ['week', 'Semaine'], ['month', 'Mois'], ['all', 'Total']] as const).map(([value, label]) => (
+            <button key={value} className={period === value ? "active" : ""} onClick={() => setPeriod(value)} aria-pressed={period === value}>{label}</button>
+          ))}
+        </div>
       </div>
       <div className="dashboard-kpis" aria-label="Indicateurs commerciaux">
         {dashboardKpis.map(({ value, label, trend, tone, icon: Icon, direction }) => (
@@ -2984,6 +3168,7 @@ function SettingsPage({
   const [rib, setRib] = useState(company.rib);
   const [bank, setBank] = useState(company.bank);
   const [address, setAddress] = useState(company.address);
+  const [city, setCity] = useState(company.city);
   const [phone, setPhone] = useState(company.phone);
   const logoInput = useRef<HTMLInputElement | null>(null);
   const previewCompany = {
@@ -2998,6 +3183,7 @@ function SettingsPage({
     rib,
     bank,
     address,
+    city,
     phone,
   };
 
@@ -3037,7 +3223,7 @@ function SettingsPage({
           className="settings-form"
           onSubmit={(event) => {
             event.preventDefault();
-            const saved = onSave({ name, logoDataUrl, defaultTaxRate: Number(defaultTaxRate), activityLine1, activityLine2, rc, taxArticle, nif, rib, bank, address, phone });
+            const saved = onSave({ name, logoDataUrl, defaultTaxRate: Number(defaultTaxRate), activityLine1, activityLine2, rc, taxArticle, nif, rib, bank, address, city, phone });
             notify(saved ? "Identité de l’entreprise enregistrée" : "Impossible d’enregistrer sur cet appareil");
           }}
         >
@@ -3077,6 +3263,9 @@ function SettingsPage({
           </div>
           <div className="form-grid">
             <label className="field-label">Adresse<input value={address} onChange={(event) => setAddress(event.target.value)} /></label>
+            <label className="field-label">Ville d’impression<input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Béjaïa" /></label>
+          </div>
+          <div className="form-grid">
             <label className="field-label">Téléphone(s)<input value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
           </div>
 
@@ -3140,6 +3329,7 @@ function SettingsPage({
                 setRib(DEFAULT_COMPANY.rib);
                 setBank(DEFAULT_COMPANY.bank);
                 setAddress(DEFAULT_COMPANY.address);
+                setCity(DEFAULT_COMPANY.city);
                 setPhone(DEFAULT_COMPANY.phone);
                 notify("Valeurs par défaut restaurées dans le formulaire");
               }}
@@ -3548,6 +3738,25 @@ function SimpleDocumentEditor({
   const [submitError, setSubmitError] = useState("");
   const selectedParty = parties.find((party) => party.id === selectedPartyId)
     ?? (createdParty?.id === selectedPartyId ? createdParty : null);
+  const selectedDraftArticle = selectedArticleId ? articleRequest.rows.find((row) => row.id === selectedArticleId) : null;
+  const categoryPriceForParty = (article: ArticleRecord | null | undefined, party: PartyRow | null) => {
+    if (!article || initialTarget !== "sales" || !party || !("clientCategory" in party)) return undefined;
+    const category = party.clientCategory || "Standard";
+    return article.purchase_prices?.find((price) => normalizeLabel(price.client_category) === normalizeLabel(category))?.purchase_price;
+  };
+  const priceForParty = (article: ArticleRecord, party: PartyRow | null) => {
+    if (initialTarget === "purchases") return article.purchase_price;
+    return categoryPriceForParty(article, party) ?? article.sale_price;
+  };
+
+  const refreshPricesForParty = (party: PartyRow | null) => {
+    if (initialTarget !== "sales" || !party) return;
+    setDraftUnitPrice(selectedDraftArticle ? String(priceForParty(selectedDraftArticle, party)) : "1");
+    setLines((rows) => rows.map((line) => {
+      const article = line.articleId ? articleRequest.rows.find((row) => row.id === line.articleId) : null;
+      return article ? { ...line, unitPrice: priceForParty(article, party) } : line;
+    }));
+  };
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -3590,7 +3799,7 @@ function SimpleDocumentEditor({
     setArticleQuery(query);
     setSelectedArticleId(article?.id ?? null);
     if (article) {
-      setDraftUnitPrice(String(initialTarget === "purchases" ? article.purchase_price : article.sale_price));
+      setDraftUnitPrice(String(priceForParty(article, selectedParty)));
       setDraftQuantity((current) => current.trim() === "" ? "1" : current);
     }
     setSubmitError("");
@@ -3751,6 +3960,7 @@ function SimpleDocumentEditor({
                       setPartyQuery(query);
                       const party = parties.find((row) => normalizeLabel(row.name) === normalizeLabel(query.trim()));
                       setSelectedPartyId(party?.id ?? null);
+                      refreshPricesForParty(party ?? null);
                     }}
                     placeholder={`Rechercher un ${initialTarget === "purchases" ? "fournisseur" : "client"}`}
                   />
@@ -3773,7 +3983,10 @@ function SimpleDocumentEditor({
               </label>
               <label className="document-command-number">
                 <span>Prix unitaire</span>
-                <input type="number" min="0" step="0.01" value={draftUnitPrice} onChange={(event) => setDraftUnitPrice(event.target.value)} placeholder="0" aria-label="Prix unitaire de la ligne à ajouter" />
+                <div className="document-price-picker">
+                  <input type="number" min="0" step="0.01" value={draftUnitPrice} onChange={(event) => setDraftUnitPrice(event.target.value)} placeholder="0" aria-label="Prix unitaire de la ligne à ajouter" />
+                  {initialTarget === "sales" && categoryPriceForParty(selectedDraftArticle, selectedParty) === undefined && (selectedDraftArticle?.sale_prices?.length ?? 0) > 1 && <select value={draftUnitPrice} onChange={(event) => setDraftUnitPrice(event.target.value)} aria-label="Choisir un tarif de vente">{selectedDraftArticle?.sale_prices.map((price) => <option key={`${price.label}-${price.sale_price}`} value={String(price.sale_price)}>{price.label}</option>)}</select>}
+                </div>
               </label>
               <label className="document-date-field">
                 <span>Date</span>
@@ -3837,6 +4050,7 @@ function SimpleDocumentEditor({
           setCreatedParty(row);
           setSelectedPartyId(row.id);
           setPartyQuery(row.name);
+          refreshPricesForParty(row);
           setQuickPartyOpen(false);
         }}
       />}
@@ -3865,6 +4079,7 @@ function CreateModal({
   const [supplierDetailsOpen, setSupplierDetailsOpen] = useState(false);
   const [contactName, setContactName] = useState("");
   const [category, setCategory] = useState("");
+  const [clientCategory, setClientCategory] = useState("Standard");
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
@@ -3875,6 +4090,7 @@ function CreateModal({
   const [taxArticle, setTaxArticle] = useState("");
   const [rib, setRib] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [contactStatus, setContactStatus] = useState("Actif");
   const [articleQuery, setArticleQuery] = useState("");
   const [selectedArticle, setSelectedArticle] = useState<ArticleRecord | null>(null);
   const [quantity, setQuantity] = useState(1);
@@ -3972,6 +4188,7 @@ function CreateModal({
               documentType,
               contactName,
               category,
+              clientCategory,
               email,
               address,
               city,
@@ -3982,6 +4199,7 @@ function CreateModal({
               taxArticle,
               rib,
               imageUrl,
+              contactStatus,
               articleName: selectedArticle?.name,
               articleId: selectedArticle?.id,
               articleDescription: selectedArticle?.description,
@@ -4128,9 +4346,10 @@ function CreateModal({
           </>
         )}
         {!isDocument && (
-          <label className="field-label">Téléphone
-            <input inputMode="tel" value={detail} onChange={(event) => setDetail(event.target.value)} placeholder="0550 00 00 00" />
-          </label>
+          <div className="form-grid">
+            <label className="field-label">Téléphone<input inputMode="tel" value={detail} onChange={(event) => setDetail(event.target.value)} placeholder="0550 00 00 00" /></label>
+            <label className="field-label">Statut du contact<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Actif</option><option>Prospect</option><option>Inactif</option><option>Bloqué</option></select></label>
+          </div>
         )}
         {isClient && (
           <section className={`expandable-form-section ${clientDetailsOpen ? "open" : ""}`}>
@@ -4148,6 +4367,7 @@ function CreateModal({
                   <label className="field-label">E-mail
                     <span className="input-with-icon"><Mail size={15} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="contact@entreprise.dz" /></span>
                   </label>
+                  <label className="field-label">Catégorie client<select value={clientCategory} onChange={(event) => setClientCategory(event.target.value)}><option>Standard</option><option>Revendeur</option><option>Grossiste</option></select></label>
                 </div>
                 <div className="form-grid">
                   <label className="field-label">Adresse
@@ -4246,11 +4466,22 @@ function ArticleFormModal({
   const [subcategory, setSubcategory] = useState(article?.subcategory ?? "");
   const [subsubcategory, setSubsubcategory] = useState(article?.subsubcategory ?? "");
   const [categoryTree, setCategoryTree] = useState<CategoryTree[]>([]);
+  const [clientPriceCategories, setClientPriceCategories] = useState<ClientCategoryRecord[]>([]);
   const [description, setDescription] = useState(article?.description ?? "");
   const [unit, setUnit] = useState(article?.unit ?? "unité");
   const [imageUrl, setImageUrl] = useState(article?.image_url ?? "");
   const [purchasePrice, setPurchasePrice] = useState(article?.purchase_price ?? 0);
-  const [salePrice, setSalePrice] = useState(article?.sale_price ?? 0);
+  const [purchasePrices, setPurchasePrices] = useState(() => {
+    if (article?.purchase_prices?.length) return article.purchase_prices.map((price, index) => ({ key: `saved-purchase-${index}`, clientCategory: price.client_category, purchasePrice: price.purchase_price }));
+    return [{ key: "default-purchase", clientCategory: "Standard", purchasePrice: article?.purchase_price ?? 0 }];
+  });
+  const [salePrices, setSalePrices] = useState(() => {
+    if (article?.sale_prices?.length) return article.sale_prices.map((price, index) => ({ key: `saved-${index}`, label: price.label, marginPercent: price.margin_percent }));
+    const marginPercent = article?.purchase_price
+      ? Math.round((((article.sale_price - article.purchase_price) / article.purchase_price) * 100) * 100) / 100
+      : 0;
+    return [{ key: "default", label: "Prix détail", marginPercent }];
+  });
   const [stock, setStock] = useState(article?.stock ?? 0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -4270,12 +4501,28 @@ function ArticleFormModal({
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    void fetch("/api/client-categories", { cache: "no-store" }).then(async (response) => {
+      const payload = await response.json() as { categories?: ClientCategoryRecord[] };
+      if (response.ok) setClientPriceCategories(payload.categories ?? []);
+    }).catch(() => undefined);
+  }, []);
+
   const normalizedCategory = category.trim().toLocaleLowerCase("fr");
   const selectedCategory = categoryTree.find((item) => item.name.toLocaleLowerCase("fr") === normalizedCategory);
   const subcategoryOptions = selectedCategory?.subcategories ?? [];
   const normalizedSubcategory = subcategory.trim().toLocaleLowerCase("fr");
   const selectedSubcategory = subcategoryOptions.find((item) => item.name.toLocaleLowerCase("fr") === normalizedSubcategory);
   const thirdLevelOptions = selectedSubcategory?.subcategories ?? [];
+  const computedSalePrices = salePrices.map((price) => ({
+    label: price.label.trim() || "Prix de vente",
+    margin_percent: Number(price.marginPercent) || 0,
+    sale_price: Math.round(Math.max(0, purchasePrice * (1 + (Number(price.marginPercent) || 0) / 100)) * 100) / 100,
+  }));
+  const computedPurchasePrices = purchasePrices.map((price) => ({
+    client_category: price.clientCategory.trim() || "Standard",
+    purchase_price: Math.max(0, Number(price.purchasePrice) || 0),
+  }));
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -4298,7 +4545,9 @@ function ArticleFormModal({
           unit,
           image_url: imageUrl,
           purchase_price: Number(purchasePrice),
-          sale_price: Number(salePrice),
+          purchase_prices: computedPurchasePrices,
+          sale_price: computedSalePrices[0]?.sale_price ?? 0,
+          sale_prices: computedSalePrices,
           stock: Number(stock),
         }),
       });
@@ -4343,11 +4592,35 @@ function ArticleFormModal({
           <p className="category-editor-hint"><Plus size={13} />Les 3 familles sont libres : choisissez une valeur existante, ajoutez-en une nouvelle ou renommez-la directement sur cet article.</p>
         </section>
         <label className="field-label">Description complète<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description affichée sur les commandes lorsque l’option est activée." rows={3} /></label>
-        <div className="form-grid form-grid-three">
+        <div className="form-grid">
           <label className="field-label">Prix d’achat<input type="number" min="0" step="0.01" value={purchasePrice} onChange={(event) => setPurchasePrice(Number(event.target.value))} /></label>
-          <label className="field-label">Prix de vente<input type="number" min="0" step="0.01" value={salePrice} onChange={(event) => setSalePrice(Number(event.target.value))} /></label>
           <label className="field-label">Stock initial / actuel<input type="number" min="0" step="0.01" value={stock} onChange={(event) => setStock(Number(event.target.value))} /></label>
         </div>
+        <section className="article-price-tiers">
+          <div className="article-price-heading"><div><span>Prix achat par categorie client</span><small>Associez un prix a chaque segment client configure dans Clients.</small></div><button type="button" className="secondary-button" onClick={() => setPurchasePrices((rows) => [...rows, { key: `purchase-${Date.now()}`, clientCategory: "Standard", purchasePrice: Number(purchasePrice) || 0 }])} disabled={purchasePrices.length >= 24}><Plus size={15} /> Ajouter un prix</button></div>
+          <div className="article-price-list">
+            {purchasePrices.map((price) => (
+              <div className="article-price-row" key={price.key}>
+                <label className="field-label">Categorie client<select value={price.clientCategory} onChange={(event) => setPurchasePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, clientCategory: event.target.value } : row))} required>{[...clientPriceCategories.map((item) => item.name), price.clientCategory].filter((name, index, values) => name && values.indexOf(name) === index).map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+                <label className="field-label">Prix achat (DA)<input type="number" min="0" step="0.01" value={price.purchasePrice} onChange={(event) => setPurchasePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, purchasePrice: Number(event.target.value) } : row))} /></label>
+                <button type="button" className="icon-button danger-text" onClick={() => setPurchasePrices((rows) => rows.filter((row) => row.key !== price.key))} disabled={purchasePrices.length === 1} aria-label="Supprimer ce prix"><Trash2 size={16} /></button>
+              </div>
+            ))}
+          </div>
+        </section>
+        <section className="article-price-tiers">
+          <div className="article-price-heading"><div><span>Tarifs de vente</span><small>Saisissez uniquement la marge : le prix est calculé depuis le prix d’achat.</small></div><button type="button" className="secondary-button" onClick={() => setSalePrices((rows) => [...rows, { key: `price-${Date.now()}`, label: `Tarif ${rows.length + 1}`, marginPercent: 0 }])} disabled={salePrices.length >= 12}><Plus size={15} /> Ajouter un prix</button></div>
+          <div className="article-price-list">
+            {salePrices.map((price, index) => (
+              <div className="article-price-row" key={price.key}>
+                <label className="field-label">Nom du tarif<input value={price.label} onChange={(event) => setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, label: event.target.value } : row))} placeholder="Détail, gros, revendeur…" required /></label>
+                <label className="field-label">Marge (%)<input type="number" min="-100" step="0.01" value={price.marginPercent} onChange={(event) => setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, marginPercent: Number(event.target.value) } : row))} /></label>
+                <div className="calculated-sale-price"><small>Prix calculé</small><strong>{formatDa(computedSalePrices[index]?.sale_price ?? 0)}</strong></div>
+                <button type="button" className="icon-button danger-text" onClick={() => setSalePrices((rows) => rows.filter((row) => row.key !== price.key))} disabled={salePrices.length === 1} aria-label={`Supprimer ${price.label}`}><Trash2 size={16} /></button>
+              </div>
+            ))}
+          </div>
+        </section>
         <div className="form-grid article-media-grid">
           <div className="field-label">Photo produit
             <div className="article-photo-upload"><span className={`article-upload-preview ${imageUrl ? "has-image" : ""}`} style={imageUrl && isSafeImageSource(imageUrl) ? { backgroundImage: `url("${imageUrl}")` } : undefined}>{!imageUrl && <Package size={24} />}</span><div><strong>{imageUrl ? "Photo prête" : "Aucune photo"}</strong><small>PNG, JPG ou WebP · 1,5 Mo maximum</small><span><button type="button" className="secondary-button" onClick={() => articlePhotoInput.current?.click()}><Upload size={15} /> Importer une photo</button>{imageUrl && <button type="button" className="text-button danger-text" onClick={() => setImageUrl("")}>Supprimer</button>}</span></div><input ref={articlePhotoInput} className="hidden-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void readUploadedImage(file).then(setImageUrl).catch((reason: Error) => setError(reason.message)); }} /></div>
@@ -4441,6 +4714,8 @@ export default function WorkspaceApp() {
   const [employeeAttendance, setEmployeeAttendance] = useState<EmployeeAttendanceRecord[]>([]);
   const [salaryPayments, setSalaryPayments] = useState<SalaryPaymentRecord[]>([]);
   const [catalogRows, setCatalogRows] = useState<ArticleRecord[]>([]);
+  const [clientCategories, setClientCategories] = useState<ClientCategoryRecord[]>([]);
+  const [clientCategoryManagerOpen, setClientCategoryManagerOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [documentEditorContext, setDocumentEditorContext] = useState<{ direction: "purchases" | "sales"; document: DocumentRecord | null } | null>(null);
   const [articleEditor, setArticleEditor] = useState<ArticleRecord | "new" | null>(null);
@@ -4457,6 +4732,7 @@ export default function WorkspaceApp() {
   const [employeeEditor, setEmployeeEditor] = useState<EmployeeRecord | "new" | null>(null);
   const [attendanceEmployee, setAttendanceEmployee] = useState<EmployeeRecord | null>(null);
   const [salaryEmployee, setSalaryEmployee] = useState<EmployeeRecord | null>(null);
+  const [salaryPaymentEditor, setSalaryPaymentEditor] = useState<{ employee: EmployeeRecord; payment: SalaryPaymentRecord } | null>(null);
   const [partyVersion, setPartyVersion] = useState(0);
   const [financeVersion, setFinanceVersion] = useState(0);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -4465,6 +4741,14 @@ export default function WorkspaceApp() {
   const [toast, setToast] = useState("");
   const toastTimer = useRef<number | null>(null);
   const meta = pageMeta[page];
+
+  const refreshClientCategories = async () => {
+    const response = await fetch("/api/client-categories", { cache: "no-store" });
+    const payload = await response.json() as { categories?: ClientCategoryRecord[] };
+    if (!response.ok) throw new Error("Catégories clients indisponibles");
+    setClientCategories(payload.categories ?? []);
+    setPartyVersion((value) => value + 1);
+  };
 
   const notify = (message: string) => {
     setToast(message);
@@ -4485,6 +4769,13 @@ export default function WorkspaceApp() {
       });
     return () => controller.abort();
   }, [catalogVersion]);
+
+  useEffect(() => {
+    void fetch("/api/client-categories", { cache: "no-store" }).then(async (response) => {
+      const payload = await response.json() as { categories?: ClientCategoryRecord[] };
+      if (response.ok) setClientCategories(payload.categories ?? []);
+    }).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -4664,6 +4955,7 @@ export default function WorkspaceApp() {
       tax_article: party.taxArticle,
       rib: party.rib,
       image_url: party.imageUrl,
+      contact_status: party.contactStatus,
     });
     if (kind === "client") setClients((rows) => [toClientRecord(copy), ...rows]);
     else setSuppliers((rows) => [toSupplierRecord(copy), ...rows]);
@@ -4747,7 +5039,7 @@ export default function WorkspaceApp() {
       const rawAmount = Number(document.amount.replace(/[^0-9,.-]/g, "").replace(",", ".")) || 0;
       const proportionalAmount = rawAmount * quantity / (document.quantity || 1);
       const returnRecord: DocumentRecord = {
-        number: `RET-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`,
+        number: `RET-${new Date().toISOString().slice(0, 7).replace("-", "")}${String(Date.now()).slice(-5)}`,
         party: document.party,
         type: "Bon de retour",
         date: "À l’instant",
@@ -4831,7 +5123,7 @@ export default function WorkspaceApp() {
     }
   };
 
-  const createItem = async ({ target, name, detail, documentType, contactName, category, email, address, city, headOffice, nif, nis, rc, taxArticle, rib, imageUrl, articleId, articleName, articleDescription, unit, showFullDescription, quantity, unitPrice, discount, taxRate, documentDate, partyId, documentId, lines }: CreatePayload) => {
+  const createItem = async ({ target, name, detail, documentType, contactName, category, clientCategory, email, address, city, headOffice, nif, nis, rc, taxArticle, rib, imageUrl, contactStatus, articleId, articleName, articleDescription, unit, showFullDescription, quantity, unitPrice, discount, taxRate, documentDate, partyId, documentId, lines }: CreatePayload) => {
     const cleanName = name.trim();
     let documentForSettlement: DocumentRecord | null = null;
     if (target === "clients") {
@@ -4849,6 +5141,8 @@ export default function WorkspaceApp() {
         tax_article: taxArticle,
         rib,
         image_url: imageUrl,
+        contact_status: contactStatus,
+        client_category: clientCategory,
       });
       setClients((rows) => [toClientRecord(party), ...rows]);
     } else if (target === "suppliers") {
@@ -4868,6 +5162,7 @@ export default function WorkspaceApp() {
         tax_article: taxArticle,
         rib,
         image_url: imageUrl,
+        contact_status: contactStatus,
       });
       setSuppliers((rows) => [toSupplierRecord(party), ...rows]);
     } else {
@@ -5115,13 +5410,13 @@ export default function WorkspaceApp() {
               }}
             />
           ) : <>
-          {page === "dashboard" && <Dashboard onViewSales={() => navigate("sales")} purchases={purchases} sales={sales} clients={clients} />}
-          {page === "clients" && <ClientsTable rows={clients} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(party) => setPartyDetails({ party, kind: "client" })} onEdit={(party) => setPartyEditor({ party, kind: "client" })} onDuplicate={(party) => { void duplicatePartyRecord(party, "client").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le client.")); }} onSettle={(party) => setSettlementContext({ party, kind: "client" })} onDelete={(name) => { const party = clients.find((row) => row.name === name); if (party) void deletePartyRecord(party, "client").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le client.")); }} />}
+          {page === "dashboard" && <Dashboard onViewSales={() => navigate("sales")} purchases={purchases} sales={sales} clients={clients} suppliers={suppliers} />}
+          {page === "clients" && <><div className="clients-toolbar"><button type="button" className="secondary-button" onClick={() => setClientCategoryManagerOpen(true)}><SlidersHorizontal size={15} /> Gérer les catégories clients</button></div><ClientsTable rows={clients} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(party) => setPartyDetails({ party, kind: "client" })} onEdit={(party) => setPartyEditor({ party, kind: "client" })} onDuplicate={(party) => { void duplicatePartyRecord(party, "client").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le client.")); }} onSettle={(party) => setSettlementContext({ party, kind: "client" })} onDelete={(name) => { const party = clients.find((row) => row.name === name); if (party) void deletePartyRecord(party, "client").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le client.")); }} /></>}
           {page === "suppliers" && <SuppliersTable rows={suppliers} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(party) => setPartyDetails({ party, kind: "supplier" })} onEdit={(party) => setPartyEditor({ party, kind: "supplier" })} onDuplicate={(party) => { void duplicatePartyRecord(party, "supplier").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le fournisseur.")); }} onSettle={(party) => setSettlementContext({ party, kind: "supplier" })} onDelete={(name) => { const party = suppliers.find((row) => row.name === name); if (party) void deletePartyRecord(party, "supplier").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le fournisseur.")); }} />}
           {page === "articles" && <ArticlesTable search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} refreshKey={catalogVersion} onEdit={(article) => setArticleEditor(article)} />}
           {page === "purchases" && <DocumentsTable page="purchases" rows={purchases} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(document) => setDocumentDetails(printableContextFor("purchases", document))} onPrint={(document) => setPrintContext(printableContextFor("purchases", document))} onEdit={(document) => setDocumentEditorContext({ direction: "purchases", document })} onDuplicate={(document) => { void duplicateDocumentRecord(document, "purchases").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le document.")); }} onDelete={(number) => { const document = purchases.find((row) => row.number === number); if (document) void deleteDocumentRecord(document, "purchases").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le document.")); }} onReturn={(document) => setReturnContext({ direction: "purchases", document })} onTransfer={(document, targetType) => transferDocument("purchases", document, targetType)} />}
           {page === "sales" && <DocumentsTable page="sales" rows={sales} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(document) => setDocumentDetails(printableContextFor("sales", document))} onPrint={(document) => setPrintContext(printableContextFor("sales", document))} onEdit={(document) => setDocumentEditorContext({ direction: "sales", document })} onDuplicate={(document) => { void duplicateDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le document.")); }} onDelete={(number) => { const document = sales.find((row) => row.number === number); if (document) void deleteDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le document.")); }} onReturn={(document) => setReturnContext({ direction: "sales", document })} onTransfer={(document, targetType) => transferDocument("sales", document, targetType)} />}
-          {page === "finance" && <FinanceWorkspacePage entries={financeEntries} parties={[...clients, ...suppliers]} treasuryLedger={treasuryLedger} employees={employees} attendance={employeeAttendance} salaryPayments={salaryPayments} search={search} setSearch={setSearch} onNewCharge={() => setFinanceEntryEditor("new")} onViewCharge={setFinanceEntryDetails} onEditCharge={(entry) => setFinanceEntryEditor(entry)} onDeleteCharge={(entry) => { void deleteFinanceEntryRecord(entry); }} onViewParty={(party, kind) => setPartyDetails({ party, kind })} onSettleParty={(party, kind) => setSettlementContext({ party, kind })} onNewTreasury={() => setTreasuryEntryEditor("new")} onEditTreasury={(entry) => setTreasuryEntryEditor(entry)} onDeleteTreasury={(entry) => { void deleteTreasuryEntryRecord(entry); }} onNewEmployee={() => setEmployeeEditor("new")} onEditEmployee={setEmployeeEditor} onRecordAttendance={setAttendanceEmployee} onPaySalary={setSalaryEmployee} />}
+          {page === "finance" && <FinanceWorkspacePage entries={financeEntries} parties={[...clients, ...suppliers]} treasuryLedger={treasuryLedger} employees={employees} attendance={employeeAttendance} salaryPayments={salaryPayments} search={search} setSearch={setSearch} onNewCharge={() => setFinanceEntryEditor("new")} onViewCharge={setFinanceEntryDetails} onEditCharge={(entry) => setFinanceEntryEditor(entry)} onDeleteCharge={(entry) => { void deleteFinanceEntryRecord(entry); }} onViewParty={(party, kind) => setPartyDetails({ party, kind })} onSettleParty={(party, kind) => setSettlementContext({ party, kind })} onNewTreasury={() => setTreasuryEntryEditor("new")} onEditTreasury={(entry) => setTreasuryEntryEditor(entry)} onDeleteTreasury={(entry) => { void deleteTreasuryEntryRecord(entry); }} onNewEmployee={() => setEmployeeEditor("new")} onEditEmployee={setEmployeeEditor} onRecordAttendance={setAttendanceEmployee} onPaySalary={setSalaryEmployee} onEditSalaryPayment={(employee, payment) => setSalaryPaymentEditor({ employee, payment })} />}
           {page === "documents" && <DocumentsLibrary purchases={purchases} sales={sales} search={search} setSearch={setSearch} viewMode={viewMode} setViewMode={setViewMode} />}
           {page === "settings" && <SettingsPage company={company} onSave={persistCompanySettings} notify={notify} />}
           </>}
@@ -5132,6 +5427,7 @@ export default function WorkspaceApp() {
       )}
       {articleEditor && <ArticleFormModal article={articleEditor === "new" ? null : articleEditor} onClose={() => setArticleEditor(null)} onSaved={(article) => { setArticleEditor(null); setCatalogVersion((value) => value + 1); notify(`${article.name} enregistré dans le catalogue`); }} />}
       {returnContext && <ReturnModal document={returnContext.document} direction={returnContext.direction} onClose={() => setReturnContext(null)} onConfirm={confirmReturn} />}
+      {clientCategoryManagerOpen && <ClientCategoryManagerModal categories={clientCategories} onClose={() => setClientCategoryManagerOpen(false)} onChanged={refreshClientCategories} />}
       {partyDetails && currentPartyDetails && (
         <PartyDetailsModal
           key={`${currentPartyDetails.id}-${partyVersion}`}
@@ -5155,7 +5451,8 @@ export default function WorkspaceApp() {
       {treasuryEntryEditor && <TreasuryEntryFormModal entry={treasuryEntryEditor === "new" ? null : treasuryEntryEditor} onClose={() => setTreasuryEntryEditor(null)} onSaved={() => { setTreasuryEntryEditor(null); setFinanceVersion((value) => value + 1); notify("Mouvement de trésorerie enregistré"); }} />}
       {employeeEditor && <EmployeeFormModal employee={employeeEditor === "new" ? null : employeeEditor} onClose={() => setEmployeeEditor(null)} onSaved={() => { setEmployeeEditor(null); setFinanceVersion((value) => value + 1); notify("Employé enregistré"); }} />}
       {attendanceEmployee && <AttendanceFormModal employee={attendanceEmployee} onClose={() => setAttendanceEmployee(null)} onSaved={() => { setAttendanceEmployee(null); setFinanceVersion((value) => value + 1); notify("Pointage enregistré"); }} />}
-      {salaryEmployee && <SalaryPaymentModal employee={salaryEmployee} onClose={() => setSalaryEmployee(null)} onSaved={() => { setSalaryEmployee(null); setFinanceVersion((value) => value + 1); notify("Salaire payé · charge et trésorerie mises à jour"); }} />}
+      {salaryEmployee && <SalaryPaymentModal employee={salaryEmployee} onClose={() => setSalaryEmployee(null)} onSaved={(payment) => { setSalaryPayments((rows) => [payment, ...rows]); setSalaryEmployee(null); setFinanceVersion((value) => value + 1); notify("Salaire payé · charge et trésorerie mises à jour"); }} />}
+      {salaryPaymentEditor && <SalaryPaymentModal employee={salaryPaymentEditor.employee} payment={salaryPaymentEditor.payment} onClose={() => setSalaryPaymentEditor(null)} onSaved={(payment) => { setSalaryPayments((rows) => rows.map((row) => row.id === payment.id ? payment : row)); setSalaryPaymentEditor(null); setFinanceVersion((value) => value + 1); notify("Paiement, charge et trésorerie mis à jour"); }} />}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
       {toast && <div className="toast" role="status"><Check size={17} />{toast}<button onClick={() => setToast("")} aria-label="Fermer"><X size={14} /></button></div>}
     </div>

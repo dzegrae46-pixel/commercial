@@ -8,6 +8,7 @@ import {
   recordEmployeeAttendance,
   SqliteValidationError,
   updateEmployee,
+  updateSalaryPayment,
 } from "@/lib/sqlite";
 
 export const dynamic = "force-dynamic";
@@ -53,7 +54,9 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    return Response.json({ employee: updateEmployee(await request.json()) });
+    const input = await request.json() as Record<string, unknown>;
+    if (input.action === "update_salary") return Response.json(updateSalaryPayment(input));
+    return Response.json({ employee: updateEmployee(input) });
   } catch (error) {
     return errorResponse(error);
   }

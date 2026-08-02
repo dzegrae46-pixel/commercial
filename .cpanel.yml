@@ -1,0 +1,7 @@
+---
+deployment:
+  tasks:
+    - /bin/mkdir -p /home/czuwsbch/commercial-app/logs /home/czuwsbch/commercial-app/tmp /home/czuwsbch/axxam-data
+    - cd /home/czuwsbch/commercial-app && /home/czuwsbch/nodevenv/commercial-app/24/bin/npm ci --include=dev
+    - cd /home/czuwsbch/commercial-app && /home/czuwsbch/nodevenv/commercial-app/24/bin/npm run build
+    - /usr/bin/touch /home/czuwsbch/commercial-app/tmp/restart.txt

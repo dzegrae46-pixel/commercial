@@ -1,6 +1,7 @@
 import {
   createParty,
   deleteParty,
+  listPartyBalanceHistory,
   listParties,
   SqliteValidationError,
   type PartyKind,
@@ -30,7 +31,14 @@ function queryKind(value: string | null): PartyKind | undefined {
  */
 export function GET(request: Request) {
   try {
-    const kind = queryKind(new URL(request.url).searchParams.get("kind"));
+    const parameters = new URL(request.url).searchParams;
+    if (parameters.get("history") === "balance") {
+      return Response.json(
+        { history: listPartyBalanceHistory(parameters.get("party_id")) },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    const kind = queryKind(parameters.get("kind"));
     return Response.json(
       { parties: listParties(kind) },
       { headers: { "Cache-Control": "no-store" } },

@@ -8,6 +8,8 @@ import {
   CREATE_ARTICLES_CATEGORY_INDEX_SQL,
   CREATE_ARTICLES_SKU_INDEX_SQL,
   CREATE_ARTICLES_TABLE_SQL,
+  CREATE_CLIENT_CATEGORIES_NAME_INDEX_SQL,
+  CREATE_CLIENT_CATEGORIES_TABLE_SQL,
   CREATE_DOCUMENT_LINES_INDEX_SQL,
   CREATE_DOCUMENT_LINES_TABLE_SQL,
   CREATE_DOCUMENTS_INDEX_SQL,
@@ -48,9 +50,29 @@ export type ArticleRecord = {
   unit: string;
   image_url: string;
   purchase_price: number;
+  purchase_prices: ArticlePurchasePriceRecord[];
   sale_price: number;
+  sale_prices: ArticleSalePriceRecord[];
   stock: number;
   status: string;
+  updated_at: string;
+};
+
+export type ArticleSalePriceRecord = {
+  label: string;
+  margin_percent: number;
+  sale_price: number;
+};
+
+export type ArticlePurchasePriceRecord = {
+  client_category: string;
+  purchase_price: number;
+};
+
+export type ClientCategoryRecord = {
+  id: number;
+  name: string;
+  created_at: string;
   updated_at: string;
 };
 
@@ -80,12 +102,14 @@ export type PartyRecord = {
   city: string;
   head_office: string;
   category: string;
+  client_category: string;
   image_url: string;
   nif: string;
   nis: string;
   rc: string;
   tax_article: string;
   rib: string;
+  contact_status: string;
   created_at: string;
   updated_at: string;
   billed: number;
@@ -93,6 +117,18 @@ export type PartyRecord = {
   balance: number;
   credit: number;
   status: string;
+};
+
+export type PartyBalanceHistoryRecord = {
+  id: string;
+  event_date: string;
+  created_at: string;
+  kind: "document" | "payment";
+  label: string;
+  reference: string;
+  delta: number;
+  balance: number;
+  credit: number;
 };
 
 export type PaymentRecord = {
@@ -284,6 +320,7 @@ const globalForSqlite = globalThis as AxxamGlobal;
 const CATALOG_SEED_KEY = "catalog_seed_v4";
 const PARTIES_SEED_KEY = "parties_seed_v1";
 const DOCUMENT_SEED_KEY = "document_seed_v1";
+const DOCUMENT_NUMBER_FORMAT_KEY = "document_number_yyyymm_v1";
 
 const documentLabels: Record<DocumentType, string> = {
   quote: "Devis",
@@ -387,6 +424,46 @@ function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function normalizeSalePrices(value: unknown, purchasePrice: number, fallbackSalePrice: number): ArticleSalePriceRecord[] {
+  const source = Array.isArray(value) ? value.slice(0, 12) : [];
+  const rows = source.map((item, index) => {
+    const input = asInputObject(item);
+    const label = cleanText(input.label, `Tarif ${index + 1}`) || `Tarif ${index + 1}`;
+    const requestedMargin = optionalNumber(input.margin_percent ?? input.marginPercent ?? input.margin);
+    const requestedPrice = optionalNumber(input.sale_price ?? input.salePrice ?? input.price);
+    const inferredMargin = purchasePrice > 0 && requestedPrice !== undefined
+      ? ((requestedPrice - purchasePrice) / purchasePrice) * 100
+      : 0;
+    const marginPercent = roundMoney(requestedMargin ?? inferredMargin);
+    if (marginPercent < -100) throw new SqliteValidationError("La marge ne peut pas être inférieure à -100 %.");
+    return {
+      label,
+      margin_percent: marginPercent,
+      sale_price: roundMoney(purchasePrice * (1 + marginPercent / 100)),
+    };
+  });
+  if (rows.length) return rows;
+  const fallbackMargin = purchasePrice > 0 ? roundMoney(((fallbackSalePrice - purchasePrice) / purchasePrice) * 100) : 0;
+  return [{ label: "Prix de vente", margin_percent: fallbackMargin, sale_price: roundMoney(fallbackSalePrice) }];
+}
+
+function normalizePurchasePrices(value: unknown, fallbackPurchasePrice: number): ArticlePurchasePriceRecord[] {
+  const source = Array.isArray(value) ? value.slice(0, 24) : [];
+  const rows: ArticlePurchasePriceRecord[] = [];
+  const seen = new Set<string>();
+  for (const item of source) {
+    const input = asInputObject(item);
+    const clientCategory = cleanText(input.client_category ?? input.clientCategory ?? input.category);
+    const purchasePrice = roundMoney(optionalNumber(input.purchase_price ?? input.purchasePrice ?? input.price) ?? 0);
+    if (!clientCategory || seen.has(clientCategory.toLocaleLowerCase("fr"))) continue;
+    if (purchasePrice < 0) throw new SqliteValidationError("Les prix d’achat ne peuvent pas être négatifs.");
+    seen.add(clientCategory.toLocaleLowerCase("fr"));
+    rows.push({ client_category: clientCategory, purchase_price: purchasePrice });
+  }
+  if (rows.length) return rows;
+  return [{ client_category: "Standard", purchase_price: roundMoney(Math.max(0, fallbackPurchasePrice)) }];
+}
+
 function roundQuantity(value: number): number {
   return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }
@@ -473,7 +550,25 @@ function rowNumber(value: unknown): number {
 }
 
 function toArticleRecord(row: Record<string, unknown>): ArticleRecord {
-  return row as unknown as ArticleRecord;
+  let rawPrices: unknown = [];
+  try {
+    rawPrices = JSON.parse(String(row.sale_prices_json ?? "[]"));
+  } catch {
+    rawPrices = [];
+  }
+  const purchasePrice = Number(row.purchase_price ?? 0);
+  const salePrice = Number(row.sale_price ?? 0);
+  let rawPurchasePrices: unknown = [];
+  try {
+    rawPurchasePrices = JSON.parse(String(row.purchase_prices_json ?? "[]"));
+  } catch {
+    rawPurchasePrices = [];
+  }
+  return {
+    ...(row as unknown as ArticleRecord),
+    sale_prices: normalizeSalePrices(rawPrices, purchasePrice, salePrice),
+    purchase_prices: normalizePurchasePrices(rawPurchasePrices, purchasePrice),
+  };
 }
 
 function toPartyRecord(row: Record<string, unknown>): PartyRecord {
@@ -517,6 +612,7 @@ function openDatabase() {
   database.exec(CREATE_ARTICLES_CATEGORY_INDEX_SQL);
   seedCatalogOnce(database);
   ensurePartyStorage(database);
+  ensureClientCategoryStorage(database);
   ensureDocumentStorage(database);
   database.exec(CREATE_DOCUMENT_LINES_TABLE_SQL);
   database.exec(CREATE_DOCUMENT_LINES_INDEX_SQL);
@@ -596,6 +692,41 @@ function backfillDocumentPartyIds(database: DatabaseSync) {
   `);
 }
 
+function migrateDocumentNumbers(database: DatabaseSync) {
+  if (database.prepare("SELECT value FROM app_meta WHERE key = ?").get(DOCUMENT_NUMBER_FORMAT_KEY)) return;
+  const rows = database.prepare(`
+    SELECT id, type, document_date
+    FROM documents
+    ORDER BY document_date ASC, created_at ASC, id ASC
+  `).all() as unknown as { id: number; type: DocumentType; document_date: string }[];
+  const counters = new Map<string, number>();
+  const assignments = rows.map((row) => {
+    const yearMonth = row.document_date.slice(0, 7).replace("-", "");
+    const key = `${row.type}-${yearMonth}`;
+    const order = (counters.get(key) ?? 0) + 1;
+    counters.set(key, order);
+    return { id: row.id, number: `${documentPrefix(row.type)}-${yearMonth}${String(order).padStart(5, "0")}` };
+  });
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    const temporary = database.prepare("UPDATE documents SET number = ? WHERE id = ?");
+    const finalize = database.prepare("UPDATE documents SET number = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
+    for (const assignment of assignments) temporary.run(`__renumbering_${assignment.id}__`, assignment.id);
+    for (const assignment of assignments) finalize.run(assignment.number, assignment.id);
+    database.exec(`
+      UPDATE documents
+      SET source_document_number = COALESCE((
+        SELECT source.number FROM documents source WHERE source.id = documents.source_document_id
+      ), '')
+    `);
+    database.prepare("INSERT INTO app_meta (key, value) VALUES (?, ?)").run(DOCUMENT_NUMBER_FORMAT_KEY, "1");
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 function seedCatalogOnce(database: DatabaseSync) {
   const seeded = database.prepare("SELECT value FROM app_meta WHERE key = ?").get(CATALOG_SEED_KEY);
   if (seeded) return;
@@ -603,8 +734,8 @@ function seedCatalogOnce(database: DatabaseSync) {
   const seed = database.prepare(`
     INSERT INTO articles (
       name, sku, brand, brand_logo, category, subcategory, subsubcategory,
-      description, unit, image_url, purchase_price, sale_price, stock, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      description, unit, image_url, purchase_price, purchase_prices_json, sale_price, sale_prices_json, stock, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(sku) DO UPDATE SET
       name = excluded.name,
       brand = excluded.brand,
@@ -616,7 +747,9 @@ function seedCatalogOnce(database: DatabaseSync) {
       unit = excluded.unit,
       image_url = excluded.image_url,
       purchase_price = excluded.purchase_price,
+      purchase_prices_json = excluded.purchase_prices_json,
       sale_price = excluded.sale_price,
+      sale_prices_json = excluded.sale_prices_json,
       status = excluded.status,
       updated_at = CURRENT_TIMESTAMP
   `);
@@ -636,7 +769,9 @@ function seedCatalogOnce(database: DatabaseSync) {
         article.unit,
         article.imageUrl,
         article.purchasePrice,
+        JSON.stringify([{ client_category: "Standard", purchase_price: article.purchasePrice }]),
         article.salePrice,
+        JSON.stringify(normalizeSalePrices([], article.purchasePrice, article.salePrice)),
         article.stock,
         article.status,
       );
@@ -659,8 +794,8 @@ function seedPartiesOnce(database: DatabaseSync) {
   const insertParty = database.prepare(`
     INSERT INTO parties (
       kind, name, contact_phone, contact_name, email, address, city,
-      head_office, category, image_url, nif, nis, rc, tax_article, rib
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      head_office, category, client_category, image_url, nif, nis, rc, tax_article, rib, contact_status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   database.exec("BEGIN IMMEDIATE");
@@ -677,12 +812,14 @@ function seedPartiesOnce(database: DatabaseSync) {
         party.city,
         party.headOffice,
         party.category,
+        party.kind === "client" ? (party.clientCategory || "Standard") : "Standard",
         party.imageUrl,
         party.nif,
         party.nis,
         party.rc,
         party.taxArticle,
         party.rib,
+        "Actif",
       );
     }
     database.prepare("INSERT INTO app_meta (key, value) VALUES (?, ?)").run(PARTIES_SEED_KEY, "1");
@@ -784,11 +921,26 @@ function ensurePartyStorage(database: DatabaseSync) {
   globalForSqlite.__axxamPartiesReady = true;
 }
 
+function ensureClientCategoryStorage(database: DatabaseSync) {
+  database.exec(CREATE_CLIENT_CATEGORIES_TABLE_SQL);
+  database.exec(CREATE_CLIENT_CATEGORIES_NAME_INDEX_SQL);
+  const defaults = ["Standard", "Revendeur", "Grossiste"];
+  const insert = database.prepare("INSERT OR IGNORE INTO client_categories (name) VALUES (?)");
+  for (const name of defaults) insert.run(name);
+  const marker = database.prepare("SELECT value FROM app_meta WHERE key = ?").get("client_category_backfill_v1");
+  if (!marker) {
+    database.exec("UPDATE parties SET client_category = category WHERE kind = 'client' AND TRIM(category) <> '' AND client_category = 'Standard'");
+    database.prepare("INSERT INTO app_meta (key, value) VALUES (?, ?)").run("client_category_backfill_v1", "1");
+  }
+  database.exec("INSERT OR IGNORE INTO client_categories (name) SELECT DISTINCT client_category FROM parties WHERE kind = 'client' AND TRIM(client_category) <> ''");
+}
+
 function ensureDocumentStorage(database: DatabaseSync) {
   if (globalForSqlite.__axxamDocumentsReady) return;
   database.exec(CREATE_DOCUMENTS_TABLE_SQL);
   migrateDocumentColumns(database);
   backfillDocumentPartyIds(database);
+  migrateDocumentNumbers(database);
   database.exec(CREATE_DOCUMENTS_INDEX_SQL);
   database.exec(CREATE_DOCUMENTS_PARTY_INDEX_SQL);
   globalForSqlite.__axxamDocumentsReady = true;
@@ -811,6 +963,7 @@ function getDatabase() {
   const database = globalForSqlite.__axxamSqlite;
   ensurePartyStorage(database);
   ensureDocumentStorage(database);
+  ensureClientCategoryStorage(database);
   // These CREATE IF NOT EXISTS calls also upgrade a long-running development
   // process whose global SQLite connection predates the finance endpoints.
   database.exec(CREATE_PAYMENTS_TABLE_SQL);
@@ -846,7 +999,7 @@ function inTransaction<T>(callback: (database: DatabaseSync) => T): T {
 function getArticleById(database: DatabaseSync, id: number): ArticleRecord {
   const row = database.prepare(`
     SELECT id, name, sku, brand, brand_logo, category, subcategory, subsubcategory,
-      description, unit, image_url, purchase_price, sale_price, stock, status, updated_at
+      description, unit, image_url, purchase_price, purchase_prices_json, sale_price, sale_prices_json, stock, status, updated_at
     FROM articles
     WHERE id = ?
   `).get(id);
@@ -857,7 +1010,7 @@ function getArticleById(database: DatabaseSync, id: number): ArticleRecord {
 function findArticleByName(database: DatabaseSync, name: string): ArticleRecord {
   const row = database.prepare(`
     SELECT id, name, sku, brand, brand_logo, category, subcategory, subsubcategory,
-      description, unit, image_url, purchase_price, sale_price, stock, status, updated_at
+      description, unit, image_url, purchase_price, purchase_prices_json, sale_price, sale_prices_json, stock, status, updated_at
     FROM articles
     WHERE LOWER(name) = LOWER(?) AND is_deleted = 0
   `).get(name);
@@ -1091,20 +1244,23 @@ function validateDocumentTransfer(database: DatabaseSync, source: DocumentRecord
   }
 }
 
-function makeDocumentNumber(database: DatabaseSync, direction: DocumentDirection, type: DocumentType): string {
+function makeDocumentNumber(database: DatabaseSync, type: DocumentType, documentDate: string): string {
+  const yearMonth = documentDate.slice(0, 7).replace("-", "");
+  const prefix = documentPrefix(type);
   const row = database.prepare(
-    "SELECT COUNT(*) AS total FROM documents WHERE direction = ? AND type = ?",
-  ).get(direction, type);
-  const total = rowNumber(row?.total) + 1;
-  const directionPrefix = direction === "purchases" ? "ACH" : "VTE";
-  return `${directionPrefix}-${documentPrefix(type)}-${String(total).padStart(4, "0")}`;
+    `SELECT MAX(CAST(SUBSTR(number, -5) AS INTEGER)) AS last_order
+     FROM documents
+     WHERE type = ? AND SUBSTR(document_date, 1, 7) = ? AND number LIKE ?`,
+  ).get(type, documentDate.slice(0, 7), `${prefix}-${yearMonth}%`);
+  const order = rowNumber(row?.last_order) + 1;
+  return `${prefix}-${yearMonth}${String(order).padStart(5, "0")}`;
 }
 
 export function listArticles(query = ""): ArticleRecord[] {
   const normalizedQuery = cleanText(query).toLocaleLowerCase("fr");
   const rows = getDatabase().prepare(`
     SELECT id, name, sku, brand, brand_logo, category, subcategory, subsubcategory,
-      description, unit, image_url, purchase_price, sale_price, stock, status, updated_at
+      description, unit, image_url, purchase_price, purchase_prices_json, sale_price, sale_prices_json, stock, status, updated_at
     FROM articles
     WHERE is_deleted = 0
     ORDER BY category COLLATE NOCASE, subcategory COLLATE NOCASE, name COLLATE NOCASE
@@ -1231,6 +1387,14 @@ function normalizePartyKind(value: unknown): PartyKind {
   const kind = cleanText(value).toLocaleLowerCase("fr");
   if (kind === "client" || kind === "supplier") return kind;
   throw new SqliteValidationError("Le type de tiers doit Ãªtre client ou fournisseur.");
+}
+
+function normalizeContactStatus(value: unknown, fallback = "Actif"): string {
+  const status = cleanText(value, fallback) || fallback;
+  if (!["Actif", "Prospect", "Inactif", "Bloqué"].includes(status)) {
+    throw new SqliteValidationError("Le statut de contact est invalide.");
+  }
+  return status;
 }
 
 function firstDefinedValue(input: InputObject, keys: readonly string[]): unknown {
@@ -1366,7 +1530,7 @@ const partyPaidSql = `
 
 const partySelectSql = `
   p.id, p.kind, p.name, p.contact_phone, p.contact_name, p.email, p.address, p.city,
-  p.head_office, p.category, p.image_url, p.nif, p.nis, p.rc, p.tax_article, p.rib, p.created_at, p.updated_at,
+  p.head_office, p.category, p.client_category, p.image_url, p.nif, p.nis, p.rc, p.tax_article, p.rib, p.contact_status, p.created_at, p.updated_at,
   ${partyBalanceSql} AS billed,
   ${partyPaidSql} AS paid,
   MAX(0, ${partyBalanceSql} - ${partyPaidSql}) AS balance,
@@ -1397,6 +1561,129 @@ export function listParties(kind?: PartyKind): PartyRecord[] {
   return rows.map(toPartyRecord);
 }
 
+function toClientCategoryRecord(row: Record<string, unknown>): ClientCategoryRecord {
+  return {
+    id: rowNumber(row.id),
+    name: String(row.name ?? ""),
+    created_at: String(row.created_at ?? ""),
+    updated_at: String(row.updated_at ?? ""),
+  };
+}
+
+export function listClientCategories(): ClientCategoryRecord[] {
+  return getDatabase().prepare("SELECT id, name, created_at, updated_at FROM client_categories ORDER BY name COLLATE NOCASE").all().map((row) => toClientCategoryRecord(row as Record<string, unknown>));
+}
+
+export function createClientCategory(value: unknown): ClientCategoryRecord {
+  const input = asInputObject(value);
+  const name = requiredText(input.name, "Le nom de la catégorie client");
+  if (name.length > 120) throw new SqliteValidationError("Le nom de la catégorie client est trop long.");
+  const database = getDatabase();
+  try {
+    const result = database.prepare("INSERT INTO client_categories (name) VALUES (?)").run(name);
+    return toClientCategoryRecord(database.prepare("SELECT id, name, created_at, updated_at FROM client_categories WHERE id = ?").get(Number(result.lastInsertRowid)) as Record<string, unknown>);
+  } catch {
+    throw new SqliteValidationError("Cette catégorie client existe déjà.");
+  }
+}
+
+export function updateClientCategory(value: unknown): ClientCategoryRecord {
+  const input = asInputObject(value);
+  const id = requiredId(input.id, "La catégorie client");
+  const name = requiredText(input.name, "Le nom de la catégorie client");
+  const database = getDatabase();
+  const existing = database.prepare("SELECT id, name FROM client_categories WHERE id = ?").get(id) as { id: number; name: string } | undefined;
+  if (!existing) throw new SqliteValidationError("Catégorie client introuvable.");
+  try {
+    database.exec("BEGIN IMMEDIATE");
+    database.prepare("UPDATE client_categories SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(name, id);
+    database.prepare("UPDATE parties SET client_category = ?, updated_at = CURRENT_TIMESTAMP WHERE kind = 'client' AND client_category = ?").run(name, existing.name);
+    database.exec("COMMIT");
+  } catch (error) {
+    try { database.exec("ROLLBACK"); } catch { /* transaction already closed */ }
+    if (error instanceof SqliteValidationError) throw error;
+    throw new SqliteValidationError("Cette catégorie client existe déjà.");
+  }
+  return toClientCategoryRecord(database.prepare("SELECT id, name, created_at, updated_at FROM client_categories WHERE id = ?").get(id) as Record<string, unknown>);
+}
+
+export function deleteClientCategory(value: unknown): ClientCategoryRecord {
+  const id = requiredId(value, "La catégorie client");
+  const database = getDatabase();
+  const existing = database.prepare("SELECT id, name FROM client_categories WHERE id = ?").get(id) as { id: number; name: string } | undefined;
+  if (!existing) throw new SqliteValidationError("Catégorie client introuvable.");
+  const used = database.prepare("SELECT id FROM parties WHERE kind = 'client' AND client_category = ? LIMIT 1").get(existing.name);
+  if (used) throw new SqliteValidationError("Cette catégorie est utilisée par un client. Réaffectez d’abord les clients concernés.");
+  if (existing.name.toLocaleLowerCase("fr") === "standard") throw new SqliteValidationError("La catégorie Standard ne peut pas être supprimée.");
+  database.prepare("DELETE FROM client_categories WHERE id = ?").run(id);
+  return { id, name: existing.name, created_at: "", updated_at: "" };
+}
+
+export function listPartyBalanceHistory(partyId: unknown): PartyBalanceHistoryRecord[] {
+  const database = getDatabase();
+  const party = getPartyById(database, requiredId(partyId, "Le tiers"));
+  const direction = party.kind === "client" ? "sales" : "purchases";
+  const documents = database.prepare(`
+    SELECT d.id, d.number, d.type, d.document_date AS event_date, d.created_at,
+      CASE WHEN d.type = 'return' THEN -d.total ELSE d.total END AS delta
+    FROM documents d
+    WHERE d.direction = ?
+      AND (d.party_id = ? OR (d.party_id IS NULL AND LOWER(d.party_name) = LOWER(?)))
+      AND (
+        d.type = 'invoice'
+        OR (d.type = 'delivery' AND NOT EXISTS (
+          SELECT 1 FROM documents invoice
+          WHERE invoice.source_document_id = d.id AND invoice.type = 'invoice'
+        ))
+        OR (d.type = 'return' AND EXISTS (
+          SELECT 1 FROM documents source
+          WHERE source.id = d.source_document_id AND source.type IN ('invoice', 'delivery')
+        ))
+      )
+  `).all(direction, party.id, party.name).map((row) => {
+    const item = row as Record<string, unknown>;
+    const type = String(item.type) as DocumentType;
+    return {
+      id: `document-${rowNumber(item.id)}`,
+      event_date: String(item.event_date),
+      created_at: String(item.created_at),
+      kind: "document" as const,
+      label: type === "return" ? "Avoir / retour" : documentLabel(type, direction),
+      reference: String(item.number),
+      delta: roundMoney(rowNumber(item.delta)),
+    };
+  });
+  const payments = database.prepare(`
+    SELECT id, payment_date AS event_date, created_at, method, note, amount
+    FROM payments
+    WHERE party_id = ? AND direction = ?
+  `).all(party.id, party.kind === "client" ? "incoming" : "outgoing").map((row) => {
+    const item = row as Record<string, unknown>;
+    return {
+      id: `payment-${rowNumber(item.id)}`,
+      event_date: String(item.event_date),
+      created_at: String(item.created_at),
+      kind: "payment" as const,
+      label: party.kind === "client" ? "Encaissement" : "Paiement",
+      reference: String(item.method || item.note || "Règlement"),
+      delta: -roundMoney(rowNumber(item.amount)),
+    };
+  });
+  let running = 0;
+  return [...documents, ...payments]
+    .sort((left, right) => left.event_date.localeCompare(right.event_date)
+      || left.created_at.localeCompare(right.created_at)
+      || left.id.localeCompare(right.id))
+    .map((event) => {
+      running = roundMoney(running + event.delta);
+      return {
+        ...event,
+        balance: Math.max(0, running),
+        credit: Math.max(0, -running),
+      };
+    });
+}
+
 /** Creates one persisted customer or supplier, without inventing fiscal data. */
 export function createParty(value: unknown): PartyRecord {
   const input = asInputObject(value);
@@ -1409,12 +1696,14 @@ export function createParty(value: unknown): PartyRecord {
   const city = optionalPartyText(input, ["city"], "La ville", 120);
   const headOffice = optionalPartyText(input, ["head_office", "headOffice"], "Le siÃ¨ge", 300);
   const category = optionalPartyText(input, ["category"], "La catÃ©gorie", 120);
+  const clientCategory = optionalPartyText(input, ["client_category", "clientCategory"], "Client category", 120) || "Standard";
   const imageUrl = normalizedImageUrl(firstDefinedValue(input, ["image_url", "imageUrl", "photo", "logo"]));
   const nif = optionalPartyText(input, ["nif"], "Le NIF", 120);
   const nis = optionalPartyText(input, ["nis"], "Le NIS", 120);
   const rc = optionalPartyText(input, ["rc"], "Le RC", 120);
   const taxArticle = optionalPartyText(input, ["tax_article", "taxArticle"], "Le numéro d’article", 120);
   const rib = optionalPartyText(input, ["rib"], "Le RIB", 160);
+  const contactStatus = normalizeContactStatus(input.contact_status ?? input.contactStatus);
 
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new SqliteValidationError("Lâ€™e-mail est invalide.");
@@ -1431,8 +1720,8 @@ export function createParty(value: unknown): PartyRecord {
   const result = database.prepare(`
     INSERT INTO parties (
       kind, name, contact_phone, contact_name, email, address, city,
-      head_office, category, image_url, nif, nis, rc, tax_article, rib
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      head_office, category, client_category, image_url, nif, nis, rc, tax_article, rib, contact_status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     kind,
     name,
@@ -1443,12 +1732,14 @@ export function createParty(value: unknown): PartyRecord {
     city,
     headOffice,
     category,
+    kind === "client" ? clientCategory : "Standard",
     imageUrl,
     nif,
     nis,
     rc,
     taxArticle,
     rib,
+    contactStatus,
   );
   return getPartyById(database, Number(result.lastInsertRowid));
 }
@@ -1460,6 +1751,7 @@ export function updateParty(value: unknown): PartyRecord {
   const existing = getPartyById(database, id);
   const imageValue = firstDefinedValue(input, ["image_url", "imageUrl", "photo", "logo"]);
   const imageUrl = normalizedImageUrl(imageValue, existing.image_url);
+  const clientCategory = optionalPartyText(input, ["client_category", "clientCategory"], "Client category", 120);
   const name = optionalPartyText(input, ["name"], "Le nom du tiers", 160) || existing.name;
   const contactPhone = optionalPartyText(input, ["contact_phone", "contactPhone", "phone", "contact"], "Le téléphone", 64);
   const contactName = optionalPartyText(input, ["contact_name", "contactName"], "Le contact", 160);
@@ -1473,6 +1765,9 @@ export function updateParty(value: unknown): PartyRecord {
   const rc = optionalPartyText(input, ["rc"], "Le RC", 120);
   const taxArticle = optionalPartyText(input, ["tax_article", "taxArticle"], "Le numéro d’article", 120);
   const rib = optionalPartyText(input, ["rib"], "Le RIB", 160);
+  const contactStatus = input.contact_status === undefined && input.contactStatus === undefined
+    ? existing.contact_status
+    : normalizeContactStatus(input.contact_status ?? input.contactStatus, existing.contact_status);
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new SqliteValidationError("L’e-mail est invalide.");
 
   const duplicate = database.prepare("SELECT id FROM parties WHERE kind = ? AND name = ? COLLATE NOCASE AND id <> ?")
@@ -1482,7 +1777,7 @@ export function updateParty(value: unknown): PartyRecord {
   database.prepare(`
     UPDATE parties
     SET name = ?, contact_phone = ?, contact_name = ?, email = ?, address = ?, city = ?,
-      head_office = ?, category = ?, image_url = ?, nif = ?, nis = ?, rc = ?, tax_article = ?, rib = ?, updated_at = CURRENT_TIMESTAMP
+      head_office = ?, category = ?, client_category = ?, image_url = ?, nif = ?, nis = ?, rc = ?, tax_article = ?, rib = ?, contact_status = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(
     name,
@@ -1493,12 +1788,14 @@ export function updateParty(value: unknown): PartyRecord {
     input.city === undefined ? existing.city : city,
     input.head_office === undefined && input.headOffice === undefined ? existing.head_office : headOffice,
     input.category === undefined ? existing.category : category,
+    existing.kind === "client" ? (input.client_category === undefined && input.clientCategory === undefined ? existing.client_category : (clientCategory || "Standard")) : "Standard",
     imageUrl,
     input.nif === undefined ? existing.nif : nif,
     input.nis === undefined ? existing.nis : nis,
     input.rc === undefined ? existing.rc : rc,
     input.tax_article === undefined && input.taxArticle === undefined ? existing.tax_article : taxArticle,
     input.rib === undefined ? existing.rib : rib,
+    contactStatus,
     id,
   );
   return getPartyById(database, id);
@@ -1763,6 +2060,63 @@ export function payEmployeeSalary(value: unknown): { payment: SalaryPaymentRecor
   });
 }
 
+export function updateSalaryPayment(value: unknown): { payment: SalaryPaymentRecord; financeEntry: FinanceEntryRecord } {
+  const input = asInputObject(value);
+  const id = requiredId(input.id, "Le paiement du salaire");
+  return inTransaction((database) => {
+    const current = database.prepare(`
+      SELECT id, employee_id, finance_entry_id, payroll_month, base_amount, bonus,
+        deduction, amount, payment_date, method, note
+      FROM salary_payments WHERE id = ?
+    `).get(id) as Record<string, unknown> | undefined;
+    if (!current) throw new SqliteValidationError("Paiement de salaire introuvable.");
+    const employee = readEmployee(database, rowNumber(current.employee_id));
+    const payrollMonth = cleanText(input.payroll_month ?? input.payrollMonth, String(current.payroll_month));
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(payrollMonth)) throw new SqliteValidationError("Le mois de paie est invalide.");
+    const paymentDate = input.payment_date === undefined && input.paymentDate === undefined && input.date === undefined
+      ? String(current.payment_date)
+      : normalizeDocumentDate(input.payment_date ?? input.paymentDate ?? input.date);
+    const baseAmount = roundMoney(optionalNumber(input.base_amount ?? input.baseAmount) ?? rowNumber(current.base_amount));
+    const bonus = roundMoney(optionalNumber(input.bonus) ?? rowNumber(current.bonus));
+    const deduction = roundMoney(optionalNumber(input.deduction) ?? rowNumber(current.deduction));
+    const amount = roundMoney(baseAmount + bonus - deduction);
+    if (baseAmount < 0 || bonus < 0 || deduction < 0 || amount <= 0) {
+      throw new SqliteValidationError("Le montant net du salaire doit être supérieur à zéro.");
+    }
+    const duplicate = database.prepare(`
+      SELECT id FROM salary_payments
+      WHERE employee_id = ? AND payroll_month = ? AND id <> ?
+    `).get(employee.id, payrollMonth, id);
+    if (duplicate) throw new SqliteValidationError("Le salaire de cet employé est déjà payé pour ce mois.");
+    const method = cleanText(input.method, String(current.method)) || "Virement";
+    const note = input.note === undefined ? String(current.note) : cleanText(input.note);
+    database.prepare(`
+      UPDATE salary_payments
+      SET payroll_month = ?, base_amount = ?, bonus = ?, deduction = ?, amount = ?,
+        payment_date = ?, method = ?, note = ?
+      WHERE id = ?
+    `).run(payrollMonth, baseAmount, bonus, deduction, amount, paymentDate, method, note, id);
+    const financeEntryId = rowNumber(current.finance_entry_id);
+    database.prepare(`
+      UPDATE finance_entries
+      SET label = ?, category = 'Salaires', amount = ?, entry_date = ?, status = 'Payée',
+        note = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(`Salaire ${employee.name} · ${payrollMonth}`, amount, paymentDate, note, financeEntryId);
+    const payment = listSalaryPayments(employee.id).find((row) => row.id === id);
+    if (!payment) throw new SqliteValidationError("Le paiement du salaire n’a pas pu être relu.");
+    const financeEntry = database.prepare(`
+      SELECT finance.id, finance.kind, finance.label, finance.category, finance.amount,
+        finance.entry_date, finance.status, finance.note, finance.created_at, finance.updated_at,
+        'salary' AS source, salary.id AS salary_payment_id
+      FROM finance_entries finance
+      INNER JOIN salary_payments salary ON salary.finance_entry_id = finance.id
+      WHERE finance.id = ?
+    `).get(financeEntryId) as unknown as FinanceEntryRecord;
+    return { payment, financeEntry };
+  });
+}
+
 function normalizeFinanceKind(value: unknown): FinanceEntryKind {
   if (value === "expense" || value === "charge") return value;
   throw new SqliteValidationError("Le type doit être dépense ou charge.");
@@ -2007,16 +2361,20 @@ export function createArticle(value: unknown): ArticleRecord {
   const stock = roundQuantity(optionalNumber(input.stock) ?? 0);
   if (stock < 0) throw new SqliteValidationError("Le stock initial ne peut pas être négatif.");
   const purchasePrice = roundMoney(optionalNumber(input.purchasePrice ?? input.purchase_price) ?? 0);
-  const salePrice = roundMoney(optionalNumber(input.salePrice ?? input.sale_price) ?? 0);
-  if (purchasePrice < 0 || salePrice < 0) {
+  const purchasePrices = normalizePurchasePrices(input.purchase_prices ?? input.purchasePrices, purchasePrice);
+  const normalizedPurchasePrice = purchasePrices[0]?.purchase_price ?? purchasePrice;
+  const requestedSalePrice = roundMoney(optionalNumber(input.salePrice ?? input.sale_price) ?? 0);
+  const salePrices = normalizeSalePrices(input.sale_prices ?? input.salePrices, normalizedPurchasePrice, requestedSalePrice);
+  const salePrice = salePrices[0].sale_price;
+  if (normalizedPurchasePrice < 0 || salePrice < 0) {
     throw new SqliteValidationError("Les prix ne peuvent pas être négatifs.");
   }
 
   const result = database.prepare(`
     INSERT INTO articles (
       name, sku, brand, brand_logo, category, subcategory, subsubcategory,
-      description, unit, image_url, purchase_price, sale_price, stock, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      description, unit, image_url, purchase_price, purchase_prices_json, sale_price, sale_prices_json, stock, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     name,
     sku,
@@ -2028,8 +2386,10 @@ export function createArticle(value: unknown): ArticleRecord {
     cleanText(input.description),
     cleanText(input.unit, "Unité") || "Unité",
     normalizedImageUrl(firstDefinedValue(input, ["image_url", "imageUrl", "photo"])),
-    purchasePrice,
+    normalizedPurchasePrice,
+    JSON.stringify(purchasePrices),
     salePrice,
+    JSON.stringify(salePrices),
     stock,
     cleanText(input.status, statusForStock(stock)) || statusForStock(stock),
   );
@@ -2051,8 +2411,16 @@ export function updateArticle(value: unknown): ArticleRecord {
   const stock = roundQuantity(optionalNumber(input.stock) ?? existing.stock);
   if (stock < 0) throw new SqliteValidationError("Le stock ne peut pas être négatif.");
   const purchasePrice = roundMoney(optionalNumber(input.purchasePrice ?? input.purchase_price) ?? existing.purchase_price);
-  const salePrice = roundMoney(optionalNumber(input.salePrice ?? input.sale_price) ?? existing.sale_price);
-  if (purchasePrice < 0 || salePrice < 0) {
+  const purchasePrices = normalizePurchasePrices(input.purchase_prices ?? input.purchasePrices ?? existing.purchase_prices, purchasePrice);
+  const normalizedPurchasePrice = purchasePrices[0]?.purchase_price ?? purchasePrice;
+  const requestedSalePrice = roundMoney(optionalNumber(input.salePrice ?? input.sale_price) ?? existing.sale_price);
+  const salePrices = normalizeSalePrices(
+    input.sale_prices ?? input.salePrices ?? existing.sale_prices,
+    normalizedPurchasePrice,
+    requestedSalePrice,
+  );
+  const salePrice = salePrices[0].sale_price;
+  if (normalizedPurchasePrice < 0 || salePrice < 0) {
     throw new SqliteValidationError("Les prix ne peuvent pas être négatifs.");
   }
 
@@ -2060,7 +2428,7 @@ export function updateArticle(value: unknown): ArticleRecord {
     UPDATE articles
     SET name = ?, sku = ?, brand = ?, brand_logo = ?, category = ?, subcategory = ?,
       subsubcategory = ?, description = ?, unit = ?, image_url = ?, purchase_price = ?,
-      sale_price = ?, stock = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+      sale_price = ?, sale_prices_json = ?, purchase_prices_json = ?, stock = ?, status = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(
     cleanText(input.name, existing.name) || existing.name,
@@ -2073,8 +2441,10 @@ export function updateArticle(value: unknown): ArticleRecord {
     cleanText(input.description, existing.description),
     cleanText(input.unit, existing.unit) || "Unité",
     normalizedImageUrl(firstDefinedValue(input, ["image_url", "imageUrl", "photo"]), existing.image_url),
-    purchasePrice,
+    normalizedPurchasePrice,
     salePrice,
+    JSON.stringify(salePrices),
+    JSON.stringify(purchasePrices),
     stock,
     cleanText(input.status, statusForStock(stock)) || statusForStock(stock),
     id,
@@ -2234,14 +2604,13 @@ export function createDocument(value: unknown): DocumentRecord {
     0,
   ));
   const total = roundMoney(subtotal - discountAmount + taxAmount);
-  const requestedNumber = cleanText(input.number);
   const documentDate = normalizeDocumentDate(input.documentDate ?? input.document_date ?? input.date);
   const status = cleanText(input.status, type === "quote" ? "Brouillon" : "Validé") || "Validé";
   const showDescription = booleanFrom(input.showDescription ?? input.show_description);
 
   return inTransaction((transaction) => {
     if (type === "return" && source) validateReturnLines(transaction, source, lines);
-    const number = requestedNumber || makeDocumentNumber(transaction, direction, type);
+    const number = makeDocumentNumber(transaction, type, documentDate);
     const exists = transaction.prepare("SELECT id FROM documents WHERE number = ?").get(number);
     if (exists) throw new SqliteValidationError("Ce numéro de document existe déjà.");
 

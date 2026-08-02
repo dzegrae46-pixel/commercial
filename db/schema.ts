@@ -17,7 +17,9 @@ export const CREATE_ARTICLES_TABLE_SQL = `
     unit TEXT NOT NULL DEFAULT 'Unité',
     image_url TEXT NOT NULL DEFAULT '',
     purchase_price REAL NOT NULL DEFAULT 0,
+    purchase_prices_json TEXT NOT NULL DEFAULT '[]',
     sale_price REAL NOT NULL DEFAULT 0,
+    sale_prices_json TEXT NOT NULL DEFAULT '[]',
     stock REAL NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'En stock',
     is_deleted INTEGER NOT NULL DEFAULT 0,
@@ -48,12 +50,14 @@ export const CREATE_PARTIES_TABLE_SQL = `
     city TEXT NOT NULL DEFAULT '',
     head_office TEXT NOT NULL DEFAULT '',
     category TEXT NOT NULL DEFAULT '',
+    client_category TEXT NOT NULL DEFAULT 'Standard',
     image_url TEXT NOT NULL DEFAULT '',
     nif TEXT NOT NULL DEFAULT '',
     nis TEXT NOT NULL DEFAULT '',
     rc TEXT NOT NULL DEFAULT '',
     tax_article TEXT NOT NULL DEFAULT '',
     rib TEXT NOT NULL DEFAULT '',
+    contact_status TEXT NOT NULL DEFAULT 'Actif',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )
@@ -61,6 +65,18 @@ export const CREATE_PARTIES_TABLE_SQL = `
 
 export const CREATE_PARTIES_KIND_NAME_INDEX_SQL =
   "CREATE INDEX IF NOT EXISTS parties_kind_name_idx ON parties (kind, name COLLATE NOCASE)";
+
+export const CREATE_CLIENT_CATEGORIES_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS client_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )
+`;
+
+export const CREATE_CLIENT_CATEGORIES_NAME_INDEX_SQL =
+  "CREATE UNIQUE INDEX IF NOT EXISTS client_categories_name_idx ON client_categories (name COLLATE NOCASE)";
 
 export const CREATE_DOCUMENTS_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS documents (
@@ -263,6 +279,14 @@ export const CREATE_APP_META_TABLE_SQL = `
 /** Columns added to pre-catalog databases by lib/sqlite.ts after table creation. */
 export const ARTICLE_COLUMN_MIGRATIONS = [
   {
+    name: "sale_prices_json",
+    sql: "ALTER TABLE articles ADD COLUMN sale_prices_json TEXT NOT NULL DEFAULT '[]'",
+  },
+  {
+    name: "purchase_prices_json",
+    sql: "ALTER TABLE articles ADD COLUMN purchase_prices_json TEXT NOT NULL DEFAULT '[]'",
+  },
+  {
     name: "subcategory",
     sql: "ALTER TABLE articles ADD COLUMN subcategory TEXT NOT NULL DEFAULT ''",
   },
@@ -295,6 +319,10 @@ export const ARTICLE_COLUMN_MIGRATIONS = [
  */
 export const PARTY_COLUMN_MIGRATIONS = [
   {
+    name: "contact_status",
+    sql: "ALTER TABLE parties ADD COLUMN contact_status TEXT NOT NULL DEFAULT 'Actif'",
+  },
+  {
     name: "contact_phone",
     sql: "ALTER TABLE parties ADD COLUMN contact_phone TEXT NOT NULL DEFAULT ''",
   },
@@ -321,6 +349,10 @@ export const PARTY_COLUMN_MIGRATIONS = [
   {
     name: "category",
     sql: "ALTER TABLE parties ADD COLUMN category TEXT NOT NULL DEFAULT ''",
+  },
+  {
+    name: "client_category",
+    sql: "ALTER TABLE parties ADD COLUMN client_category TEXT NOT NULL DEFAULT 'Standard'",
   },
   {
     name: "image_url",
@@ -396,6 +428,7 @@ export type PartySeed = {
   city: string;
   headOffice: string;
   category: string;
+  clientCategory?: string;
   imageUrl: string;
   nif: string;
   nis: string;
