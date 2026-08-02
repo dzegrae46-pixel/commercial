@@ -8341,7 +8341,7 @@ td strong {
   align-items: end;
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(210px, 1.1fr) minmax(300px, 1.6fr) 82px 112px 145px 106px 98px;
+  grid-template-columns: minmax(210px, 1.1fr) minmax(300px, 1.6fr) 82px 112px 145px 98px;
   width: 100%;
 }
 
@@ -8415,17 +8415,14 @@ td strong {
 
 @media (max-width: 1100px) {
   .document-command-grid {
-    grid-template-columns: minmax(220px, 1fr) minmax(300px, 1.5fr) 82px 112px 145px;
+    grid-template-columns: minmax(220px, 1fr) minmax(300px, 1.5fr) 82px 112px 145px 98px;
   }
-  .document-command-grid .document-reference-field { grid-column: 4; }
-  .document-command-add { grid-column: 5; }
 }
 
 @media (max-width: 920px) {
   .document-command-grid { grid-template-columns: 1fr 1fr; }
   .document-command-grid .document-party-field,
   .document-command-grid .document-command-article { grid-column: 1 / -1; }
-  .document-command-grid .document-reference-field,
   .document-command-add { grid-column: auto; }
 }
 
@@ -8634,15 +8631,22 @@ td strong {
 .print-preview-backdrop .print-document-sheet,
 .print-preview-backdrop .print-company-identity,
 .print-preview-backdrop .print-lines-table {
-  font-family: "Segoe UI", sans-serif;
+  font-family: "Segoe UI", Arial, sans-serif;
 }
 
-.print-preview-backdrop .print-document-sheet { font-family: "Segoe UI", sans-serif; font-size: 10pt; }
+.print-preview-backdrop .print-document-sheet,
+.print-preview-backdrop .print-document-sheet * {
+  font-family: "Segoe UI", Arial, sans-serif !important;
+}
+.print-preview-backdrop .print-document-sheet {
+  font-size: 11pt;
+  font-weight: 500;
+}
 .print-preview-backdrop .print-company-header {
   align-items: start;
   display: grid;
   grid-template-columns: 38mm minmax(0, 1fr) 38mm;
-  min-height: 49mm;
+  min-height: 57mm;
   padding: 0 0 2mm;
   text-align: center;
 }
@@ -8663,40 +8667,46 @@ td strong {
   z-index: auto;
 }
 .print-preview-backdrop .print-company-identity h1 {
-  font-family: "Segoe UI", sans-serif;
-  font-size: 22pt;
+  font-size: 24pt;
+  font-weight: 700;
   line-height: 1.05;
-  margin-bottom: 2mm;
+  margin-bottom: 2.5mm;
 }
 .print-preview-backdrop .print-company-identity p {
-  font-size: 9.7pt;
-  line-height: 1.25;
+  font-size: 11pt;
+  font-weight: 500;
+  line-height: 1.3;
 }
-.print-preview-backdrop .print-company-registration { font-size: 9pt; line-height: 1.2; }
-.print-preview-backdrop .print-company-address { font-size: 9.7pt; }
-.print-preview-backdrop .print-company-phone { font-size: 13.5pt; line-height: 1.15; }
-.print-preview-backdrop .print-document-title h2 { font-size: 18pt; line-height: 1; }
+.print-preview-backdrop .print-company-registration { font-size: 10.2pt; line-height: 1.3; }
+.print-preview-backdrop .print-company-address { font-size: 10.8pt; }
+.print-preview-backdrop .print-company-phone { font-size: 15.5pt; line-height: 1.2; }
+.print-preview-backdrop .print-document-heading { min-height: 46mm; padding: 5mm 0 6mm; }
+.print-preview-backdrop .print-document-title h2 { font-size: 20pt; line-height: 1.1; }
 .print-preview-backdrop .print-due-label,
 .print-preview-backdrop .print-party-card dt,
 .print-preview-backdrop .print-party-card dd,
-.print-preview-backdrop .print-document-number { font-size: 9.8pt; }
+.print-preview-backdrop .print-document-number { font-size: 11pt; }
+.print-preview-backdrop .print-party-card { min-height: 33mm; }
+.print-preview-backdrop .print-party-card > div { min-height: 8mm; }
 .print-preview-backdrop .print-lines-table th {
-  font-size: 9.5pt;
-  height: 7.5mm;
-  padding: 1mm 1.5mm;
+  font-size: 11pt;
+  font-weight: 700;
+  height: 9mm;
+  padding: 1.5mm 2mm;
 }
 .print-preview-backdrop .print-lines-table td,
 .print-preview-backdrop .print-lines-table td strong {
-  font-size: 9.5pt;
-  line-height: 1.2;
-  min-height: 8.5mm;
-  padding: 1.5mm;
+  font-size: 10.8pt;
+  font-weight: 500;
+  line-height: 1.3;
+  min-height: 10mm;
+  padding: 2mm;
 }
 .print-preview-backdrop .print-document-note strong,
 .print-preview-backdrop .print-document-note p,
 .print-preview-backdrop .print-grand-total dt,
 .print-preview-backdrop .print-grand-total dd,
-.print-preview-backdrop .print-manager-signature { font-size: 9.7pt; }
+.print-preview-backdrop .print-manager-signature { font-size: 10.8pt; }
 .print-preview-backdrop .print-grand-total dt,
 .print-preview-backdrop .print-grand-total dd { font-weight: 700; }
 

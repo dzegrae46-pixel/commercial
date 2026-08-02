@@ -4247,7 +4247,6 @@ function SimpleDocumentEditor({
             </span>
           </div>
           <div className="document-screen-actions">
-            <span className="pure-editor-status"><i /> Brouillon local</span>
             <button type="button" className="document-cancel-button" onClick={onClose} disabled={saving}>Annuler</button>
             <button type="submit" className="pure-save-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button>
           </div>
@@ -4305,7 +4304,6 @@ function SimpleDocumentEditor({
                 <span>Date</span>
                 <input type="date" required value={documentDate} onChange={(event) => setDocumentDate(event.target.value)} />
               </label>
-              <div className="document-reference-field"><span>Référence</span><strong className="document-reference">{initialDocument?.number ?? "Automatique"}</strong></div>
               <button type="button" className="pure-add-line-button document-command-add" onClick={addLine} disabled={saving}><Plus size={16} /><span>Ajouter</span></button>
             </div>
           </section>
