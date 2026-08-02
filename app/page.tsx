@@ -351,7 +351,7 @@ type ArticleRecord = {
   purchase_price: number;
   purchase_prices: { client_category: string; purchase_price: number }[];
   sale_price: number;
-  sale_prices: { label: string; margin_percent: number; sale_price: number }[];
+  sale_prices: { label: string; client_category: string; margin_percent: number; sale_price: number }[];
   stock: number;
   status: string;
   updated_at: string;
@@ -3742,7 +3742,7 @@ function SimpleDocumentEditor({
   const categoryPriceForParty = (article: ArticleRecord | null | undefined, party: PartyRow | null) => {
     if (!article || initialTarget !== "sales" || !party || !("clientCategory" in party)) return undefined;
     const category = party.clientCategory || "Standard";
-    return article.purchase_prices?.find((price) => normalizeLabel(price.client_category) === normalizeLabel(category))?.purchase_price;
+    return article.sale_prices?.find((price) => normalizeLabel(price.client_category || price.label) === normalizeLabel(category))?.sale_price;
   };
   const priceForParty = (article: ArticleRecord, party: PartyRow | null) => {
     if (initialTarget === "purchases") return article.purchase_price;
@@ -4458,6 +4458,11 @@ function ArticleFormModal({
   onClose: () => void;
   onSaved: (article: ArticleRecord) => void;
 }) {
+  const roundArticlePrice = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+  const salePriceFromMargin = (cost: number, margin: number) => roundArticlePrice(Math.max(0, cost * (1 + margin / 100)));
+  const marginFromSalePrice = (cost: number, sale: number) => cost > 0
+    ? roundArticlePrice(((sale - cost) / cost) * 100)
+    : 0;
   const [name, setName] = useState(article?.name ?? "");
   const [sku, setSku] = useState(article?.sku ?? "");
   const [brand, setBrand] = useState(article?.brand ?? "");
@@ -4471,16 +4476,24 @@ function ArticleFormModal({
   const [unit, setUnit] = useState(article?.unit ?? "unité");
   const [imageUrl, setImageUrl] = useState(article?.image_url ?? "");
   const [purchasePrice, setPurchasePrice] = useState(article?.purchase_price ?? 0);
-  const [purchasePrices, setPurchasePrices] = useState(() => {
-    if (article?.purchase_prices?.length) return article.purchase_prices.map((price, index) => ({ key: `saved-purchase-${index}`, clientCategory: price.client_category, purchasePrice: price.purchase_price }));
-    return [{ key: "default-purchase", clientCategory: "Standard", purchasePrice: article?.purchase_price ?? 0 }];
-  });
-  const [salePrices, setSalePrices] = useState(() => {
-    if (article?.sale_prices?.length) return article.sale_prices.map((price, index) => ({ key: `saved-${index}`, label: price.label, marginPercent: price.margin_percent }));
+  const [salePrices, setSalePrices] = useState<Array<{
+    key: string;
+    clientCategory: string;
+    salePrice: number;
+    marginPercent: number;
+    mode: "price" | "margin";
+  }>>(() => {
+    if (article?.sale_prices?.length) return article.sale_prices.map((price, index) => ({
+      key: `saved-${index}`,
+      clientCategory: price.client_category || price.label || "Standard",
+      salePrice: price.sale_price,
+      marginPercent: price.margin_percent,
+      mode: "price" as const,
+    }));
     const marginPercent = article?.purchase_price
       ? Math.round((((article.sale_price - article.purchase_price) / article.purchase_price) * 100) * 100) / 100
       : 0;
-    return [{ key: "default", label: "Prix détail", marginPercent }];
+    return [{ key: "default", clientCategory: "Standard", salePrice: article?.sale_price ?? 0, marginPercent, mode: "price" as const }];
   });
   const [stock, setStock] = useState(article?.stock ?? 0);
   const [saving, setSaving] = useState(false);
@@ -4514,15 +4527,29 @@ function ArticleFormModal({
   const normalizedSubcategory = subcategory.trim().toLocaleLowerCase("fr");
   const selectedSubcategory = subcategoryOptions.find((item) => item.name.toLocaleLowerCase("fr") === normalizedSubcategory);
   const thirdLevelOptions = selectedSubcategory?.subcategories ?? [];
-  const computedSalePrices = salePrices.map((price) => ({
-    label: price.label.trim() || "Prix de vente",
-    margin_percent: Number(price.marginPercent) || 0,
-    sale_price: Math.round(Math.max(0, purchasePrice * (1 + (Number(price.marginPercent) || 0) / 100)) * 100) / 100,
-  }));
-  const computedPurchasePrices = purchasePrices.map((price) => ({
-    client_category: price.clientCategory.trim() || "Standard",
-    purchase_price: Math.max(0, Number(price.purchasePrice) || 0),
-  }));
+  const computedSalePrices = salePrices.map((price) => {
+    const clientCategory = price.clientCategory.trim() || "Standard";
+    const salePrice = price.mode === "margin"
+      ? salePriceFromMargin(purchasePrice, Number(price.marginPercent) || 0)
+      : roundArticlePrice(Math.max(0, Number(price.salePrice) || 0));
+    const marginPercent = price.mode === "price"
+      ? marginFromSalePrice(purchasePrice, salePrice)
+      : roundArticlePrice(Number(price.marginPercent) || 0);
+    return {
+      label: clientCategory,
+      client_category: clientCategory,
+      margin_percent: marginPercent,
+      sale_price: salePrice,
+    };
+  });
+
+  const updatePurchasePrice = (nextPurchasePrice: number) => {
+    const normalizedPurchasePrice = Math.max(0, nextPurchasePrice || 0);
+    setPurchasePrice(normalizedPurchasePrice);
+    setSalePrices((rows) => rows.map((row) => row.mode === "margin"
+      ? { ...row, salePrice: salePriceFromMargin(normalizedPurchasePrice, Number(row.marginPercent) || 0) }
+      : { ...row, marginPercent: marginFromSalePrice(normalizedPurchasePrice, Number(row.salePrice) || 0) }));
+  };
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -4545,7 +4572,7 @@ function ArticleFormModal({
           unit,
           image_url: imageUrl,
           purchase_price: Number(purchasePrice),
-          purchase_prices: computedPurchasePrices,
+          purchase_prices: [{ client_category: "Standard", purchase_price: Number(purchasePrice) }],
           sale_price: computedSalePrices[0]?.sale_price ?? 0,
           sale_prices: computedSalePrices,
           stock: Number(stock),
@@ -4593,30 +4620,18 @@ function ArticleFormModal({
         </section>
         <label className="field-label">Description complète<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description affichée sur les commandes lorsque l’option est activée." rows={3} /></label>
         <div className="form-grid">
-          <label className="field-label">Prix d’achat<input type="number" min="0" step="0.01" value={purchasePrice} onChange={(event) => setPurchasePrice(Number(event.target.value))} /></label>
+          <label className="field-label">Prix d’achat<input type="number" min="0" step="0.01" value={purchasePrice} onChange={(event) => updatePurchasePrice(Number(event.target.value))} /></label>
           <label className="field-label">Stock initial / actuel<input type="number" min="0" step="0.01" value={stock} onChange={(event) => setStock(Number(event.target.value))} /></label>
         </div>
         <section className="article-price-tiers">
-          <div className="article-price-heading"><div><span>Prix achat par categorie client</span><small>Associez un prix a chaque segment client configure dans Clients.</small></div><button type="button" className="secondary-button" onClick={() => setPurchasePrices((rows) => [...rows, { key: `purchase-${Date.now()}`, clientCategory: "Standard", purchasePrice: Number(purchasePrice) || 0 }])} disabled={purchasePrices.length >= 24}><Plus size={15} /> Ajouter un prix</button></div>
+          <div className="article-price-heading"><div><span>Prix de vente par catégorie client</span><small>Saisissez le prix de vente ou la marge : l’autre valeur est calculée automatiquement.</small></div><button type="button" className="secondary-button" onClick={() => setSalePrices((rows) => [...rows, { key: `price-${Date.now()}`, clientCategory: "Standard", salePrice: Number(purchasePrice) || 0, marginPercent: 0, mode: "margin" as const }])} disabled={salePrices.length >= 24}><Plus size={15} /> Ajouter un prix</button></div>
           <div className="article-price-list">
-            {purchasePrices.map((price) => (
+            {salePrices.map((price) => (
               <div className="article-price-row" key={price.key}>
-                <label className="field-label">Categorie client<select value={price.clientCategory} onChange={(event) => setPurchasePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, clientCategory: event.target.value } : row))} required>{[...clientPriceCategories.map((item) => item.name), price.clientCategory].filter((name, index, values) => name && values.indexOf(name) === index).map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
-                <label className="field-label">Prix achat (DA)<input type="number" min="0" step="0.01" value={price.purchasePrice} onChange={(event) => setPurchasePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, purchasePrice: Number(event.target.value) } : row))} /></label>
-                <button type="button" className="icon-button danger-text" onClick={() => setPurchasePrices((rows) => rows.filter((row) => row.key !== price.key))} disabled={purchasePrices.length === 1} aria-label="Supprimer ce prix"><Trash2 size={16} /></button>
-              </div>
-            ))}
-          </div>
-        </section>
-        <section className="article-price-tiers">
-          <div className="article-price-heading"><div><span>Tarifs de vente</span><small>Saisissez uniquement la marge : le prix est calculé depuis le prix d’achat.</small></div><button type="button" className="secondary-button" onClick={() => setSalePrices((rows) => [...rows, { key: `price-${Date.now()}`, label: `Tarif ${rows.length + 1}`, marginPercent: 0 }])} disabled={salePrices.length >= 12}><Plus size={15} /> Ajouter un prix</button></div>
-          <div className="article-price-list">
-            {salePrices.map((price, index) => (
-              <div className="article-price-row" key={price.key}>
-                <label className="field-label">Nom du tarif<input value={price.label} onChange={(event) => setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, label: event.target.value } : row))} placeholder="Détail, gros, revendeur…" required /></label>
-                <label className="field-label">Marge (%)<input type="number" min="-100" step="0.01" value={price.marginPercent} onChange={(event) => setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, marginPercent: Number(event.target.value) } : row))} /></label>
-                <div className="calculated-sale-price"><small>Prix calculé</small><strong>{formatDa(computedSalePrices[index]?.sale_price ?? 0)}</strong></div>
-                <button type="button" className="icon-button danger-text" onClick={() => setSalePrices((rows) => rows.filter((row) => row.key !== price.key))} disabled={salePrices.length === 1} aria-label={`Supprimer ${price.label}`}><Trash2 size={16} /></button>
+                <label className="field-label">Catégorie client<select value={price.clientCategory} onChange={(event) => setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, clientCategory: event.target.value } : row))} required>{[...clientPriceCategories.map((item) => item.name), price.clientCategory].filter((name, index, values) => name && values.indexOf(name) === index).map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+                <label className="field-label">Prix de vente (DA)<input type="number" min="0" step="0.01" value={price.salePrice} onChange={(event) => { const salePrice = Math.max(0, Number(event.target.value) || 0); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, salePrice, marginPercent: marginFromSalePrice(purchasePrice, salePrice), mode: "price" as const } : row)); }} /></label>
+                <label className="field-label">Marge (%)<input type="number" min="-100" step="0.01" value={price.marginPercent} onChange={(event) => { const marginPercent = Math.max(-100, Number(event.target.value) || 0); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, marginPercent, salePrice: salePriceFromMargin(purchasePrice, marginPercent), mode: "margin" as const } : row)); }} /></label>
+                <button type="button" className="icon-button danger-text" onClick={() => setSalePrices((rows) => rows.filter((row) => row.key !== price.key))} disabled={salePrices.length === 1} aria-label={`Supprimer le prix ${price.clientCategory}`}><Trash2 size={16} /></button>
               </div>
             ))}
           </div>

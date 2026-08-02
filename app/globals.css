@@ -8485,7 +8485,7 @@ td strong {
 .balance-event-list b.paid { color: #07824d; }
 .balance-event-list em { color: #61708d; font-size: 10px; font-style: normal; min-width: 110px; text-align: right; }
 
-/* Several sale prices share one purchase cost and are driven by margin only. */
+/* Sale prices are assigned to client categories; price and margin stay synchronized. */
 .article-price-tiers { background: #f8faff; border: 1px solid #dfe5f2; border-radius: 13px; padding: 14px; }
 .article-price-heading { align-items: center; display: flex; gap: 16px; justify-content: space-between; margin-bottom: 12px; }
 .article-price-heading span,

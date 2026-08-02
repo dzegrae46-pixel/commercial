@@ -60,6 +60,7 @@ export type ArticleRecord = {
 
 export type ArticleSalePriceRecord = {
   label: string;
+  client_category: string;
   margin_percent: number;
   sale_price: number;
 };
@@ -428,23 +429,30 @@ function normalizeSalePrices(value: unknown, purchasePrice: number, fallbackSale
   const source = Array.isArray(value) ? value.slice(0, 12) : [];
   const rows = source.map((item, index) => {
     const input = asInputObject(item);
-    const label = cleanText(input.label, `Tarif ${index + 1}`) || `Tarif ${index + 1}`;
+    const clientCategory = cleanText(
+      input.client_category ?? input.clientCategory ?? input.category ?? input.label,
+      index === 0 ? "Standard" : `Tarif ${index + 1}`,
+    ) || (index === 0 ? "Standard" : `Tarif ${index + 1}`);
+    const label = cleanText(input.label, clientCategory) || clientCategory;
     const requestedMargin = optionalNumber(input.margin_percent ?? input.marginPercent ?? input.margin);
     const requestedPrice = optionalNumber(input.sale_price ?? input.salePrice ?? input.price);
     const inferredMargin = purchasePrice > 0 && requestedPrice !== undefined
       ? ((requestedPrice - purchasePrice) / purchasePrice) * 100
       : 0;
-    const marginPercent = roundMoney(requestedMargin ?? inferredMargin);
+    const marginPercent = roundMoney(requestedPrice !== undefined ? inferredMargin : (requestedMargin ?? inferredMargin));
     if (marginPercent < -100) throw new SqliteValidationError("La marge ne peut pas être inférieure à -100 %.");
+    const salePrice = roundMoney(requestedPrice ?? (purchasePrice * (1 + marginPercent / 100)));
+    if (salePrice < 0) throw new SqliteValidationError("Les prix de vente ne peuvent pas être négatifs.");
     return {
       label,
+      client_category: clientCategory,
       margin_percent: marginPercent,
-      sale_price: roundMoney(purchasePrice * (1 + marginPercent / 100)),
+      sale_price: salePrice,
     };
   });
   if (rows.length) return rows;
   const fallbackMargin = purchasePrice > 0 ? roundMoney(((fallbackSalePrice - purchasePrice) / purchasePrice) * 100) : 0;
-  return [{ label: "Prix de vente", margin_percent: fallbackMargin, sale_price: roundMoney(fallbackSalePrice) }];
+  return [{ label: "Standard", client_category: "Standard", margin_percent: fallbackMargin, sale_price: roundMoney(fallbackSalePrice) }];
 }
 
 function normalizePurchasePrices(value: unknown, fallbackPurchasePrice: number): ArticlePurchasePriceRecord[] {
@@ -564,10 +572,26 @@ function toArticleRecord(row: Record<string, unknown>): ArticleRecord {
   } catch {
     rawPurchasePrices = [];
   }
+  const purchasePrices = normalizePurchasePrices(rawPurchasePrices, purchasePrice);
+  const hasExplicitSaleCategories = Array.isArray(rawPrices) && rawPrices.some((item) => {
+    const input = asInputObject(item);
+    return Boolean(cleanText(input.client_category ?? input.clientCategory ?? input.category));
+  });
+  const hasLegacyClientPrices = purchasePrices.length > 1
+    || purchasePrices.some((price) => price.client_category.toLocaleLowerCase("fr") !== "standard");
+  const salePrices = !hasExplicitSaleCategories && hasLegacyClientPrices
+    ? purchasePrices.map((price) => ({
+        label: price.client_category,
+        client_category: price.client_category,
+        margin_percent: purchasePrice > 0 ? roundMoney(((price.purchase_price - purchasePrice) / purchasePrice) * 100) : 0,
+        sale_price: price.purchase_price,
+      }))
+    : normalizeSalePrices(rawPrices, purchasePrice, salePrice);
   return {
     ...(row as unknown as ArticleRecord),
-    sale_prices: normalizeSalePrices(rawPrices, purchasePrice, salePrice),
-    purchase_prices: normalizePurchasePrices(rawPurchasePrices, purchasePrice),
+    sale_price: salePrices[0]?.sale_price ?? salePrice,
+    sale_prices: salePrices,
+    purchase_prices: purchasePrices,
   };
 }
 
