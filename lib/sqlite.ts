@@ -23,6 +23,8 @@ import {
   CREATE_EMPLOYEE_ATTENDANCE_TABLE_SQL,
   CREATE_FINANCE_ENTRIES_DATE_INDEX_SQL,
   CREATE_FINANCE_ENTRIES_TABLE_SQL,
+  CREATE_FEEDBACK_ITEMS_STATUS_INDEX_SQL,
+  CREATE_FEEDBACK_ITEMS_TABLE_SQL,
   CREATE_PARTIES_KIND_NAME_INDEX_SQL,
   CREATE_PARTIES_TABLE_SQL,
   CREATE_PAYMENTS_PARTY_INDEX_SQL,
@@ -231,6 +233,23 @@ export type TreasuryLedgerRecord = {
   note: string;
   party_id: number | null;
   editable: boolean;
+};
+
+export type FeedbackType = "bug" | "suggestion";
+export type FeedbackStatus = "open" | "in_progress" | "resolved" | "closed";
+export type FeedbackPriority = "low" | "normal" | "high" | "urgent";
+
+export type FeedbackRecord = {
+  id: number;
+  type: FeedbackType;
+  title: string;
+  description: string;
+  status: FeedbackStatus;
+  priority: FeedbackPriority;
+  reporter: string;
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
 };
 
 export type DocumentDirection = "purchases" | "sales";
@@ -661,6 +680,8 @@ function openDatabase() {
   database.exec(CREATE_SALARY_PAYMENTS_EMPLOYEE_INDEX_SQL);
   database.exec(CREATE_TREASURY_ENTRIES_TABLE_SQL);
   database.exec(CREATE_TREASURY_ENTRIES_DATE_INDEX_SQL);
+  database.exec(CREATE_FEEDBACK_ITEMS_TABLE_SQL);
+  database.exec(CREATE_FEEDBACK_ITEMS_STATUS_INDEX_SQL);
 
   return database;
 }
@@ -2379,6 +2400,91 @@ export function listTreasuryEntries(): TreasuryEntryRecord[] {
     SELECT id, direction, label, category, amount, entry_date, note, created_at, updated_at
     FROM treasury_entries ORDER BY entry_date DESC, id DESC
   `).all() as unknown as TreasuryEntryRecord[];
+}
+
+function normalizeFeedbackType(value: unknown): FeedbackType {
+  if (value === "bug" || value === "suggestion") return value;
+  throw new SqliteValidationError("Le type de feedback est invalide.");
+}
+
+function normalizeFeedbackStatus(value: unknown): FeedbackStatus {
+  if (value === "open" || value === "in_progress" || value === "resolved" || value === "closed") return value;
+  throw new SqliteValidationError("Le statut du feedback est invalide.");
+}
+
+function normalizeFeedbackPriority(value: unknown): FeedbackPriority {
+  if (value === "low" || value === "normal" || value === "high" || value === "urgent") return value;
+  throw new SqliteValidationError("La priorité du feedback est invalide.");
+}
+
+function readFeedback(database: DatabaseSync, id: number): FeedbackRecord {
+  const row = database.prepare(`
+    SELECT id, type, title, description, status, priority, reporter,
+      created_at, updated_at, resolved_at
+    FROM feedback_items WHERE id = ?
+  `).get(id);
+  if (!row) throw new SqliteValidationError("Feedback introuvable.");
+  return row as unknown as FeedbackRecord;
+}
+
+export function listFeedback(query = "", status = "all"): FeedbackRecord[] {
+  const normalizedQuery = cleanText(query).slice(0, 120);
+  const normalizedStatus = status === "all" || !status ? "all" : normalizeFeedbackStatus(status);
+  const like = `%${normalizedQuery}%`;
+  return getDatabase().prepare(`
+    SELECT id, type, title, description, status, priority, reporter,
+      created_at, updated_at, resolved_at
+    FROM feedback_items
+    WHERE (? = 'all' OR status = ?)
+      AND (? = '' OR title LIKE ? COLLATE NOCASE OR description LIKE ? COLLATE NOCASE OR reporter LIKE ? COLLATE NOCASE)
+    ORDER BY
+      CASE status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'resolved' THEN 2 ELSE 3 END,
+      CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+      created_at DESC, id DESC
+  `).all(normalizedStatus, normalizedStatus, normalizedQuery, like, like, like) as unknown as FeedbackRecord[];
+}
+
+export function createFeedback(value: unknown): FeedbackRecord {
+  const input = asInputObject(value);
+  const type = normalizeFeedbackType(input.type ?? "bug");
+  const title = requiredText(input.title, "Le sujet").slice(0, 140);
+  const description = requiredText(input.description, "La description").slice(0, 4000);
+  const priority = normalizeFeedbackPriority(input.priority ?? "normal");
+  const reporter = (cleanText(input.reporter, "Utilisateur") || "Utilisateur").slice(0, 100);
+  const result = getDatabase().prepare(`
+    INSERT INTO feedback_items (type, title, description, status, priority, reporter)
+    VALUES (?, ?, ?, 'open', ?, ?)
+  `).run(type, title, description, priority, reporter);
+  return readFeedback(getDatabase(), Number(result.lastInsertRowid));
+}
+
+export function updateFeedback(value: unknown): FeedbackRecord {
+  const input = asInputObject(value);
+  const id = requiredId(input.id, "Le feedback");
+  const database = getDatabase();
+  const current = readFeedback(database, id);
+  const type = input.type === undefined ? current.type : normalizeFeedbackType(input.type);
+  const title = input.title === undefined ? current.title : requiredText(input.title, "Le sujet").slice(0, 140);
+  const description = input.description === undefined ? current.description : requiredText(input.description, "La description").slice(0, 4000);
+  const status = input.status === undefined ? current.status : normalizeFeedbackStatus(input.status);
+  const priority = input.priority === undefined ? current.priority : normalizeFeedbackPriority(input.priority);
+  const reporter = input.reporter === undefined ? current.reporter : (cleanText(input.reporter, "Utilisateur") || "Utilisateur").slice(0, 100);
+  database.prepare(`
+    UPDATE feedback_items
+    SET type = ?, title = ?, description = ?, status = ?, priority = ?, reporter = ?,
+      updated_at = CURRENT_TIMESTAMP,
+      resolved_at = CASE WHEN ? = 'resolved' THEN COALESCE(resolved_at, CURRENT_TIMESTAMP) ELSE NULL END
+    WHERE id = ?
+  `).run(type, title, description, status, priority, reporter, status, id);
+  return readFeedback(database, id);
+}
+
+export function deleteFeedback(feedbackId: unknown): FeedbackRecord {
+  const id = requiredId(feedbackId, "Le feedback");
+  const database = getDatabase();
+  const row = readFeedback(database, id);
+  database.prepare("DELETE FROM feedback_items WHERE id = ?").run(id);
+  return row;
 }
 
 export function createTreasuryEntry(value: unknown): TreasuryEntryRecord {

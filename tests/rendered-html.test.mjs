@@ -15,6 +15,7 @@ test("contains the compact workspace views and company settings", async () => {
     "Achats",
     "Ventes",
     "Documents",
+    "Feedback",
     "Paramètres",
   ]) {
     assert.match(page, new RegExp(view));
@@ -48,6 +49,9 @@ test("contains the compact workspace views and company settings", async () => {
   assert.match(page, /lines\.map/);
   assert.match(page, /SettingsPage/);
   assert.match(page, /DocumentsLibrary/);
+  assert.match(page, /FeedbackPage/);
+  assert.match(page, /Nouveau feedback/);
+  assert.match(page, /feedbackEnabled/);
   assert.match(page, /EntityLogo/);
   assert.match(page, /ArticleBrandLogo/);
   assert.match(page, /ArticlesTable/);
@@ -125,6 +129,8 @@ test("keeps the visual system compact and production-ready", async () => {
   assert.match(css, /\.table-card/);
   assert.match(css, /\.company-logo/);
   assert.match(css, /\.settings-card/);
+  assert.match(css, /\.feedback-table-card/);
+  assert.match(css, /\.settings-toggle-row/);
   assert.match(css, /\.entity-logo/);
   assert.match(css, /\.article-brand-logo/);
   assert.match(css, /\.stock-value/);
@@ -186,6 +192,26 @@ test("keeps the visual system compact and production-ready", async () => {
     access(new URL("public/products/macbook-pro-16.png", root)),
     access(new URL("public/example-gsr-logo.svg", root)),
   ]);
+});
+
+test("persists and manages user feedback in local SQLite", async () => {
+  const [schema, sqlite, route] = await Promise.all([
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("lib/sqlite.ts", root), "utf8"),
+    readFile(new URL("app/api/feedback/route.ts", root), "utf8"),
+  ]);
+
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS feedback_items/);
+  assert.match(schema, /'open', 'in_progress', 'resolved', 'closed'/);
+  assert.match(schema, /'bug', 'suggestion'/);
+  assert.match(sqlite, /export function listFeedback/);
+  assert.match(sqlite, /export function createFeedback/);
+  assert.match(sqlite, /export function updateFeedback/);
+  assert.match(sqlite, /export function deleteFeedback/);
+  assert.match(route, /export function GET/);
+  assert.match(route, /export async function POST/);
+  assert.match(route, /export async function PATCH/);
+  assert.match(route, /export async function DELETE/);
 });
 
 test("persists the three-level catalog and clean seeds in offline SQLite", async () => {

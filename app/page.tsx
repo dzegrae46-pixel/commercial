@@ -29,6 +29,7 @@ import {
   List,
   Mail,
   MapPin,
+  MessageSquareText,
   MoreHorizontal,
   Package,
   Pencil,
@@ -45,6 +46,8 @@ import {
   Snowflake,
   Sparkles,
   Store,
+  Bug,
+  Lightbulb,
   Trash2,
   Truck,
   Upload,
@@ -58,7 +61,7 @@ import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 
-type PageKey = "dashboard" | "clients" | "suppliers" | "articles" | "purchases" | "sales" | "finance" | "documents" | "settings";
+type PageKey = "dashboard" | "clients" | "suppliers" | "articles" | "purchases" | "sales" | "finance" | "documents" | "feedback" | "settings";
 type BusinessPage = "clients" | "suppliers" | "purchases" | "sales";
 type DocType = "all" | "quotes" | "orders" | "delivery" | "invoices" | "returns";
 type LibraryCategory = DocType;
@@ -80,6 +83,24 @@ type CompanySettings = {
   address: string;
   city: string;
   phone: string;
+  feedbackEnabled: boolean;
+};
+
+type FeedbackType = "bug" | "suggestion";
+type FeedbackStatus = "open" | "in_progress" | "resolved" | "closed";
+type FeedbackPriority = "low" | "normal" | "high" | "urgent";
+
+type FeedbackRecord = {
+  id: number;
+  type: FeedbackType;
+  title: string;
+  description: string;
+  status: FeedbackStatus;
+  priority: FeedbackPriority;
+  reporter: string;
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
 };
 
 type ClientRecord = {
@@ -433,6 +454,7 @@ const pageMeta: Record<PageKey, { label: string; subtitle: string; icon: LucideI
   sales: { label: "Ventes", subtitle: "Devis, commandes et factures", icon: Store },
   finance: { label: "Finance", subtitle: "Dépenses, charges et règlements", icon: WalletCards },
   documents: { label: "Documents", subtitle: "Tous vos fichiers commerciaux", icon: Files },
+  feedback: { label: "Feedback", subtitle: "Erreurs signalées et propositions", icon: MessageSquareText },
   settings: { label: "Paramètres", subtitle: "Identité de votre entreprise", icon: Settings2 },
 };
 
@@ -453,6 +475,7 @@ const navGroups: { label: string; items: { label: string; icon: LucideIcon; key?
     label: "Espace de travail",
     items: [
       { key: "documents", label: "Documents", icon: Folder },
+      { key: "feedback", label: "Feedback", icon: MessageSquareText },
     ],
   },
   {
@@ -501,6 +524,11 @@ const topStats: Record<PageKey, { label: string; value: string; trend: string; i
     { label: "Documents", value: "4", trend: "Achats + ventes", icon: Files },
     { label: "Fichiers PDF", value: "2", trend: "Factures", icon: FileText },
     { label: "Images", value: "2", trend: "BL / réception", icon: FileImage },
+  ],
+  feedback: [
+    { label: "Ouverts", value: "À traiter", trend: "Signalements actifs", icon: Bug },
+    { label: "Propositions", value: "Idées", trend: "Améliorations", icon: Lightbulb },
+    { label: "Résolus", value: "Suivis", trend: "Historique conservé", icon: Check },
   ],
   settings: [
     { label: "Profil", value: "Entreprise", trend: "Actif", icon: Store },
@@ -564,6 +592,7 @@ const DEFAULT_COMPANY: CompanySettings = {
   address: "Cité route Azib Ahmed, Izi Ouzou",
   city: "Béjaïa",
   phone: "0772 023 970 / 0559 030 467",
+  feedbackEnabled: true,
 };
 const COMPANY_STORAGE_KEY = "axxam-company-settings-v2";
 const COMPANY_CHANGE_EVENT = "axxam-company-settings-change";
@@ -631,6 +660,7 @@ const readCompanySettings = (): CompanySettings => {
       address: cleanCompanyValue(stored.address, DEFAULT_COMPANY.address),
       city: cleanCompanyValue(stored.city, DEFAULT_COMPANY.city, 80),
       phone: cleanCompanyValue(stored.phone, DEFAULT_COMPANY.phone, 80),
+      feedbackEnabled: stored.feedbackEnabled !== false,
     };
   } catch {
     companyCache = DEFAULT_COMPANY;
@@ -663,6 +693,7 @@ const persistCompanySettings = (nextSettings: CompanySettings) => {
     address: cleanCompanyValue(nextSettings.address, DEFAULT_COMPANY.address),
     city: cleanCompanyValue(nextSettings.city, DEFAULT_COMPANY.city, 80),
     phone: cleanCompanyValue(nextSettings.phone, DEFAULT_COMPANY.phone, 80),
+    feedbackEnabled: nextSettings.feedbackEnabled !== false,
   };
   const serialized = JSON.stringify(cleaned);
 
@@ -3219,6 +3250,195 @@ function Dashboard({
   );
 }
 
+const feedbackStatusOptions: { value: FeedbackStatus | "all"; label: string }[] = [
+  { value: "all", label: "Tous" },
+  { value: "open", label: "Ouverts" },
+  { value: "in_progress", label: "En cours" },
+  { value: "resolved", label: "Résolus" },
+  { value: "closed", label: "Fermés" },
+];
+
+const feedbackStatusLabels: Record<FeedbackStatus, string> = {
+  open: "Ouvert",
+  in_progress: "En cours",
+  resolved: "Résolu",
+  closed: "Fermé",
+};
+
+const feedbackStatusTones: Record<FeedbackStatus, string> = {
+  open: "orange",
+  in_progress: "blue",
+  resolved: "green",
+  closed: "gray",
+};
+
+const feedbackPriorityLabels: Record<FeedbackPriority, string> = {
+  low: "Faible",
+  normal: "Normale",
+  high: "Haute",
+  urgent: "Urgente",
+};
+
+function FeedbackPage({ notify }: { notify: (message: string) => void }) {
+  const [rows, setRows] = useState<FeedbackRecord[]>([]);
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState<FeedbackStatus | "all">("all");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [savingId, setSavingId] = useState<number | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      setError("");
+      const params = new URLSearchParams({ query, status });
+      fetch(`/api/feedback?${params}`, { cache: "no-store", signal: controller.signal })
+        .then(async (response) => {
+          const payload = await response.json() as { feedback?: FeedbackRecord[]; error?: string };
+          if (!response.ok) throw new Error(payload.error || "Impossible de charger les feedbacks.");
+          setRows(payload.feedback ?? []);
+        })
+        .catch((requestError: Error) => {
+          if (requestError.name !== "AbortError") setError(requestError.message);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
+    }, 180);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query, status]);
+
+  const updateStatus = async (row: FeedbackRecord, nextStatus: FeedbackStatus) => {
+    setSavingId(row.id);
+    try {
+      const response = await fetch("/api/feedback", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: row.id, status: nextStatus }),
+      });
+      const payload = await response.json() as { feedback?: FeedbackRecord; error?: string };
+      if (!response.ok || !payload.feedback) throw new Error(payload.error || "Impossible de changer le statut.");
+      setRows((current) => status !== "all" && status !== nextStatus
+        ? current.filter((item) => item.id !== row.id)
+        : current.map((item) => item.id === row.id ? payload.feedback! : item));
+      notify(`Feedback marqué « ${feedbackStatusLabels[nextStatus]} »`);
+    } catch (requestError) {
+      notify(requestError instanceof Error ? requestError.message : "Impossible de changer le statut.");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const removeFeedback = async (row: FeedbackRecord) => {
+    if (!window.confirm(`Supprimer définitivement « ${row.title} » ?`)) return;
+    setSavingId(row.id);
+    try {
+      const response = await fetch("/api/feedback", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: row.id }),
+      });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Impossible de supprimer ce feedback.");
+      setRows((current) => current.filter((item) => item.id !== row.id));
+      notify("Feedback supprimé");
+    } catch (requestError) {
+      notify(requestError instanceof Error ? requestError.message : "Impossible de supprimer ce feedback.");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  return (
+    <div className="feedback-page">
+      <section className="table-card feedback-table-card">
+        <div className="table-header feedback-table-header">
+          <div className="table-title"><h1>Feedback des utilisateurs</h1><span>{rows.length} signalement{rows.length === 1 ? "" : "s"} affiché{rows.length === 1 ? "" : "s"}</span></div>
+          <div className="table-actions">
+            <label className="search-control"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un feedback…" aria-label="Rechercher un feedback" />{query && <button type="button" onClick={() => setQuery("")} aria-label="Effacer la recherche"><X size={14} /></button>}</label>
+            <button type="button" className="primary-button" onClick={() => setCreateOpen(true)}><Plus size={16} /> Nouveau feedback</button>
+          </div>
+        </div>
+        <div className="feedback-status-tabs" aria-label="Filtrer par statut">
+          {feedbackStatusOptions.map((option) => <button key={option.value} type="button" className={status === option.value ? "active" : ""} onClick={() => setStatus(option.value)}>{option.label}</button>)}
+        </div>
+        <div className="table-scroll feedback-table-scroll">
+          <table className="feedback-table">
+            <thead><tr><th>Type</th><th>Sujet</th><th>Priorité</th><th>Statut</th><th>Signalé par</th><th>Date</th><th aria-label="Actions" /></tr></thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id}>
+                  <td><span className={`feedback-type feedback-type-${row.type}`}>{row.type === "bug" ? <Bug size={15} /> : <Lightbulb size={15} />}{row.type === "bug" ? "Erreur" : "Proposition"}</span></td>
+                  <td><div className="feedback-subject"><strong>{row.title}</strong><p>{row.description}</p></div></td>
+                  <td><span className={`feedback-priority feedback-priority-${row.priority}`}>{feedbackPriorityLabels[row.priority]}</span></td>
+                  <td><label className={`feedback-status-select status-${feedbackStatusTones[row.status]}`}><span>{feedbackStatusLabels[row.status]}</span><ChevronDown size={13} /><select value={row.status} disabled={savingId === row.id} onChange={(event) => void updateStatus(row, event.target.value as FeedbackStatus)} aria-label={`Statut de ${row.title}`}>{feedbackStatusOptions.slice(1).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></td>
+                  <td><span className="feedback-reporter">{row.reporter}</span></td>
+                  <td><time dateTime={row.created_at}>{new Intl.DateTimeFormat("fr-DZ", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${row.created_at.replace(" ", "T")}Z`))}</time></td>
+                  <td><button type="button" className="icon-button feedback-delete" disabled={savingId === row.id} onClick={() => void removeFeedback(row)} aria-label={`Supprimer ${row.title}`}><Trash2 size={16} /></button></td>
+                </tr>
+              ))}
+              {!loading && !rows.length && <tr><td colSpan={7} className="feedback-empty"><MessageSquareText size={28} /><strong>Aucun feedback dans cette vue</strong><span>Les erreurs et propositions envoyées apparaîtront ici.</span><button type="button" className="text-button" onClick={() => setCreateOpen(true)}>Créer le premier</button></td></tr>}
+            </tbody>
+          </table>
+          {loading && <div className="feedback-loading">Chargement des feedbacks…</div>}
+          {error && <div className="feedback-error" role="alert">{error}</div>}
+        </div>
+      </section>
+      {createOpen && <FeedbackCreateModal onClose={() => setCreateOpen(false)} onCreated={(feedback) => { setCreateOpen(false); setRows((current) => status === "all" || status === "open" ? [feedback, ...current] : current); notify("Feedback envoyé et marqué ouvert"); }} />}
+    </div>
+  );
+}
+
+function FeedbackCreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (feedback: FeedbackRecord) => void }) {
+  const [type, setType] = useState<FeedbackType>("bug");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState<FeedbackPriority>("normal");
+  const [reporter, setReporter] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, title, description, priority, reporter }) });
+      const payload = await response.json() as { feedback?: FeedbackRecord; error?: string };
+      if (!response.ok || !payload.feedback) throw new Error(payload.error || "Impossible d’envoyer le feedback.");
+      onCreated(payload.feedback);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Impossible d’envoyer le feedback.");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <form className="modal-card feedback-modal" role="dialog" aria-modal="true" aria-labelledby="feedback-modal-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
+        <div className="modal-header"><div><h2 id="feedback-modal-title">Nouveau feedback</h2><p>Signalez une erreur ou proposez une amélioration.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+        <div className="feedback-type-picker">
+          <button type="button" className={type === "bug" ? "active bug" : "bug"} onClick={() => setType("bug")}><Bug size={18} /><span><strong>Signaler une erreur</strong><small>Un problème empêche de travailler correctement.</small></span></button>
+          <button type="button" className={type === "suggestion" ? "active suggestion" : "suggestion"} onClick={() => setType("suggestion")}><Lightbulb size={18} /><span><strong>Faire une proposition</strong><small>Une idée pour améliorer l’application.</small></span></button>
+        </div>
+        <label className="field-label">Sujet<input required maxLength={140} value={title} onChange={(event) => setTitle(event.target.value)} placeholder={type === "bug" ? "Ex. Impossible de supprimer une ligne" : "Ex. Ajouter un nouveau filtre"} /></label>
+        <label className="field-label">Description<textarea required rows={5} maxLength={4000} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Expliquez ce qui se passe, où et ce que vous attendiez…" /></label>
+        <div className="form-grid">
+          <label className="field-label">Priorité<select value={priority} onChange={(event) => setPriority(event.target.value as FeedbackPriority)}><option value="low">Faible</option><option value="normal">Normale</option><option value="high">Haute</option><option value="urgent">Urgente</option></select></label>
+          <label className="field-label">Votre nom (facultatif)<input maxLength={100} value={reporter} onChange={(event) => setReporter(event.target.value)} placeholder="Utilisateur" /></label>
+        </div>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button type="submit" className="primary-button" disabled={saving}><MessageSquareText size={15} />{saving ? "Envoi…" : "Envoyer le feedback"}</button></div>
+      </form>
+    </div>
+  );
+}
+
 function SettingsPage({
   company,
   onSave,
@@ -3241,6 +3461,7 @@ function SettingsPage({
   const [address, setAddress] = useState(company.address);
   const [city, setCity] = useState(company.city);
   const [phone, setPhone] = useState(company.phone);
+  const [feedbackEnabled, setFeedbackEnabled] = useState(company.feedbackEnabled);
   const logoInput = useRef<HTMLInputElement | null>(null);
   const previewCompany = {
     name: name.trim() || "Nom de l’entreprise",
@@ -3256,6 +3477,7 @@ function SettingsPage({
     address,
     city,
     phone,
+    feedbackEnabled,
   };
 
   const loadLogo = (file?: File) => {
@@ -3294,7 +3516,7 @@ function SettingsPage({
           className="settings-form"
           onSubmit={(event) => {
             event.preventDefault();
-            const saved = onSave({ name, logoDataUrl, defaultTaxRate: Number(defaultTaxRate), activityLine1, activityLine2, rc, taxArticle, nif, rib, bank, address, city, phone });
+            const saved = onSave({ name, logoDataUrl, defaultTaxRate: Number(defaultTaxRate), activityLine1, activityLine2, rc, taxArticle, nif, rib, bank, address, city, phone, feedbackEnabled });
             notify(saved ? "Identité de l’entreprise enregistrée" : "Impossible d’enregistrer sur cet appareil");
           }}
         >
@@ -3354,6 +3576,16 @@ function SettingsPage({
             <small>Cette valeur sera proposée sur chaque nouvelle ligne d’achat ou de vente.</small>
           </label>
 
+          <div className="settings-section-title settings-feedback-title">
+            <span><MessageSquareText size={17} /></span>
+            <div><h2>Page Feedback</h2><p>Contrôlez sa visibilité pour tous les utilisateurs de cet appareil.</p></div>
+          </div>
+          <label className="settings-toggle-row">
+            <span><strong>Afficher Feedback dans la navigation</strong><small>Permet de signaler des erreurs et de proposer des améliorations.</small></span>
+            <input type="checkbox" checked={feedbackEnabled} onChange={(event) => setFeedbackEnabled(event.target.checked)} />
+            <i aria-hidden="true" />
+          </label>
+
           <div className="field-label">
             Logo de l’entreprise
             <div className="logo-field">
@@ -3402,6 +3634,7 @@ function SettingsPage({
                 setAddress(DEFAULT_COMPANY.address);
                 setCity(DEFAULT_COMPANY.city);
                 setPhone(DEFAULT_COMPANY.phone);
+                setFeedbackEnabled(DEFAULT_COMPANY.feedbackEnabled);
                 notify("Valeurs par défaut restaurées dans le formulaire");
               }}
             >
@@ -4794,6 +5027,9 @@ export default function WorkspaceApp() {
   useEffect(() => {
     document.title = `${company.name} Workspace`;
   }, [company.name]);
+  useEffect(() => {
+    if (!company.feedbackEnabled && page === "feedback") window.location.hash = "dashboard";
+  }, [company.feedbackEnabled, page]);
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<DocType>("all");
   const [filterActive, setFilterActive] = useState(false);
@@ -5433,16 +5669,19 @@ export default function WorkspaceApp() {
           </div>
         )}
         <nav className="side-nav">
-          {navGroups.map((group) => (
+          {navGroups.map((group) => {
+            const visibleItems = group.items.filter(({ key }) => key !== "feedback" || company.feedbackEnabled);
+            if (!visibleItems.length) return null;
+            return (
             <div className="nav-group" key={group.label}>
               <span className="nav-label">{group.label}</span>
-              {group.items.map(({ key, label, icon: Icon }) => (
-                <button key={label} className={key && page === key && (group.label === "Menu" || key === "documents" || key === "settings") ? "nav-item active" : "nav-item"} onClick={() => key ? navigate(key) : notify(`${label} ouvert`)}>
+              {visibleItems.map(({ key, label, icon: Icon }) => (
+                <button key={label} className={key && page === key ? "nav-item active" : "nav-item"} onClick={() => key ? navigate(key) : notify(`${label} ouvert`)}>
                   <Icon size={17} /><span>{label}</span>
                 </button>
               ))}
             </div>
-          ))}
+          );})}
         </nav>
         <div className="sidebar-footer">
           <button className="workspace-card" onClick={() => setWorkspaceOpen((value) => !value)}>
@@ -5512,6 +5751,7 @@ export default function WorkspaceApp() {
           {page === "sales" && <DocumentsTable page="sales" rows={sales} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(document) => setDocumentDetails(printableContextFor("sales", document))} onPrint={(document) => setPrintContext(printableContextFor("sales", document))} onEdit={(document) => setDocumentEditorContext({ direction: "sales", document })} onDuplicate={(document) => { void duplicateDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le document.")); }} onDelete={(number) => { const document = sales.find((row) => row.number === number); if (document) void deleteDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le document.")); }} onReturn={(document) => setReturnContext({ direction: "sales", document })} onTransfer={(document, targetType) => transferDocument("sales", document, targetType)} />}
           {page === "finance" && <FinanceWorkspacePage entries={financeEntries} parties={[...clients, ...suppliers]} treasuryLedger={treasuryLedger} employees={employees} attendance={employeeAttendance} salaryPayments={salaryPayments} search={search} setSearch={setSearch} onNewCharge={() => setFinanceEntryEditor("new")} onViewCharge={setFinanceEntryDetails} onEditCharge={(entry) => setFinanceEntryEditor(entry)} onDeleteCharge={(entry) => { void deleteFinanceEntryRecord(entry); }} onViewParty={(party, kind) => setPartyDetails({ party, kind })} onSettleParty={(party, kind) => setSettlementContext({ party, kind })} onNewTreasury={() => setTreasuryEntryEditor("new")} onEditTreasury={(entry) => setTreasuryEntryEditor(entry)} onDeleteTreasury={(entry) => { void deleteTreasuryEntryRecord(entry); }} onNewEmployee={() => setEmployeeEditor("new")} onEditEmployee={setEmployeeEditor} onRecordAttendance={setAttendanceEmployee} onPaySalary={setSalaryEmployee} onEditSalaryPayment={(employee, payment) => setSalaryPaymentEditor({ employee, payment })} />}
           {page === "documents" && <DocumentsLibrary purchases={purchases} sales={sales} search={search} setSearch={setSearch} viewMode={viewMode} setViewMode={setViewMode} />}
+          {page === "feedback" && company.feedbackEnabled && <FeedbackPage notify={notify} />}
           {page === "settings" && <SettingsPage company={company} onSave={persistCompanySettings} notify={notify} />}
           </>}
         </main>

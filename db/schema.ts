@@ -286,6 +286,26 @@ export const CREATE_TREASURY_ENTRIES_TABLE_SQL = `
 export const CREATE_TREASURY_ENTRIES_DATE_INDEX_SQL =
   "CREATE INDEX IF NOT EXISTS treasury_entries_date_idx ON treasury_entries (entry_date DESC, id DESC)";
 
+/** User-reported errors and product proposals. Keeping this in SQLite makes
+ * the feedback workspace available offline alongside the commercial data. */
+export const CREATE_FEEDBACK_ITEMS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS feedback_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL DEFAULT 'bug' CHECK(type IN ('bug', 'suggestion')),
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'in_progress', 'resolved', 'closed')),
+    priority TEXT NOT NULL DEFAULT 'normal' CHECK(priority IN ('low', 'normal', 'high', 'urgent')),
+    reporter TEXT NOT NULL DEFAULT 'Utilisateur',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TEXT
+  )
+`;
+
+export const CREATE_FEEDBACK_ITEMS_STATUS_INDEX_SQL =
+  "CREATE INDEX IF NOT EXISTS feedback_items_status_idx ON feedback_items (status, created_at DESC, id DESC)";
+
 export const CREATE_APP_META_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS app_meta (
     key TEXT PRIMARY KEY,
