@@ -8778,3 +8778,23 @@ td strong {
 .clients-table th:nth-child(7) { width: 165px; }
 .clients-table th:nth-child(8) { width: 150px; }
 .clients-table .identity-cell { align-items: flex-start; }
+
+/* Fournisseurs reste entièrement visible, sans défilement horizontal. */
+.table-scroll:has(.suppliers-table) { overflow-x: hidden; }
+.suppliers-table { min-width: 0; }
+.suppliers-table th:nth-child(1) { width: 21%; }
+.suppliers-table th:nth-child(2) { width: 19%; }
+.suppliers-table th:nth-child(3) { width: 10%; }
+.suppliers-table th:nth-child(4) { width: 10%; }
+.suppliers-table th:nth-child(5) { width: 9%; }
+.suppliers-table th:nth-child(6) { width: 9%; }
+.suppliers-table th:nth-child(7) { width: 8%; }
+.suppliers-table th:nth-child(8) { width: 140px; }
+.suppliers-table .party-row-cell {
+  min-width: 0;
+  width: auto;
+}
+.suppliers-table .party-row-actions {
+  min-width: 0;
+  width: auto;
+}
