@@ -8630,48 +8630,73 @@ td strong {
 .client-category-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; }
 .client-category-row { padding: 8px; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; }
 
-/* Impression GSR : texte plus grand, net et centré comme sur la fiche papier. */
+/* Impression GSR : mise en page stable, avec une zone dédiée au logo. */
 .print-preview-backdrop .print-document-sheet,
 .print-preview-backdrop .print-company-identity,
 .print-preview-backdrop .print-lines-table {
   font-family: "Segoe UI", Calibri, Arial, sans-serif;
 }
 
-.print-preview-backdrop .print-document-sheet { font-size: 11pt; }
+.print-preview-backdrop .print-document-sheet { font-size: 9.5pt; }
+.print-preview-backdrop .print-company-header {
+  align-items: start;
+  display: grid;
+  grid-template-columns: 38mm minmax(0, 1fr) 38mm;
+  min-height: 49mm;
+  padding: 0 0 2mm;
+  text-align: center;
+}
+.print-preview-backdrop .print-company-logo {
+  grid-column: 1;
+  height: 32mm;
+  justify-self: start;
+  left: auto;
+  margin-top: 6mm;
+  position: static;
+  top: auto;
+  width: 33mm;
+}
+.print-preview-backdrop .print-company-identity {
+  grid-column: 2;
+  margin: 0;
+  max-width: none;
+  z-index: auto;
+}
 .print-preview-backdrop .print-company-identity h1 {
-  font-size: 27pt;
+  font-family: "Segoe UI", Calibri, Arial, sans-serif;
+  font-size: 20pt;
   line-height: 1.05;
-  margin-bottom: 3mm;
+  margin-bottom: 2mm;
 }
 .print-preview-backdrop .print-company-identity p {
-  font-size: 10.5pt;
-  line-height: 1.35;
+  font-size: 9.2pt;
+  line-height: 1.25;
 }
-.print-preview-backdrop .print-company-registration { font-size: 9.6pt; line-height: 1.35; }
-.print-preview-backdrop .print-company-address { font-size: 10.2pt; }
-.print-preview-backdrop .print-company-phone { font-size: 15pt; line-height: 1.2; }
-.print-preview-backdrop .print-document-title h2 { font-size: 20pt; line-height: 1.1; }
+.print-preview-backdrop .print-company-registration { font-size: 8.6pt; line-height: 1.2; }
+.print-preview-backdrop .print-company-address { font-size: 9.2pt; }
+.print-preview-backdrop .print-company-phone { font-size: 12.5pt; line-height: 1.15; }
+.print-preview-backdrop .print-document-title h2 { font-size: 17pt; line-height: 1; }
 .print-preview-backdrop .print-due-label,
 .print-preview-backdrop .print-party-card dt,
 .print-preview-backdrop .print-party-card dd,
-.print-preview-backdrop .print-document-number { font-size: 10.5pt; }
+.print-preview-backdrop .print-document-number { font-size: 9.4pt; }
 .print-preview-backdrop .print-lines-table th {
-  font-size: 10.5pt;
-  height: 9mm;
-  padding: 1.5mm 2mm;
+  font-size: 9pt;
+  height: 7.5mm;
+  padding: 1mm 1.5mm;
 }
 .print-preview-backdrop .print-lines-table td,
 .print-preview-backdrop .print-lines-table td strong {
-  font-size: 10.5pt;
-  line-height: 1.25;
-  min-height: 10mm;
-  padding: 2mm;
+  font-size: 9pt;
+  line-height: 1.2;
+  min-height: 8.5mm;
+  padding: 1.5mm;
 }
 .print-preview-backdrop .print-document-note strong,
 .print-preview-backdrop .print-document-note p,
 .print-preview-backdrop .print-grand-total dt,
 .print-preview-backdrop .print-grand-total dd,
-.print-preview-backdrop .print-manager-signature { font-size: 10.5pt; }
+.print-preview-backdrop .print-manager-signature { font-size: 9.2pt; }
 .print-preview-backdrop .print-grand-total dt,
 .print-preview-backdrop .print-grand-total dd { font-weight: 700; }
 
@@ -8717,3 +8742,23 @@ td strong {
   width: 150px;
   white-space: nowrap;
 }
+
+/* La liste Clients comporte une colonne d'activité de plus que Fournisseurs.
+   Elle conserve donc sa propre largeur et des lignes à trois niveaux. */
+.clients-table {
+  min-width: 1290px;
+}
+.clients-table tbody td {
+  min-height: 74px;
+  padding-bottom: 10px;
+  padding-top: 10px;
+}
+.clients-table th:nth-child(1) { width: 270px; }
+.clients-table th:nth-child(2) { width: 225px; }
+.clients-table th:nth-child(3) { width: 120px; }
+.clients-table th:nth-child(4) { width: 130px; }
+.clients-table th:nth-child(5) { width: 120px; }
+.clients-table th:nth-child(6) { width: 110px; }
+.clients-table th:nth-child(7) { width: 165px; }
+.clients-table th:nth-child(8) { width: 150px; }
+.clients-table .identity-cell { align-items: flex-start; }
