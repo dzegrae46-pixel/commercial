@@ -1277,16 +1277,18 @@ function ClientsTable({
               <td className="number">{client.balance}</td>
               <td><StatusBadge label={client.status} tone={client.balance === "0 DA" ? "green" : "orange"} /></td>
               <td>{client.activity}</td>
-              <td className="party-row-actions">
-                <button
-                  className="cash-action"
-                  type="button"
-                  onClick={() => onSettle(client)}
-                  title={client.balance === "0 DA" ? `Enregistrer une avance pour ${client.name}` : `Encaisser un paiement de ${client.name}`}
-                >
-                  <Banknote size={16} /><span>Encaisser</span>
-                </button>
-                <RowActions label={client.name} notify={notify} onOpen={() => onOpen(client)} onEdit={() => onEdit(client)} onDuplicate={() => onDuplicate(client)} onDelete={() => onDelete(client.name)} />
+              <td className="party-row-cell">
+                <div className="party-row-actions">
+                  <button
+                    className="cash-action"
+                    type="button"
+                    onClick={() => onSettle(client)}
+                    title={client.balance === "0 DA" ? `Enregistrer une avance pour ${client.name}` : `Encaisser un paiement de ${client.name}`}
+                  >
+                    <Banknote size={16} /><span>Encaisser</span>
+                  </button>
+                  <RowActions label={client.name} notify={notify} onOpen={() => onOpen(client)} onEdit={() => onEdit(client)} onDuplicate={() => onDuplicate(client)} onDelete={() => onDelete(client.name)} />
+                </div>
               </td>
             </tr>
           ))}
@@ -1345,16 +1347,18 @@ function SuppliersTable({
               <td className="number">{supplier.purchases}</td>
               <td className="number">{supplier.balance}</td>
               <td><StatusBadge label={supplier.status} tone={supplier.balance === "0 DA" ? "green" : "orange"} /></td>
-              <td className="party-row-actions">
-                <button
-                  className="cash-action"
-                  type="button"
-                  onClick={() => onSettle(supplier)}
-                  title={supplier.balance === "0 DA" ? `Enregistrer une avance pour ${supplier.name}` : `Payer ${supplier.name}`}
-                >
-                  <Banknote size={16} /><span>Payer</span>
-                </button>
-                <RowActions label={supplier.name} notify={notify} onOpen={() => onOpen(supplier)} onEdit={() => onEdit(supplier)} onDuplicate={() => onDuplicate(supplier)} onDelete={() => onDelete(supplier.name)} />
+              <td className="party-row-cell">
+                <div className="party-row-actions">
+                  <button
+                    className="cash-action"
+                    type="button"
+                    onClick={() => onSettle(supplier)}
+                    title={supplier.balance === "0 DA" ? `Enregistrer une avance pour ${supplier.name}` : `Payer ${supplier.name}`}
+                  >
+                    <Banknote size={16} /><span>Payer</span>
+                  </button>
+                  <RowActions label={supplier.name} notify={notify} onOpen={() => onOpen(supplier)} onEdit={() => onEdit(supplier)} onDuplicate={() => onDuplicate(supplier)} onDelete={() => onDelete(supplier.name)} />
+                </div>
               </td>
             </tr>
           ))}
@@ -4319,10 +4323,10 @@ function SimpleDocumentEditor({
                       <td><span className="pure-cell-text">{line.articleQuery || "—"}</span></td>
                       <td><input required value={line.designation} onChange={(event) => updateLine(line.key, { designation: event.target.value })} placeholder="Désignation" aria-label={`Désignation ligne ${index + 1}`} /></td>
                       <td><input value={line.unit} onChange={(event) => updateLine(line.key, { unit: event.target.value })} aria-label={`Unité ligne ${index + 1}`} /></td>
-                      <td><input type="number" min="0.001" step="0.001" required value={line.quantity} onChange={(event) => updateLine(line.key, { quantity: Number(event.target.value) })} aria-label={`Quantité ligne ${index + 1}`} /></td>
-                      <td><input type="number" min="0" step="0.01" required value={line.unitPrice} onChange={(event) => updateLine(line.key, { unitPrice: Number(event.target.value) })} aria-label={`Prix unitaire ligne ${index + 1}`} /></td>
-                      <td><input type="number" min="0" max="100" step="0.01" value={line.discountPercent} onChange={(event) => updateLine(line.key, { discountPercent: Number(event.target.value) })} aria-label={`Remise ligne ${index + 1}`} /></td>
-                      <td><input type="number" min="0" max="100" step="0.01" value={line.taxRate} onChange={(event) => updateLine(line.key, { taxRate: Number(event.target.value) })} aria-label={`TVA ligne ${index + 1}`} /></td>
+                      <td><input type="number" min="1" step="1" required value={line.quantity || ""} onChange={(event) => updateLine(line.key, { quantity: Number(event.target.value) })} aria-label={`Quantité ligne ${index + 1}`} /></td>
+                      <td><input type="number" min="0" step="1" required value={line.unitPrice || ""} onChange={(event) => updateLine(line.key, { unitPrice: Number(event.target.value) })} aria-label={`Prix unitaire ligne ${index + 1}`} /></td>
+                      <td><input type="number" min="0" max="100" step="1" value={line.discountPercent || ""} onChange={(event) => updateLine(line.key, { discountPercent: Number(event.target.value) })} aria-label={`Remise ligne ${index + 1}`} /></td>
+                      <td><input type="number" min="0" max="100" step="1" value={line.taxRate || ""} onChange={(event) => updateLine(line.key, { taxRate: Number(event.target.value) })} aria-label={`TVA ligne ${index + 1}`} /></td>
                       <td className="pure-line-total">{formatDa(lineTotal(line))}</td>
                       <td><button type="button" className="pure-delete-line" onClick={() => removeLine(line.key)} aria-label={`Supprimer la ligne ${index + 1}`} title="Supprimer cette ligne"><Trash2 size={15} /></button></td>
                     </tr>
@@ -4932,8 +4936,8 @@ function ArticleFormModal({
         </section>
         <label className="field-label">Description complète<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description affichée sur les commandes lorsque l’option est activée." rows={3} /></label>
         <div className="form-grid">
-          <label className="field-label">Prix d’achat<input type="number" min="0" step="0.01" value={purchasePrice} onChange={(event) => updatePurchasePrice(Number(event.target.value))} /></label>
-          <label className="field-label">Stock initial / actuel<input type="number" min="0" step="0.01" value={stock} onChange={(event) => setStock(Number(event.target.value))} /></label>
+          <label className="field-label">Prix d’achat<input type="number" min="0" step="1" value={purchasePrice || ""} onChange={(event) => updatePurchasePrice(Number(event.target.value))} /></label>
+          <label className="field-label">Stock initial / actuel<input type="number" min="0" step="1" value={stock || ""} onChange={(event) => setStock(Number(event.target.value))} /></label>
         </div>
         <section className="article-price-tiers">
           <div className="article-price-heading"><div><span>Prix de vente par catégorie client</span><small>Saisissez le prix de vente ou la marge : l’autre valeur est calculée automatiquement.</small></div><button type="button" className="secondary-button" onClick={() => setSalePrices((rows) => [...rows, { key: `price-${Date.now()}`, clientCategory: "Standard", salePrice: Number(purchasePrice) || 0, marginPercent: 0, mode: "margin" as const }])} disabled={salePrices.length >= 24}><Plus size={15} /> Ajouter un prix</button></div>
@@ -4941,8 +4945,8 @@ function ArticleFormModal({
             {salePrices.map((price) => (
               <div className="article-price-row" key={price.key}>
                 <label className="field-label">Catégorie client<select value={price.clientCategory} onChange={(event) => setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, clientCategory: event.target.value } : row))} required>{[...clientPriceCategories.map((item) => item.name), price.clientCategory].filter((name, index, values) => name && values.indexOf(name) === index).map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
-                <label className="field-label">Prix de vente (DA)<input type="number" min="0" step="0.01" value={price.salePrice} onChange={(event) => { const salePrice = Math.max(0, Number(event.target.value) || 0); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, salePrice, marginPercent: marginFromSalePrice(purchasePrice, salePrice), mode: "price" as const } : row)); }} /></label>
-                <label className="field-label">Marge (%)<input type="number" min="-100" step="0.01" value={price.marginPercent} onChange={(event) => { const marginPercent = Math.max(-100, Number(event.target.value) || 0); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, marginPercent, salePrice: salePriceFromMargin(purchasePrice, marginPercent), mode: "margin" as const } : row)); }} /></label>
+                <label className="field-label">Prix de vente (DA)<input type="number" min="0" step="1" value={price.salePrice || ""} onChange={(event) => { const salePrice = Math.max(0, Number(event.target.value) || 0); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, salePrice, marginPercent: marginFromSalePrice(purchasePrice, salePrice), mode: "price" as const } : row)); }} /></label>
+                <label className="field-label">Marge (%)<input type="number" min="-100" step="1" value={price.marginPercent || ""} onChange={(event) => { const marginPercent = Math.max(-100, Number(event.target.value) || 0); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, marginPercent, salePrice: salePriceFromMargin(purchasePrice, marginPercent), mode: "margin" as const } : row)); }} /></label>
                 <button type="button" className="icon-button danger-text" onClick={() => setSalePrices((rows) => rows.filter((row) => row.key !== price.key))} disabled={salePrices.length === 1} aria-label={`Supprimer le prix ${price.clientCategory}`}><Trash2 size={16} /></button>
               </div>
             ))}
@@ -5027,6 +5031,23 @@ export default function WorkspaceApp() {
   useEffect(() => {
     document.title = "Commercial";
   }, [company.name]);
+  useEffect(() => {
+    const normalizeNumberInput = (input: HTMLInputElement) => {
+      input.step = "1";
+    };
+    const normalizeWithin = (root: ParentNode) => {
+      root.querySelectorAll<HTMLInputElement>('input[type="number"]').forEach(normalizeNumberInput);
+    };
+    normalizeWithin(document);
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => mutation.addedNodes.forEach((node) => {
+        if (node instanceof HTMLInputElement && node.type === "number") normalizeNumberInput(node);
+        if (node instanceof HTMLElement) normalizeWithin(node);
+      }));
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     if (!company.feedbackEnabled && page === "feedback") window.location.hash = "dashboard";
   }, [company.feedbackEnabled, page]);

@@ -8634,10 +8634,10 @@ td strong {
 .print-preview-backdrop .print-document-sheet,
 .print-preview-backdrop .print-company-identity,
 .print-preview-backdrop .print-lines-table {
-  font-family: "Segoe UI", Calibri, Arial, sans-serif;
+  font-family: "Segoe UI", sans-serif;
 }
 
-.print-preview-backdrop .print-document-sheet { font-size: 9.5pt; }
+.print-preview-backdrop .print-document-sheet { font-family: "Segoe UI", sans-serif; font-size: 10pt; }
 .print-preview-backdrop .print-company-header {
   align-items: start;
   display: grid;
@@ -8663,31 +8663,31 @@ td strong {
   z-index: auto;
 }
 .print-preview-backdrop .print-company-identity h1 {
-  font-family: "Segoe UI", Calibri, Arial, sans-serif;
-  font-size: 20pt;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 22pt;
   line-height: 1.05;
   margin-bottom: 2mm;
 }
 .print-preview-backdrop .print-company-identity p {
-  font-size: 9.2pt;
+  font-size: 9.7pt;
   line-height: 1.25;
 }
-.print-preview-backdrop .print-company-registration { font-size: 8.6pt; line-height: 1.2; }
-.print-preview-backdrop .print-company-address { font-size: 9.2pt; }
-.print-preview-backdrop .print-company-phone { font-size: 12.5pt; line-height: 1.15; }
-.print-preview-backdrop .print-document-title h2 { font-size: 17pt; line-height: 1; }
+.print-preview-backdrop .print-company-registration { font-size: 9pt; line-height: 1.2; }
+.print-preview-backdrop .print-company-address { font-size: 9.7pt; }
+.print-preview-backdrop .print-company-phone { font-size: 13.5pt; line-height: 1.15; }
+.print-preview-backdrop .print-document-title h2 { font-size: 18pt; line-height: 1; }
 .print-preview-backdrop .print-due-label,
 .print-preview-backdrop .print-party-card dt,
 .print-preview-backdrop .print-party-card dd,
-.print-preview-backdrop .print-document-number { font-size: 9.4pt; }
+.print-preview-backdrop .print-document-number { font-size: 9.8pt; }
 .print-preview-backdrop .print-lines-table th {
-  font-size: 9pt;
+  font-size: 9.5pt;
   height: 7.5mm;
   padding: 1mm 1.5mm;
 }
 .print-preview-backdrop .print-lines-table td,
 .print-preview-backdrop .print-lines-table td strong {
-  font-size: 9pt;
+  font-size: 9.5pt;
   line-height: 1.2;
   min-height: 8.5mm;
   padding: 1.5mm;
@@ -8696,7 +8696,7 @@ td strong {
 .print-preview-backdrop .print-document-note p,
 .print-preview-backdrop .print-grand-total dt,
 .print-preview-backdrop .print-grand-total dd,
-.print-preview-backdrop .print-manager-signature { font-size: 9.2pt; }
+.print-preview-backdrop .print-manager-signature { font-size: 9.7pt; }
 .print-preview-backdrop .print-grand-total dt,
 .print-preview-backdrop .print-grand-total dd { font-weight: 700; }
 
@@ -8741,6 +8741,12 @@ td strong {
   min-width: 150px;
   width: 150px;
   white-space: nowrap;
+}
+.parties-table .party-row-cell {
+  min-width: 150px;
+  padding-left: 8px;
+  padding-right: 12px;
+  width: 150px;
 }
 
 /* La liste Clients comporte une colonne d'activité de plus que Fournisseurs.
