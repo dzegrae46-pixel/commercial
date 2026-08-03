@@ -1940,7 +1940,7 @@ function SettlementModal({ party, kind, originDocument, onClose, onSaved }: { pa
   };
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card compact-modal" role="dialog" aria-modal="true" aria-labelledby="settlement-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
     <div className="modal-header"><div><h2 id="settlement-title">{originDocument ? savedDocumentTitle : remaining > 0 ? "Régler" : "Enregistrer une avance"} {originDocument ? "" : party.name}</h2><p>{originDocument ? `${originDocument.number} · ${party.name} · régler maintenant ou plus tard` : `${kind === "client" ? "Encaissement client" : "Paiement fournisseur"} · solde ${party.balance} · crédit ${formatDa(credit)}`}</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
-    <div className="form-grid"><label className="field-label">Montant (DA)<input type="number" min="0.01" step="0.01" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value))} required /></label><label className="field-label">Date<input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} required /></label></div><label className="field-label">Mode<select value={method} onChange={(event) => setMethod(event.target.value)}><option>Espèces</option><option>Virement</option><option>Chèque</option><option>Carte</option></select></label><label className="field-label">Note (facultatif)<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>
+    <div className="form-grid"><label className="field-label">Montant (DA)<input type="number" min="1" step="1" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value))} required /></label><label className="field-label">Date<input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} required /></label></div><label className="field-label">Mode<select value={method} onChange={(event) => setMethod(event.target.value)}><option>Espèces</option><option>Virement</option><option>Chèque</option><option>Carte</option></select></label><label className="field-label">Note (facultatif)<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>
     <div className="settlement-balance-preview"><span><small>Ancien solde</small><strong>{formatDa(remaining)}</strong></span><span><small>Nouveau solde</small><strong>{formatDa(projectedBalance)}</strong></span><span><small>Crédit après paiement</small><strong>{formatDa(projectedCredit)}</strong></span></div>
     <p className="settlement-advance-note"><Banknote size={15} /> Un montant supérieur au solde devient automatiquement un crédit disponible pour ce tiers.</p>
     {error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>{originDocument ? "Plus tard" : "Annuler"}</button><button className="primary-button" disabled={saving}><Banknote size={16} />{saving ? "Enregistrement…" : kind === "client" ? "Encaisser maintenant" : "Payer maintenant"}</button></div>
@@ -5029,23 +5029,6 @@ export default function WorkspaceApp() {
   useEffect(() => {
     document.title = "Commercial";
   }, [company.name]);
-  useEffect(() => {
-    const normalizeNumberInput = (input: HTMLInputElement) => {
-      input.step = "1";
-    };
-    const normalizeWithin = (root: ParentNode) => {
-      root.querySelectorAll<HTMLInputElement>('input[type="number"]').forEach(normalizeNumberInput);
-    };
-    normalizeWithin(document);
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => mutation.addedNodes.forEach((node) => {
-        if (node instanceof HTMLInputElement && node.type === "number") normalizeNumberInput(node);
-        if (node instanceof HTMLElement) normalizeWithin(node);
-      }));
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, []);
   useEffect(() => {
     if (!company.feedbackEnabled && page === "feedback") window.location.hash = "dashboard";
   }, [company.feedbackEnabled, page]);
