@@ -192,6 +192,7 @@ type DocumentContext = {
   direction: "purchases" | "sales";
   document: DocumentRecord;
   partyAddress?: string;
+  partyBalance?: string;
 };
 
 type ApiDocumentLine = {
@@ -1393,6 +1394,127 @@ const documentLinesFor = (document: DocumentRecord): ApiDocumentLine[] => {
   }];
 };
 
+const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentContext) => {
+  const outputWindow = window.open("", "_blank");
+  if (!outputWindow) throw new Error("Autorisez l’ouverture de la fenêtre PDF puis réessayez.");
+
+  try {
+    const response = await fetch("/print-templates/bon-livraison-gsr.pdf");
+    if (!response.ok) throw new Error("Le modèle du bon de livraison est introuvable.");
+
+    const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
+    const pdf = await PDFDocument.load(await response.arrayBuffer());
+    const page = pdf.getPages()[0];
+    const regular = await pdf.embedFont(StandardFonts.Helvetica);
+    const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+    const white = rgb(1, 1, 1);
+    const ink = rgb(0.1, 0.1, 0.1);
+    const grid = rgb(0.74, 0.74, 0.74);
+    const orange = rgb(0.9, 0.31, 0);
+    const { document: record, direction, partyAddress = "", partyBalance = "0 DA" } = context;
+    const lines = documentLinesFor(record);
+    const printableLines = lines.length ? lines : [{
+      article_id: 0,
+      designation: record.summary || record.type,
+      description: "",
+      unit: "",
+      quantity: 1,
+      unit_price: record.subtotal ?? numberFromDa(record.amount),
+      discount_percent: 0,
+      tax_rate: 0,
+      line_total: record.subtotal ?? numberFromDa(record.amount),
+    }];
+    const subtotal = record.subtotal ?? printableLines.reduce((sum, line) => sum + line.quantity * line.unit_price, 0);
+    const discountAmount = record.discountAmount ?? printableLines.reduce((sum, line) => sum + line.quantity * line.unit_price * line.discount_percent / 100, 0);
+    const taxAmount = record.taxAmount ?? printableLines.reduce((sum, line) => {
+      const net = line.quantity * line.unit_price * (1 - line.discount_percent / 100);
+      return sum + net * line.tax_rate / 100;
+    }, 0);
+    const total = record.total ?? subtotal - discountAmount + taxAmount;
+    const amount = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const reference = record.number;
+    const partyCode = record.partyId
+      ? `${direction === "purchases" ? "FR" : "CL"}${String(record.partyId).padStart(4, "0")}`
+      : "—";
+    const displayedDate = record.rawDate ? formatPrintDate(record.rawDate) : record.date;
+    const lineHeight = 18.3;
+    const tableTop = 338;
+    const rowCount = Math.max(2, printableLines.length);
+    const tableBottom = tableTop - rowCount * lineHeight;
+    const contentBottom = Math.max(34, tableBottom - 90);
+    const text = (value: string) => value
+      .replace(/[\u2013\u2014]/g, "-")
+      .replace(/\u2026/g, "...")
+      .replace(/\u2019/g, "'")
+      .replace(/[\u00a0\u202f]/g, " ")
+      .replace(/\u0153/g, "oe")
+      .replace(/\u0152/g, "OE");
+    const fit = (value: string, x: number, y: number, maxWidth: number, size: number, font = regular, align: "left" | "right" = "left") => {
+      const valueToDraw = text(value || "-");
+      let fontSize = size;
+      while (fontSize > 5.5 && font.widthOfTextAtSize(valueToDraw, fontSize) > maxWidth) fontSize -= 0.25;
+      const width = font.widthOfTextAtSize(valueToDraw, fontSize);
+      page.drawText(valueToDraw, { x: align === "right" ? x - width : x, y, size: fontSize, font, color: ink });
+    };
+    const clear = (x: number, y: number, width: number, height: number) => page.drawRectangle({ x, y, width, height, color: white });
+
+    // The customer provided PDF remains the visual template. Only dynamic fields are masked and redrawn.
+    clear(234, 388, 147, 54);
+    fit(partyCode, 237, 434, 137, 9.5, regular);
+    fit(record.party, 237, 415, 137, 9.5, regular);
+    fit(partyAddress, 237, 396, 137, 9.2, regular);
+    clear(10, 357, 135, 13);
+    fit(reference, 11, 360, 130, 9.7, bold);
+    clear(9, contentBottom, 402, tableTop - contentBottom);
+
+    const columns = [9, 61, 182, 265, 330, 411];
+    page.drawRectangle({ x: 9, y: tableBottom, width: 402, height: tableTop - tableBottom, color: white, borderColor: grid, borderWidth: 0.45 });
+    for (let index = 1; index < columns.length - 1; index += 1) {
+      page.drawLine({ start: { x: columns[index], y: tableBottom }, end: { x: columns[index], y: tableTop }, thickness: 0.35, color: grid });
+    }
+    for (let row = 1; row < rowCount; row += 1) {
+      const y = tableTop - row * lineHeight;
+      page.drawLine({ start: { x: 9, y }, end: { x: 411, y }, thickness: 0.35, color: grid });
+    }
+    printableLines.forEach((line, index) => {
+      const baseline = tableTop - index * lineHeight - 12.2;
+      const lineSubtotal = line.quantity * line.unit_price * (1 - line.discount_percent / 100);
+      fit(line.article_sku || `ART${String(line.article_id || index + 1).padStart(4, "0")}`, 12, baseline, 46, 8.3, regular);
+      fit(line.designation, 64, baseline, 114, 8.3, regular);
+      fit(String(line.quantity), 260, baseline, 75, 8.3, bold, "right");
+      fit(amount.format(line.unit_price), 326, baseline, 58, 8.3, bold, "right");
+      fit(amount.format(lineSubtotal), 407, baseline, 74, 8.3, bold, "right");
+    });
+
+    const noteY = tableBottom - 20;
+    const signatureY = noteY - 42;
+    fit("Le présent Commande Vente est arrêtée à la somme de :", 15, noteY, 220, 7.7, regular);
+    fit("Total Net a payé", 252, noteY - 1, 88, 8.1, regular);
+    fit(`${amount.format(total)} DA`, 402, noteY - 1, 84, 8.1, regular, "right");
+    fit(amountInFrenchWords(total), 18, noteY - 20, 210, 7.5, regular);
+    fit("En date du   :", 252, signatureY, 70, 8, bold);
+    fit(displayedDate, 322, signatureY, 75, 8, regular);
+    fit("Le Gérant   :", 252, signatureY - 17, 70, 8, bold);
+
+    clear(9, 6, 402, 18);
+    page.drawRectangle({ x: 9, y: 6, width: 402, height: 18, color: orange });
+    fit("Nombre d’articles :", 12, 12, 87, 8.5, regular);
+    fit(String(printableLines.length), 100, 12, 20, 8.5, bold);
+    fit("Solde Client", 219, 12, 76, 9.5, regular);
+    fit(`${amount.format(numberFromDa(partyBalance))} DA`, 377, 12, 98, 9.5, regular, "right");
+
+    const bytes = await pdf.save();
+    const pdfBytes = new Uint8Array(bytes.byteLength);
+    pdfBytes.set(bytes);
+    const url = URL.createObjectURL(new Blob([pdfBytes.buffer], { type: "application/pdf" }));
+    outputWindow.location.replace(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (error) {
+    outputWindow.close();
+    throw error;
+  }
+};
+
 function PrintableDocument({
   company,
   context,
@@ -1402,6 +1524,7 @@ function PrintableDocument({
   context: DocumentContext;
   onClose: () => void;
 }) {
+  const [preparingTemplate, setPreparingTemplate] = useState(false);
   if (typeof document === "undefined") return null;
 
   const { direction, document: record, partyAddress } = context;
@@ -1432,6 +1555,20 @@ function PrintableDocument({
           : record.type;
   const formatPrintAmount = (value: number) =>
     new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+  const printDocument = async () => {
+    if (record.type !== "Bon de livraison") {
+      window.print();
+      return;
+    }
+    setPreparingTemplate(true);
+    try {
+      await openDeliveryNotePdf(company, context);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Impossible de préparer le bon de livraison.");
+    } finally {
+      setPreparingTemplate(false);
+    }
+  };
 
   return createPortal(
     <div className="print-preview-backdrop" role="dialog" aria-modal="true" aria-label={`Aperçu de ${record.number}`}>
@@ -1439,7 +1576,7 @@ function PrintableDocument({
         <div><strong>Aperçu avant impression</strong><span>{record.type} · {record.number}</span></div>
         <div>
           <button className="secondary-button" type="button" onClick={onClose}><X size={16} /> Fermer</button>
-          <button className="primary-button" type="button" onClick={() => window.print()}><Printer size={16} /> Imprimer</button>
+          <button className="primary-button" type="button" onClick={() => { void printDocument(); }} disabled={preparingTemplate}><Printer size={16} /> {preparingTemplate ? "Préparation PDF…" : "Imprimer"}</button>
         </div>
       </div>
       <article className="print-document-sheet">
@@ -5647,7 +5784,7 @@ export default function WorkspaceApp() {
       document.partyId ? row.id === document.partyId : row.name === document.party,
     );
     const partyAddress = [party?.address, party?.city].filter(Boolean).join(", ");
-    return { direction, document, partyAddress };
+    return { direction, document, partyAddress, partyBalance: party?.balance };
   };
 
   return (
