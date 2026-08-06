@@ -71,6 +71,7 @@ type ViewMode = "list" | "grid";
 
 type CompanySettings = {
   name: string;
+  accessPassword: string;
   logoDataUrl: string;
   defaultTaxRate: number;
   activityLine1: string;
@@ -580,6 +581,7 @@ const libraryTabs: { value: LibraryCategory; label: string; icon: LucideIcon }[]
 ];
 
 const DEFAULT_COMPANY: CompanySettings = {
+  accessPassword: "genie2020",
   name: "Génie Système Réseau",
   logoDataUrl: "/example-gsr-logo.svg",
   defaultTaxRate: 0,
@@ -643,6 +645,7 @@ const readCompanySettings = (): CompanySettings => {
       name: typeof stored.name === "string" && stored.name.trim()
         ? stored.name.trim().slice(0, 40)
         : DEFAULT_COMPANY.name,
+      accessPassword: cleanCompanyValue(stored.accessPassword, DEFAULT_COMPANY.accessPassword, 128),
       logoDataUrl: stored.logoDataUrl === ""
         ? ""
         : typeof stored.logoDataUrl === "string" && isSafeImageSource(stored.logoDataUrl)
@@ -682,6 +685,7 @@ const subscribeToCompany = (onChange: () => void) => {
 const persistCompanySettings = (nextSettings: CompanySettings) => {
   const cleaned: CompanySettings = {
     name: nextSettings.name.trim().slice(0, 40) || DEFAULT_COMPANY.name,
+    accessPassword: cleanCompanyValue(nextSettings.accessPassword, DEFAULT_COMPANY.accessPassword, 128),
     logoDataUrl: nextSettings.logoDataUrl === "" || isSafeImageSource(nextSettings.logoDataUrl) ? nextSettings.logoDataUrl : DEFAULT_COMPANY.logoDataUrl,
     defaultTaxRate: Math.min(100, Math.max(0, Number(nextSettings.defaultTaxRate) || 0)),
     activityLine1: cleanCompanyValue(nextSettings.activityLine1, DEFAULT_COMPANY.activityLine1),
@@ -1056,6 +1060,55 @@ function CompanyLogo({
     >
       {!hasImage && (initials(company.name) || "AX")}
     </span>
+  );
+}
+
+function AccessGate({ company, onUnlocked }: { company: CompanySettings; onUnlocked: () => void }) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  return (
+    <main className="access-gate">
+      <form
+        className="access-gate-card"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (password !== company.accessPassword) {
+            setError("Mot de passe incorrect. Réessayez.");
+            setPassword("");
+            return;
+          }
+          setError("");
+          onUnlocked();
+        }}
+      >
+        <div className="access-gate-brand">
+          <CompanyLogo company={company} className="access-gate-logo" />
+          <span>{company.name}</span>
+        </div>
+        <div className="access-gate-heading">
+          <span className="access-gate-icon"><Settings2 size={22} /></span>
+          <h1>Accès à Commercial</h1>
+          <p>Saisissez le mot de passe de l’entreprise pour ouvrir l’application.</p>
+        </div>
+        <label className="access-gate-field" htmlFor="app-access-password">
+          Mot de passe
+          <input
+            id="app-access-password"
+            autoFocus
+            autoComplete="current-password"
+            type="password"
+            value={password}
+            onChange={(event) => { setPassword(event.target.value); setError(""); }}
+            placeholder="Votre mot de passe"
+            aria-describedby={error ? "app-access-error" : undefined}
+          />
+        </label>
+        {error && <p className="access-gate-error" id="app-access-error" role="alert">{error}</p>}
+        <button type="submit" className="primary-button access-gate-submit">Ouvrir l’application</button>
+        <small>Le mot de passe peut être modifié dans Paramètres après connexion.</small>
+      </form>
+    </main>
   );
 }
 
@@ -3603,9 +3656,13 @@ function SettingsPage({
   const [city, setCity] = useState(company.city);
   const [phone, setPhone] = useState(company.phone);
   const [feedbackEnabled, setFeedbackEnabled] = useState(company.feedbackEnabled);
+  const [currentAccessPassword, setCurrentAccessPassword] = useState("");
+  const [newAccessPassword, setNewAccessPassword] = useState("");
+  const [confirmAccessPassword, setConfirmAccessPassword] = useState("");
   const logoInput = useRef<HTMLInputElement | null>(null);
   const previewCompany = {
     name: name.trim() || "Nom de l’entreprise",
+    accessPassword: company.accessPassword,
     logoDataUrl,
     defaultTaxRate: Number(defaultTaxRate) || 0,
     activityLine1,
@@ -3657,7 +3714,26 @@ function SettingsPage({
           className="settings-form"
           onSubmit={(event) => {
             event.preventDefault();
-            const saved = onSave({ name, logoDataUrl, defaultTaxRate: Number(defaultTaxRate), activityLine1, activityLine2, rc, taxArticle, nif, rib, bank, address, city, phone, feedbackEnabled });
+            const passwordChangeRequested = Boolean(currentAccessPassword || newAccessPassword || confirmAccessPassword);
+            if (passwordChangeRequested && currentAccessPassword !== company.accessPassword) {
+              notify("Le mot de passe actuel est incorrect");
+              return;
+            }
+            if (passwordChangeRequested && newAccessPassword.trim().length < 4) {
+              notify("Le nouveau mot de passe doit contenir au moins 4 caractères");
+              return;
+            }
+            if (passwordChangeRequested && newAccessPassword !== confirmAccessPassword) {
+              notify("La confirmation du mot de passe ne correspond pas");
+              return;
+            }
+            const accessPassword = passwordChangeRequested ? newAccessPassword.trim() : company.accessPassword;
+            const saved = onSave({ name, accessPassword, logoDataUrl, defaultTaxRate: Number(defaultTaxRate), activityLine1, activityLine2, rc, taxArticle, nif, rib, bank, address, city, phone, feedbackEnabled });
+            if (saved && passwordChangeRequested) {
+              setCurrentAccessPassword("");
+              setNewAccessPassword("");
+              setConfirmAccessPassword("");
+            }
             notify(saved ? "Identité de l’entreprise enregistrée" : "Impossible d’enregistrer sur cet appareil");
           }}
         >
@@ -3727,6 +3803,23 @@ function SettingsPage({
             <i aria-hidden="true" />
           </label>
 
+          <div className="settings-section-title settings-access-title">
+            <span><Settings2 size={17} /></span>
+            <div><h2>Accès à l’application</h2><p>Un mot de passe est demandé à l’ouverture dans un nouvel onglet.</p></div>
+          </div>
+          <div className="form-grid">
+            <label className="field-label">Mot de passe actuel
+              <input type="password" value={currentAccessPassword} onChange={(event) => setCurrentAccessPassword(event.target.value)} autoComplete="current-password" placeholder="Mot de passe actuel" />
+            </label>
+            <label className="field-label">Nouveau mot de passe
+              <input type="password" minLength={4} value={newAccessPassword} onChange={(event) => setNewAccessPassword(event.target.value)} autoComplete="new-password" placeholder="Laissez vide pour conserver" />
+            </label>
+          </div>
+          <label className="field-label">Confirmer le nouveau mot de passe
+            <input type="password" minLength={4} value={confirmAccessPassword} onChange={(event) => setConfirmAccessPassword(event.target.value)} autoComplete="new-password" placeholder="Confirmez le nouveau mot de passe" />
+            <small>Mot de passe par défaut : genie2020.</small>
+          </label>
+
           <div className="field-label">
             Logo de l’entreprise
             <div className="logo-field">
@@ -3776,6 +3869,9 @@ function SettingsPage({
                 setCity(DEFAULT_COMPANY.city);
                 setPhone(DEFAULT_COMPANY.phone);
                 setFeedbackEnabled(DEFAULT_COMPANY.feedbackEnabled);
+                setCurrentAccessPassword("");
+                setNewAccessPassword("");
+                setConfirmAccessPassword("");
                 notify("Valeurs par défaut restaurées dans le formulaire");
               }}
             >
@@ -5163,6 +5259,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
 export default function WorkspaceApp() {
   const page = useSyncExternalStore(subscribeToPage, readPageFromUrl, () => "dashboard") as PageKey;
   const company = useSyncExternalStore(subscribeToCompany, readCompanySettings, () => DEFAULT_COMPANY);
+  const [accessGranted, setAccessGranted] = useState(false);
   useEffect(() => {
     document.title = "Commercial";
   }, [company.name]);
@@ -5345,8 +5442,7 @@ export default function WorkspaceApp() {
   }, [financeVersion]);
 
   const navigate = (nextPage: PageKey) => {
-    if (nextPage !== page) window.history.pushState(null, "", `#${nextPage}`);
-    window.dispatchEvent(new Event("hashchange"));
+    if (window.location.hash !== `#${nextPage}`) window.location.hash = nextPage;
     setSearch("");
     setActiveTab("all");
     setFilterActive(false);
@@ -5786,6 +5882,10 @@ export default function WorkspaceApp() {
     const partyAddress = [party?.address, party?.city].filter(Boolean).join(", ");
     return { direction, document, partyAddress, partyBalance: party?.balance };
   };
+
+  if (!accessGranted) {
+    return <AccessGate company={company} onUnlocked={() => setAccessGranted(true)} />;
+  }
 
   return (
     <div className={`app-shell ${activeDocumentEditor ? "document-fullscreen-mode" : ""}`.trim()}>
