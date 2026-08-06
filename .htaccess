@@ -4,7 +4,7 @@ PassengerAppRoot "/home/czuwsbch/commercial-app"
 PassengerBaseURI "/"
 PassengerNodejs "/home/czuwsbch/nodevenv/commercial-app/24/bin/node"
 PassengerAppType node
-PassengerStartupFile app.js
+PassengerStartupFile app_wrapper.cjs
 PassengerAppLogFile "/home/czuwsbch/commercial-app/logs/passenger.log"
 
 <IfModule LiteSpeed>
