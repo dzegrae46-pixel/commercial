@@ -13,6 +13,7 @@ export const CREATE_ARTICLES_TABLE_SQL = `
     category TEXT NOT NULL DEFAULT 'Non classée',
     subcategory TEXT NOT NULL DEFAULT '',
     subsubcategory TEXT NOT NULL DEFAULT '',
+    subsubsubcategory TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
     unit TEXT NOT NULL DEFAULT 'Unité',
     image_url TEXT NOT NULL DEFAULT '',
@@ -31,25 +32,26 @@ export const CREATE_ARTICLES_SKU_INDEX_SQL =
   "CREATE UNIQUE INDEX IF NOT EXISTS articles_sku_idx ON articles (sku)";
 
 export const CREATE_ARTICLES_CATEGORY_INDEX_SQL =
-  "CREATE INDEX IF NOT EXISTS articles_category_idx ON articles (category, subcategory, subsubcategory)";
+  "CREATE INDEX IF NOT EXISTS articles_category_idx ON articles (category, subcategory, subsubcategory, subsubsubcategory)";
 
 /** Standalone catalog nodes keep empty categories visible and editable before
  * the first article is assigned to them. */
 export const CREATE_CATALOG_CATEGORIES_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS catalog_categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    level INTEGER NOT NULL CHECK(level IN (1, 2, 3)),
+    level INTEGER NOT NULL CHECK(level IN (1, 2, 3, 4)),
     name TEXT NOT NULL COLLATE NOCASE,
     category TEXT NOT NULL DEFAULT '' COLLATE NOCASE,
     subcategory TEXT NOT NULL DEFAULT '' COLLATE NOCASE,
+    subsubcategory TEXT NOT NULL DEFAULT '' COLLATE NOCASE,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(level, name, category, subcategory)
+    UNIQUE(level, name, category, subcategory, subsubcategory)
   )
 `;
 
 export const CREATE_CATALOG_CATEGORIES_INDEX_SQL =
-  "CREATE INDEX IF NOT EXISTS catalog_categories_tree_idx ON catalog_categories (level, category, subcategory, name COLLATE NOCASE)";
+  "CREATE INDEX IF NOT EXISTS catalog_categories_tree_idx ON catalog_categories (level, category, subcategory, subsubcategory, name COLLATE NOCASE)";
 
 /**
  * Shared third-parties for the Clients and Suppliers views.  `kind` is kept on
@@ -333,6 +335,10 @@ export const ARTICLE_COLUMN_MIGRATIONS = [
     sql: "ALTER TABLE articles ADD COLUMN subsubcategory TEXT NOT NULL DEFAULT ''",
   },
   {
+    name: "subsubsubcategory",
+    sql: "ALTER TABLE articles ADD COLUMN subsubsubcategory TEXT NOT NULL DEFAULT ''",
+  },
+  {
     name: "description",
     sql: "ALTER TABLE articles ADD COLUMN description TEXT NOT NULL DEFAULT ''",
   },
@@ -447,6 +453,7 @@ export type ArticleSeed = {
   category: string;
   subcategory: string;
   subsubcategory: string;
+  subsubsubcategory?: string;
   description: string;
   unit: string;
   imageUrl: string;

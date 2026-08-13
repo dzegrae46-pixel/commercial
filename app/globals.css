@@ -5338,7 +5338,8 @@ td strong {
 }
 
 .category-manager-children,
-.category-manager-grandchildren {
+.category-manager-grandchildren,
+.category-manager-greatgrandchildren {
   display: block;
   margin: 0;
   padding: 0;
@@ -5346,7 +5347,8 @@ td strong {
 }
 
 .category-manager-children::before,
-.category-manager-grandchildren::before {
+.category-manager-grandchildren::before,
+.category-manager-greatgrandchildren::before {
   background: #cbd5e1;
   bottom: 27px;
   content: "";
@@ -5360,6 +5362,11 @@ td strong {
 .category-manager-grandchildren::before {
   background: #b9d9cd;
   left: 65px;
+}
+
+.category-manager-greatgrandchildren::before {
+  background: #b8c8ea;
+  left: 99px;
 }
 
 .category-manager-subbranch {
@@ -5397,8 +5404,14 @@ td strong {
   padding-left: 72px;
 }
 
+.category-level-4 {
+  background: #fafcff;
+  padding-left: 106px;
+}
+
 .category-level-2::before,
-.category-level-3::before {
+.category-level-3::before,
+.category-level-4::before {
   border-top: 1px solid #cbd5e1;
   content: "";
   left: 31px;
@@ -5411,6 +5424,11 @@ td strong {
 .category-level-3::before {
   border-top-color: #b9d9cd;
   left: 65px;
+}
+
+.category-level-4::before {
+  border-top-color: #b8c8ea;
+  left: 99px;
 }
 
 .category-manager-node-icon {
@@ -5482,7 +5500,8 @@ td strong {
   z-index: 2;
 }
 
-.category-level-3 .category-tree-leaf {
+.category-level-3 .category-tree-leaf,
+.category-level-4 .category-tree-leaf {
   background: var(--green);
   box-shadow: 0 0 0 1px #9fd2bf;
 }
@@ -5638,7 +5657,8 @@ td strong {
     grid-column: 4;
   }
   .category-manager-children,
-  .category-manager-grandchildren {
+  .category-manager-grandchildren,
+  .category-manager-greatgrandchildren {
     margin: 0;
     padding: 0;
   }

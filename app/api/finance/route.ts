@@ -1,47 +1,22 @@
-import {
-  createFinanceEntry,
-  deleteFinanceEntry,
-  listFinanceEntries,
-  SqliteValidationError,
-  updateFinanceEntry,
-} from "@/lib/sqlite";
+import { createFinanceEntry, deleteFinanceEntry, listFinanceEntries, SqliteValidationError, updateFinanceEntry } from "@/lib/sqlite";
+import { AccountAuthenticationError, withAccountDatabase } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
 function errorResponse(error: unknown) {
   const message = error instanceof Error ? error.message : "Une erreur SQLite est survenue.";
-  return Response.json({ error: message }, { status: error instanceof SqliteValidationError ? 400 : 500 });
+  const status = error instanceof AccountAuthenticationError ? error.status : error instanceof SqliteValidationError ? 400 : 500;
+  return Response.json({ error: message }, { status });
 }
-
-export function GET() {
-  return Response.json({ entries: listFinanceEntries() }, { headers: { "Cache-Control": "no-store" } });
+export async function GET(request: Request) {
+  try { return withAccountDatabase(request, () => Response.json({ entries: listFinanceEntries() }, { headers: { "Cache-Control": "no-store" } })); } catch (error) { return errorResponse(error); }
 }
-
 export async function POST(request: Request) {
-  try {
-    const entry = createFinanceEntry(await request.json());
-    return Response.json({ entry }, { status: 201 });
-  } catch (error) {
-    return errorResponse(error);
-  }
+  try { return await withAccountDatabase(request, async () => Response.json({ entry: createFinanceEntry(await request.json()) }, { status: 201 })); } catch (error) { return errorResponse(error); }
 }
-
 export async function PATCH(request: Request) {
-  try {
-    const entry = updateFinanceEntry(await request.json());
-    return Response.json({ entry });
-  } catch (error) {
-    return errorResponse(error);
-  }
+  try { return await withAccountDatabase(request, async () => Response.json({ entry: updateFinanceEntry(await request.json()) })); } catch (error) { return errorResponse(error); }
 }
-
 export async function DELETE(request: Request) {
-  try {
-    const input = await request.json() as { id?: unknown };
-    const entry = deleteFinanceEntry(input.id);
-    return Response.json({ entry });
-  } catch (error) {
-    return errorResponse(error);
-  }
+  try { return await withAccountDatabase(request, async () => { const input = await request.json() as { id?: unknown }; return Response.json({ entry: deleteFinanceEntry(input.id) }); }); } catch (error) { return errorResponse(error); }
 }

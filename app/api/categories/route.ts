@@ -5,28 +5,31 @@ import {
   renameArticleCategory,
   SqliteValidationError,
 } from "@/lib/sqlite";
+import { AccountAuthenticationError, withAccountDatabase } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 function errorResponse(error: unknown) {
   const message = error instanceof Error ? error.message : "Une erreur SQLite est survenue.";
-  return Response.json(
-    { error: message },
-    { status: error instanceof SqliteValidationError ? 400 : 500 },
-  );
+  const status = error instanceof AccountAuthenticationError ? error.status : error instanceof SqliteValidationError ? 400 : 500;
+  return Response.json({ error: message }, { status });
 }
 
-export function GET() {
-  return Response.json(
-    { categories: listCategoryTree() },
-    { headers: { "Cache-Control": "no-store" } },
-  );
+export async function GET(request: Request) {
+  try {
+    return withAccountDatabase(request, () => Response.json(
+      { categories: listCategoryTree() },
+      { headers: { "Cache-Control": "no-store" } },
+    ));
+  } catch (error) {
+    return errorResponse(error);
+  }
 }
 
 export async function POST(request: Request) {
   try {
-    return Response.json(addArticleCategory(await request.json()), { status: 201 });
+    return await withAccountDatabase(request, async () => Response.json(addArticleCategory(await request.json()), { status: 201 }));
   } catch (error) {
     return errorResponse(error);
   }
@@ -34,7 +37,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    return Response.json(renameArticleCategory(await request.json()));
+    return await withAccountDatabase(request, async () => Response.json(renameArticleCategory(await request.json())));
   } catch (error) {
     return errorResponse(error);
   }
@@ -42,7 +45,7 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    return Response.json(deleteArticleCategory(await request.json()));
+    return await withAccountDatabase(request, async () => Response.json(deleteArticleCategory(await request.json())));
   } catch (error) {
     return errorResponse(error);
   }

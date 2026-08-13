@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -50,6 +51,7 @@ export type ArticleRecord = {
   category: string;
   subcategory: string;
   subsubcategory: string;
+  subsubsubcategory: string;
   description: string;
   unit: string;
   image_url: string;
@@ -85,7 +87,10 @@ export type CategoryTree = {
   name: string;
   subcategories: {
     name: string;
-    subcategories: string[];
+    subcategories: {
+      name: string;
+      subcategories: string[];
+    }[];
   }[];
 };
 
@@ -312,10 +317,7 @@ export class SqliteValidationError extends Error {
 }
 
 type AxxamGlobal = typeof globalThis & {
-  __axxamSqlite?: DatabaseSync;
-  __axxamPartiesReady?: boolean;
-  __axxamDocumentsReady?: boolean;
-  __axxamDocumentSeedsReady?: boolean;
+  __axxamSqliteByPath?: Map<string, DatabaseSync>;
 };
 
 type InputObject = Record<string, unknown>;
@@ -340,6 +342,8 @@ export type SettlementRecord = {
 };
 
 const globalForSqlite = globalThis as AxxamGlobal;
+const databaseScope = new AsyncLocalStorage<string>();
+const DEFAULT_DATABASE_PATH = "data/axxam.sqlite";
 const CATALOG_SEED_KEY = "catalog_seed_v4";
 const PARTIES_SEED_KEY = "parties_seed_v1";
 const DOCUMENT_SEED_KEY = "document_seed_v1";
@@ -639,9 +643,22 @@ function toDocumentLineRecord(row: Record<string, unknown>): DocumentLineRecord 
   return row as unknown as DocumentLineRecord;
 }
 
-function openDatabase() {
-  const configuredPath = process.env.AXXAM_SQLITE_PATH || "data/axxam.sqlite";
-  const databasePath = configuredPath === ":memory:" ? configuredPath : resolve(process.cwd(), configuredPath);
+export function withDatabasePath<T>(databasePath: string, callback: () => T): T {
+  return databaseScope.run(databasePath, callback);
+}
+
+/** Runs the one-time cleanup for the former shared database before accounts
+ * begin using their own isolated files. */
+export function clearLegacyDatabaseKeepingCategories() {
+  return withDatabasePath(DEFAULT_DATABASE_PATH, () => getDatabase());
+}
+
+function resolvedDatabasePath(configuredPath: string) {
+  return configuredPath === ":memory:" ? configuredPath : resolve(process.cwd(), configuredPath);
+}
+
+function openDatabase(configuredPath: string) {
+  const databasePath = resolvedDatabasePath(configuredPath);
   if (databasePath !== ":memory:") mkdirSync(dirname(databasePath), { recursive: true });
 
   // Keep the constructor compatible with the project's minimum Node 22.13 runtime.
@@ -655,9 +672,10 @@ function openDatabase() {
   database.exec(CREATE_ARTICLES_TABLE_SQL);
   migrateArticleColumns(database);
   database.exec(CREATE_ARTICLES_SKU_INDEX_SQL);
+  database.exec("DROP INDEX IF EXISTS articles_category_idx");
   database.exec(CREATE_ARTICLES_CATEGORY_INDEX_SQL);
-  seedCatalogOnce(database);
   database.exec(CREATE_CATALOG_CATEGORIES_TABLE_SQL);
+  migrateCatalogCategoryStorage(database);
   database.exec(CREATE_CATALOG_CATEGORIES_INDEX_SQL);
   backfillCatalogCategories(database);
   ensurePartyStorage(database);
@@ -682,6 +700,7 @@ function openDatabase() {
   database.exec(CREATE_TREASURY_ENTRIES_DATE_INDEX_SQL);
   database.exec(CREATE_FEEDBACK_ITEMS_TABLE_SQL);
   database.exec(CREATE_FEEDBACK_ITEMS_STATUS_INDEX_SQL);
+  clearLegacyDatabaseOnce(database, databasePath);
 
   return database;
 }
@@ -692,6 +711,42 @@ function migrateArticleColumns(database: DatabaseSync) {
 
   for (const migration of ARTICLE_COLUMN_MIGRATIONS) {
     if (!existing.has(migration.name)) database.exec(migration.sql);
+  }
+}
+
+/** SQLite cannot alter an existing CHECK constraint. Rebuild only the small
+ * category-node table so pre-existing three-level catalogues gain level four. */
+function migrateCatalogCategoryStorage(database: DatabaseSync) {
+  const columns = database.prepare("PRAGMA table_info(catalog_categories)").all();
+  const existing = new Set(columns.map((column) => String(column.name)));
+  if (existing.has("subsubcategory")) return;
+
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    database.exec(`
+      CREATE TABLE catalog_categories_next (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        level INTEGER NOT NULL CHECK(level IN (1, 2, 3, 4)),
+        name TEXT NOT NULL COLLATE NOCASE,
+        category TEXT NOT NULL DEFAULT '' COLLATE NOCASE,
+        subcategory TEXT NOT NULL DEFAULT '' COLLATE NOCASE,
+        subsubcategory TEXT NOT NULL DEFAULT '' COLLATE NOCASE,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(level, name, category, subcategory, subsubcategory)
+      );
+      INSERT INTO catalog_categories_next (
+        id, level, name, category, subcategory, subsubcategory, created_at, updated_at
+      )
+      SELECT id, level, name, category, subcategory, '', created_at, updated_at
+      FROM catalog_categories;
+      DROP TABLE catalog_categories;
+      ALTER TABLE catalog_categories_next RENAME TO catalog_categories;
+    `);
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
   }
 }
 
@@ -784,9 +839,9 @@ function seedCatalogOnce(database: DatabaseSync) {
 
   const seed = database.prepare(`
     INSERT INTO articles (
-      name, sku, brand, brand_logo, category, subcategory, subsubcategory,
+      name, sku, brand, brand_logo, category, subcategory, subsubcategory, subsubsubcategory,
       description, unit, image_url, purchase_price, purchase_prices_json, sale_price, sale_prices_json, stock, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(sku) DO UPDATE SET
       name = excluded.name,
       brand = excluded.brand,
@@ -794,6 +849,7 @@ function seedCatalogOnce(database: DatabaseSync) {
       category = excluded.category,
       subcategory = excluded.subcategory,
       subsubcategory = excluded.subsubcategory,
+      subsubsubcategory = excluded.subsubsubcategory,
       description = excluded.description,
       unit = excluded.unit,
       image_url = excluded.image_url,
@@ -816,6 +872,7 @@ function seedCatalogOnce(database: DatabaseSync) {
         article.category,
         article.subcategory,
         article.subsubcategory,
+        article.subsubsubcategory ?? "",
         article.description,
         article.unit,
         article.imageUrl,
@@ -967,9 +1024,6 @@ function ensurePartyStorage(database: DatabaseSync) {
   migratePartyColumns(database);
   database.exec(CREATE_PARTIES_KIND_NAME_INDEX_SQL);
   database.exec(CREATE_APP_META_TABLE_SQL);
-  if (globalForSqlite.__axxamPartiesReady) return;
-  seedPartiesOnce(database);
-  globalForSqlite.__axxamPartiesReady = true;
 }
 
 function ensureClientCategoryStorage(database: DatabaseSync) {
@@ -987,31 +1041,23 @@ function ensureClientCategoryStorage(database: DatabaseSync) {
 }
 
 function ensureDocumentStorage(database: DatabaseSync) {
-  if (globalForSqlite.__axxamDocumentsReady) return;
   database.exec(CREATE_DOCUMENTS_TABLE_SQL);
   migrateDocumentColumns(database);
   backfillDocumentPartyIds(database);
   migrateDocumentNumbers(database);
   database.exec(CREATE_DOCUMENTS_INDEX_SQL);
   database.exec(CREATE_DOCUMENTS_PARTY_INDEX_SQL);
-  globalForSqlite.__axxamDocumentsReady = true;
-}
-
-function ensureDocumentDemoSeeds(database: DatabaseSync) {
-  if (globalForSqlite.__axxamDocumentSeedsReady) return;
-  database.exec(CREATE_APP_META_TABLE_SQL);
-  seedDemoDocumentsOnce(database);
-  globalForSqlite.__axxamDocumentSeedsReady = true;
 }
 
 function getDatabase() {
-  if (!globalForSqlite.__axxamSqlite) {
-    globalForSqlite.__axxamPartiesReady = undefined;
-    globalForSqlite.__axxamDocumentsReady = undefined;
-    globalForSqlite.__axxamDocumentSeedsReady = undefined;
-    globalForSqlite.__axxamSqlite = openDatabase();
+  const configuredPath = databaseScope.getStore() || process.env.AXXAM_SQLITE_PATH || DEFAULT_DATABASE_PATH;
+  const databasePath = resolvedDatabasePath(configuredPath);
+  const databases = globalForSqlite.__axxamSqliteByPath ??= new Map<string, DatabaseSync>();
+  let database = databases.get(databasePath);
+  if (!database) {
+    database = openDatabase(configuredPath);
+    databases.set(databasePath, database);
   }
-  const database = globalForSqlite.__axxamSqlite;
   ensurePartyStorage(database);
   ensureDocumentStorage(database);
   ensureClientCategoryStorage(database);
@@ -1030,8 +1076,41 @@ function getDatabase() {
   database.exec(CREATE_SALARY_PAYMENTS_EMPLOYEE_INDEX_SQL);
   database.exec(CREATE_TREASURY_ENTRIES_TABLE_SQL);
   database.exec(CREATE_TREASURY_ENTRIES_DATE_INDEX_SQL);
-  ensureDocumentDemoSeeds(database);
   return database;
+}
+
+/** The shared legacy database is deliberately cleared once. Account databases
+ * are always new and untouched; the article category tree is retained here. */
+function clearLegacyDatabaseOnce(database: DatabaseSync, databasePath: string) {
+  if (databasePath !== resolvedDatabasePath(DEFAULT_DATABASE_PATH)) return;
+  const resetKey = "legacy_database_reset_keep_catalog_categories_v1";
+  if (database.prepare("SELECT value FROM app_meta WHERE key = ?").get(resetKey)) return;
+
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    database.exec(`
+      DELETE FROM document_lines;
+      DELETE FROM stock_movements;
+      DELETE FROM payments;
+      UPDATE documents SET source_document_id = NULL;
+      DELETE FROM documents;
+      DELETE FROM parties;
+      DELETE FROM articles;
+      DELETE FROM client_categories;
+      DELETE FROM employee_attendance;
+      DELETE FROM salary_payments;
+      DELETE FROM finance_entries;
+      DELETE FROM employees;
+      DELETE FROM treasury_entries;
+      DELETE FROM feedback_items;
+      DELETE FROM app_meta;
+    `);
+    database.prepare("INSERT INTO app_meta (key, value) VALUES (?, ?)").run(resetKey, "1");
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 function inTransaction<T>(callback: (database: DatabaseSync) => T): T {
@@ -1049,7 +1128,7 @@ function inTransaction<T>(callback: (database: DatabaseSync) => T): T {
 
 function getArticleById(database: DatabaseSync, id: number): ArticleRecord {
   const row = database.prepare(`
-    SELECT id, name, sku, brand, brand_logo, category, subcategory, subsubcategory,
+    SELECT id, name, sku, brand, brand_logo, category, subcategory, subsubcategory, subsubsubcategory,
       description, unit, image_url, purchase_price, purchase_prices_json, sale_price, sale_prices_json, stock, status, updated_at
     FROM articles
     WHERE id = ?
@@ -1060,7 +1139,7 @@ function getArticleById(database: DatabaseSync, id: number): ArticleRecord {
 
 function findArticleByName(database: DatabaseSync, name: string): ArticleRecord {
   const row = database.prepare(`
-    SELECT id, name, sku, brand, brand_logo, category, subcategory, subsubcategory,
+    SELECT id, name, sku, brand, brand_logo, category, subcategory, subsubcategory, subsubsubcategory,
       description, unit, image_url, purchase_price, purchase_prices_json, sale_price, sale_prices_json, stock, status, updated_at
     FROM articles
     WHERE LOWER(name) = LOWER(?) AND is_deleted = 0
@@ -1310,7 +1389,7 @@ function makeDocumentNumber(database: DatabaseSync, type: DocumentType, document
 export function listArticles(query = ""): ArticleRecord[] {
   const normalizedQuery = cleanText(query).toLocaleLowerCase("fr");
   const rows = getDatabase().prepare(`
-    SELECT id, name, sku, brand, brand_logo, category, subcategory, subsubcategory,
+    SELECT id, name, sku, brand, brand_logo, category, subcategory, subsubcategory, subsubsubcategory,
       description, unit, image_url, purchase_price, purchase_prices_json, sale_price, sale_prices_json, stock, status, updated_at
     FROM articles
     WHERE is_deleted = 0
@@ -1325,21 +1404,24 @@ export function listArticles(query = ""): ArticleRecord[] {
     article.category,
     article.subcategory,
     article.subsubcategory,
+    article.subsubsubcategory,
     article.description,
   ].join(" ").toLocaleLowerCase("fr").includes(normalizedQuery));
 }
 
-function registerCatalogPath(database: DatabaseSync, category: string, subcategory = "", thirdLevel = "") {
+function registerCatalogPath(database: DatabaseSync, category: string, subcategory = "", thirdLevel = "", fourthLevel = "") {
   const insert = database.prepare(`
-    INSERT OR IGNORE INTO catalog_categories (level, name, category, subcategory)
-    VALUES (?, ?, ?, ?)
+    INSERT OR IGNORE INTO catalog_categories (level, name, category, subcategory, subsubcategory)
+    VALUES (?, ?, ?, ?, ?)
   `);
   const normalizedCategory = cleanText(category, "Non classée") || "Non classée";
   const normalizedSubcategory = cleanText(subcategory);
   const normalizedThirdLevel = cleanText(thirdLevel);
-  insert.run(1, normalizedCategory, "", "");
-  if (normalizedSubcategory) insert.run(2, normalizedSubcategory, normalizedCategory, "");
-  if (normalizedSubcategory && normalizedThirdLevel) insert.run(3, normalizedThirdLevel, normalizedCategory, normalizedSubcategory);
+  const normalizedFourthLevel = cleanText(fourthLevel);
+  insert.run(1, normalizedCategory, "", "", "");
+  if (normalizedSubcategory) insert.run(2, normalizedSubcategory, normalizedCategory, "", "");
+  if (normalizedSubcategory && normalizedThirdLevel) insert.run(3, normalizedThirdLevel, normalizedCategory, normalizedSubcategory, "");
+  if (normalizedSubcategory && normalizedThirdLevel && normalizedFourthLevel) insert.run(4, normalizedFourthLevel, normalizedCategory, normalizedSubcategory, normalizedThirdLevel);
 }
 
 function backfillCatalogCategories(database: DatabaseSync) {
@@ -1355,10 +1437,15 @@ function backfillCatalogCategories(database: DatabaseSync) {
     INSERT OR IGNORE INTO catalog_categories (level, name, category, subcategory)
     SELECT 3, subsubcategory, category, subcategory FROM articles
     WHERE is_deleted = 0 AND TRIM(category) <> '' AND TRIM(subcategory) <> '' AND TRIM(subsubcategory) <> '';
+
+    INSERT OR IGNORE INTO catalog_categories (level, name, category, subcategory, subsubcategory)
+    SELECT 4, subsubsubcategory, category, subcategory, subsubcategory FROM articles
+    WHERE is_deleted = 0 AND TRIM(category) <> '' AND TRIM(subcategory) <> ''
+      AND TRIM(subsubcategory) <> '' AND TRIM(subsubsubcategory) <> '';
   `);
 }
 
-export function listCategoryTree(): CategoryTree[] {
+function legacyListCategoryTree(): unknown[] {
   const categories = new Map<string, Map<string, Set<string>>>();
   const database = getDatabase();
   const storedNodes = database.prepare(`
@@ -1401,7 +1488,70 @@ export function listCategoryTree(): CategoryTree[] {
   })).sort((left, right) => left.name.localeCompare(right.name, "fr"));
 }
 
-export function addArticleCategory(value: unknown): CategoryMutationResult {
+export function listCategoryTree(): CategoryTree[] {
+  type FourthLevels = Set<string>;
+  type ThirdLevels = Map<string, FourthLevels>;
+  type Subcategories = Map<string, ThirdLevels>;
+  const categories = new Map<string, Subcategories>();
+  const database = getDatabase();
+  const storedNodes = database.prepare(`
+    SELECT level, name, category, subcategory, subsubcategory
+    FROM catalog_categories
+    ORDER BY level, category COLLATE NOCASE, subcategory COLLATE NOCASE,
+      subsubcategory COLLATE NOCASE, name COLLATE NOCASE
+  `).all() as unknown as {
+    level: number;
+    name: string;
+    category: string;
+    subcategory: string;
+    subsubcategory: string;
+  }[];
+
+  const ensureCategory = (name: string) => {
+    const current = categories.get(name) ?? new Map<string, ThirdLevels>();
+    categories.set(name, current);
+    return current;
+  };
+  const ensureSubcategory = (category: string, name: string) => {
+    const children = ensureCategory(category);
+    const current = children.get(name) ?? new Map<string, FourthLevels>();
+    children.set(name, current);
+    return current;
+  };
+  const ensureThirdLevel = (category: string, subcategory: string, name: string) => {
+    const children = ensureSubcategory(category, subcategory);
+    const current = children.get(name) ?? new Set<string>();
+    children.set(name, current);
+    return current;
+  };
+
+  for (const node of storedNodes) {
+    if (node.level === 1) ensureCategory(node.name);
+    else if (node.level === 2) ensureSubcategory(node.category, node.name);
+    else if (node.level === 3) ensureThirdLevel(node.category, node.subcategory, node.name);
+    else if (node.level === 4) ensureThirdLevel(node.category, node.subcategory, node.subsubcategory).add(node.name);
+  }
+  for (const article of listArticles()) {
+    const category = article.category || "Non classée";
+    const subcategory = article.subcategory || "Sans sous-catégorie";
+    const thirdLevel = article.subsubcategory || "Sans sous-sous-catégorie";
+    const fourthLevels = ensureThirdLevel(category, subcategory, thirdLevel);
+    if (article.subsubsubcategory) fourthLevels.add(article.subsubsubcategory);
+  }
+
+  return [...categories.entries()].map(([name, subcategories]) => ({
+    name,
+    subcategories: [...subcategories.entries()].map(([subcategory, thirdLevels]) => ({
+      name: subcategory,
+      subcategories: [...thirdLevels.entries()].map(([thirdLevel, fourthLevels]) => ({
+        name: thirdLevel,
+        subcategories: [...fourthLevels].sort((left, right) => left.localeCompare(right, "fr")),
+      })).sort((left, right) => left.name.localeCompare(right.name, "fr")),
+    })).sort((left, right) => left.name.localeCompare(right.name, "fr")),
+  })).sort((left, right) => left.name.localeCompare(right.name, "fr"));
+}
+
+function legacyAddArticleCategory(value: unknown): CategoryMutationResult {
   const input = asInputObject(value);
   const level = optionalNumber(input.level);
   if (level !== 1 && level !== 2 && level !== 3) {
@@ -1435,7 +1585,7 @@ function categoryMutationInput(value: unknown) {
   return { level, currentName, category, subcategory };
 }
 
-export function renameArticleCategory(value: unknown): CategoryMutationResult {
+function legacyRenameArticleCategory(value: unknown): CategoryMutationResult {
   const input = asInputObject(value);
   const { level, currentName, category, subcategory } = categoryMutationInput(input);
   const nextName = requiredText(input.nextName, "Le nouveau nom");
@@ -1497,7 +1647,7 @@ export function renameArticleCategory(value: unknown): CategoryMutationResult {
   return { updated: Number(result.changes), categories: listCategoryTree() };
 }
 
-export function deleteArticleCategory(value: unknown): CategoryMutationResult {
+function legacyDeleteArticleCategory(value: unknown): CategoryMutationResult {
   const { level, currentName, category, subcategory } = categoryMutationInput(value);
   if (level === 1 && normalizeLookup(currentName) === normalizeLookup("Non classée")) {
     throw new SqliteValidationError("La catégorie système « Non classée » ne peut pas être supprimée.");
@@ -1547,6 +1697,104 @@ export function deleteArticleCategory(value: unknown): CategoryMutationResult {
             AND subcategory = ? COLLATE NOCASE AND name = ? COLLATE NOCASE
         `).run(category, subcategory, currentName);
 
+  if (!result.changes && !storedResult.changes) throw new SqliteValidationError("Cette catégorie n’existe plus.");
+  return { updated: Number(result.changes), categories: listCategoryTree() };
+}
+
+type CategoryLevel = 1 | 2 | 3 | 4;
+
+function categoryMutationInputV2(value: unknown) {
+  const input = asInputObject(value);
+  const level = optionalNumber(input.level);
+  if (level !== 1 && level !== 2 && level !== 3 && level !== 4) {
+    throw new SqliteValidationError("La profondeur de catégorie est invalide.");
+  }
+  const currentName = requiredText(input.currentName, "Le nom actuel");
+  const category = level === 1 ? currentName : requiredText(input.category, "La catégorie");
+  const subcategory = level >= 3 ? requiredText(input.subcategory, "La sous-catégorie") : "";
+  const subsubcategory = level === 4 ? requiredText(input.subsubcategory, "La sous-sous-catégorie") : "";
+  return { level: level as CategoryLevel, currentName, category, subcategory, subsubcategory };
+}
+
+export function addArticleCategory(value: unknown): CategoryMutationResult {
+  const input = asInputObject(value);
+  const level = optionalNumber(input.level);
+  if (level !== 1 && level !== 2 && level !== 3 && level !== 4) {
+    throw new SqliteValidationError("Choisissez une catégorie ou une sous-catégorie valide.");
+  }
+  const name = requiredText(input.name, "Le nom de la catégorie");
+  const category = level === 1 ? "" : requiredText(input.category, "La catégorie parente");
+  const subcategory = level >= 3 ? requiredText(input.subcategory, "La sous-catégorie parente") : "";
+  const subsubcategory = level === 4 ? requiredText(input.subsubcategory, "La sous-sous-catégorie parente") : "";
+  if (level === 1 && normalizeLookup(name) === normalizeLookup("Non classée")) {
+    throw new SqliteValidationError("La catégorie système « Non classée » existe déjà.");
+  }
+  const database = getDatabase();
+  const result = database.prepare(`
+    INSERT OR IGNORE INTO catalog_categories (level, name, category, subcategory, subsubcategory)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(level, name, category, subcategory, subsubcategory);
+  if (!result.changes) throw new SqliteValidationError("Cette catégorie existe déjà à cet emplacement.");
+  if (level === 2) registerCatalogPath(database, category, name);
+  if (level === 3) registerCatalogPath(database, category, subcategory, name);
+  if (level === 4) registerCatalogPath(database, category, subcategory, subsubcategory, name);
+  return { updated: 0, created: Number(result.changes), categories: listCategoryTree() };
+}
+
+export function renameArticleCategory(value: unknown): CategoryMutationResult {
+  const input = asInputObject(value);
+  const { level, currentName, category, subcategory, subsubcategory } = categoryMutationInputV2(input);
+  const nextName = requiredText(input.nextName, "Le nouveau nom");
+  if (normalizeLookup(currentName) === normalizeLookup(nextName)) {
+    throw new SqliteValidationError("Le nouveau nom doit être différent du nom actuel.");
+  }
+  const database = getDatabase();
+  const result = level === 1
+    ? database.prepare("UPDATE articles SET category = ?, updated_at = CURRENT_TIMESTAMP WHERE is_deleted = 0 AND category = ? COLLATE NOCASE").run(nextName, currentName)
+    : level === 2
+      ? database.prepare("UPDATE articles SET subcategory = ?, updated_at = CURRENT_TIMESTAMP WHERE is_deleted = 0 AND category = ? COLLATE NOCASE AND subcategory = ? COLLATE NOCASE").run(nextName, category, currentName)
+      : level === 3
+        ? database.prepare("UPDATE articles SET subsubcategory = ?, updated_at = CURRENT_TIMESTAMP WHERE is_deleted = 0 AND category = ? COLLATE NOCASE AND subcategory = ? COLLATE NOCASE AND subsubcategory = ? COLLATE NOCASE").run(nextName, category, subcategory, currentName)
+        : database.prepare("UPDATE articles SET subsubsubcategory = ?, updated_at = CURRENT_TIMESTAMP WHERE is_deleted = 0 AND category = ? COLLATE NOCASE AND subcategory = ? COLLATE NOCASE AND subsubcategory = ? COLLATE NOCASE AND subsubsubcategory = ? COLLATE NOCASE").run(nextName, category, subcategory, subsubcategory, currentName);
+
+  let storedChanges = 0;
+  if (level === 1) {
+    storedChanges += Number(database.prepare("UPDATE catalog_categories SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE level = 1 AND name = ? COLLATE NOCASE").run(nextName, currentName).changes);
+    storedChanges += Number(database.prepare("UPDATE catalog_categories SET category = ?, updated_at = CURRENT_TIMESTAMP WHERE level IN (2, 3, 4) AND category = ? COLLATE NOCASE").run(nextName, currentName).changes);
+  } else if (level === 2) {
+    storedChanges += Number(database.prepare("UPDATE catalog_categories SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE level = 2 AND category = ? COLLATE NOCASE AND name = ? COLLATE NOCASE").run(nextName, category, currentName).changes);
+    storedChanges += Number(database.prepare("UPDATE catalog_categories SET subcategory = ?, updated_at = CURRENT_TIMESTAMP WHERE level IN (3, 4) AND category = ? COLLATE NOCASE AND subcategory = ? COLLATE NOCASE").run(nextName, category, currentName).changes);
+  } else if (level === 3) {
+    storedChanges += Number(database.prepare("UPDATE catalog_categories SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE level = 3 AND category = ? COLLATE NOCASE AND subcategory = ? COLLATE NOCASE AND name = ? COLLATE NOCASE").run(nextName, category, subcategory, currentName).changes);
+    storedChanges += Number(database.prepare("UPDATE catalog_categories SET subsubcategory = ?, updated_at = CURRENT_TIMESTAMP WHERE level = 4 AND category = ? COLLATE NOCASE AND subcategory = ? COLLATE NOCASE AND subsubcategory = ? COLLATE NOCASE").run(nextName, category, subcategory, currentName).changes);
+  } else {
+    storedChanges += Number(database.prepare("UPDATE catalog_categories SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE level = 4 AND category = ? COLLATE NOCASE AND subcategory = ? COLLATE NOCASE AND subsubcategory = ? COLLATE NOCASE AND name = ? COLLATE NOCASE").run(nextName, category, subcategory, subsubcategory, currentName).changes);
+  }
+  if (!result.changes && !storedChanges) throw new SqliteValidationError("Cette catégorie n’existe plus.");
+  return { updated: Number(result.changes), categories: listCategoryTree() };
+}
+
+export function deleteArticleCategory(value: unknown): CategoryMutationResult {
+  const { level, currentName, category, subcategory, subsubcategory } = categoryMutationInputV2(value);
+  if (level === 1 && normalizeLookup(currentName) === normalizeLookup("Non classée")) {
+    throw new SqliteValidationError("La catégorie système « Non classée » ne peut pas être supprimée.");
+  }
+  const database = getDatabase();
+  const result = level === 1
+    ? database.prepare("UPDATE articles SET category = 'Non classée', subcategory = '', subsubcategory = '', subsubsubcategory = '', updated_at = CURRENT_TIMESTAMP WHERE is_deleted = 0 AND category = ? COLLATE NOCASE").run(currentName)
+    : level === 2
+      ? database.prepare("UPDATE articles SET subcategory = '', subsubcategory = '', subsubsubcategory = '', updated_at = CURRENT_TIMESTAMP WHERE is_deleted = 0 AND category = ? COLLATE NOCASE AND subcategory = ? COLLATE NOCASE").run(category, currentName)
+      : level === 3
+        ? database.prepare("UPDATE articles SET subsubcategory = '', subsubsubcategory = '', updated_at = CURRENT_TIMESTAMP WHERE is_deleted = 0 AND category = ? COLLATE NOCASE AND subcategory = ? COLLATE NOCASE AND subsubcategory = ? COLLATE NOCASE").run(category, subcategory, currentName)
+        : database.prepare("UPDATE articles SET subsubsubcategory = '', updated_at = CURRENT_TIMESTAMP WHERE is_deleted = 0 AND category = ? COLLATE NOCASE AND subcategory = ? COLLATE NOCASE AND subsubcategory = ? COLLATE NOCASE AND subsubsubcategory = ? COLLATE NOCASE").run(category, subcategory, subsubcategory, currentName);
+
+  const storedResult = level === 1
+    ? database.prepare("DELETE FROM catalog_categories WHERE (level = 1 AND name = ? COLLATE NOCASE) OR (level IN (2, 3, 4) AND category = ? COLLATE NOCASE)").run(currentName, currentName)
+    : level === 2
+      ? database.prepare("DELETE FROM catalog_categories WHERE category = ? COLLATE NOCASE AND ((level = 2 AND name = ? COLLATE NOCASE) OR (level IN (3, 4) AND subcategory = ? COLLATE NOCASE))").run(category, currentName, currentName)
+      : level === 3
+        ? database.prepare("DELETE FROM catalog_categories WHERE category = ? COLLATE NOCASE AND subcategory = ? COLLATE NOCASE AND ((level = 3 AND name = ? COLLATE NOCASE) OR (level = 4 AND subsubcategory = ? COLLATE NOCASE))").run(category, subcategory, currentName, currentName)
+        : database.prepare("DELETE FROM catalog_categories WHERE level = 4 AND category = ? COLLATE NOCASE AND subcategory = ? COLLATE NOCASE AND subsubcategory = ? COLLATE NOCASE AND name = ? COLLATE NOCASE").run(category, subcategory, subsubcategory, currentName);
   if (!result.changes && !storedResult.changes) throw new SqliteValidationError("Cette catégorie n’existe plus.");
   return { updated: Number(result.changes), categories: listCategoryTree() };
 }
@@ -2638,9 +2886,9 @@ export function createArticle(value: unknown): ArticleRecord {
 
   const result = database.prepare(`
     INSERT INTO articles (
-      name, sku, brand, brand_logo, category, subcategory, subsubcategory,
+      name, sku, brand, brand_logo, category, subcategory, subsubcategory, subsubsubcategory,
       description, unit, image_url, purchase_price, purchase_prices_json, sale_price, sale_prices_json, stock, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     name,
     sku,
@@ -2649,6 +2897,7 @@ export function createArticle(value: unknown): ArticleRecord {
     cleanText(input.category, "Non classée") || "Non classée",
     cleanText(input.subcategory),
     cleanText(input.subsubcategory),
+    cleanText(input.subsubsubcategory),
     cleanText(input.description),
     cleanText(input.unit, "Unité") || "Unité",
     normalizedImageUrl(firstDefinedValue(input, ["image_url", "imageUrl", "photo"])),
@@ -2660,7 +2909,7 @@ export function createArticle(value: unknown): ArticleRecord {
     cleanText(input.status, statusForStock(stock)) || statusForStock(stock),
   );
   const article = getArticleById(database, Number(result.lastInsertRowid));
-  registerCatalogPath(database, article.category, article.subcategory, article.subsubcategory);
+  registerCatalogPath(database, article.category, article.subcategory, article.subsubcategory, article.subsubsubcategory);
   return article;
 }
 
@@ -2695,7 +2944,7 @@ export function updateArticle(value: unknown): ArticleRecord {
   database.prepare(`
     UPDATE articles
     SET name = ?, sku = ?, brand = ?, brand_logo = ?, category = ?, subcategory = ?,
-      subsubcategory = ?, description = ?, unit = ?, image_url = ?, purchase_price = ?,
+      subsubcategory = ?, subsubsubcategory = ?, description = ?, unit = ?, image_url = ?, purchase_price = ?,
       sale_price = ?, sale_prices_json = ?, purchase_prices_json = ?, stock = ?, status = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(
@@ -2706,6 +2955,7 @@ export function updateArticle(value: unknown): ArticleRecord {
     cleanText(input.category, existing.category) || "Non classée",
     cleanText(input.subcategory, existing.subcategory),
     cleanText(input.subsubcategory, existing.subsubcategory),
+    cleanText(input.subsubsubcategory, existing.subsubsubcategory),
     cleanText(input.description, existing.description),
     cleanText(input.unit, existing.unit) || "Unité",
     normalizedImageUrl(firstDefinedValue(input, ["image_url", "imageUrl", "photo"]), existing.image_url),
@@ -2718,7 +2968,7 @@ export function updateArticle(value: unknown): ArticleRecord {
     id,
   );
   const article = getArticleById(database, id);
-  registerCatalogPath(database, article.category, article.subcategory, article.subsubcategory);
+  registerCatalogPath(database, article.category, article.subcategory, article.subsubcategory, article.subsubsubcategory);
   return article;
 }
 

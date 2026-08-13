@@ -1,83 +1,27 @@
-import {
-  createParty,
-  deleteParty,
-  listPartyBalanceHistory,
-  listParties,
-  SqliteValidationError,
-  type PartyKind,
-  updateParty,
-} from "@/lib/sqlite";
+import { createParty, deleteParty, listPartyBalanceHistory, listParties, SqliteValidationError, type PartyKind, updateParty } from "@/lib/sqlite";
+import { AccountAuthenticationError, withAccountDatabase } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
 function errorResponse(error: unknown) {
   const message = error instanceof Error ? error.message : "Une erreur SQLite est survenue.";
-  return Response.json(
-    { error: message },
-    { status: error instanceof SqliteValidationError || error instanceof SyntaxError ? 400 : 500 },
-  );
+  const status = error instanceof AccountAuthenticationError ? error.status : error instanceof SqliteValidationError || error instanceof SyntaxError ? 400 : 500;
+  return Response.json({ error: message }, { status });
 }
-
 function queryKind(value: string | null): PartyKind | undefined {
   if (value === null || value === "") return undefined;
   if (value === "client" || value === "supplier") return value;
-  throw new SqliteValidationError("Le paramÃ¨tre kind doit Ãªtre client ou supplier.");
+  throw new SqliteValidationError("Le paramètre kind doit être client ou supplier.");
 }
-
-/**
- * GET /api/parties?kind=client|supplier
- * Omitting `kind` intentionally returns both lists, useful for document forms.
- */
-export function GET(request: Request) {
-  try {
-    const parameters = new URL(request.url).searchParams;
-    if (parameters.get("history") === "balance") {
-      return Response.json(
-        { history: listPartyBalanceHistory(parameters.get("party_id")) },
-        { headers: { "Cache-Control": "no-store" } },
-      );
-    }
-    const kind = queryKind(parameters.get("kind"));
-    return Response.json(
-      { parties: listParties(kind) },
-      { headers: { "Cache-Control": "no-store" } },
-    );
-  } catch (error) {
-    return errorResponse(error);
-  }
+export async function GET(request: Request) {
+  try { return withAccountDatabase(request, () => { const parameters = new URL(request.url).searchParams; if (parameters.get("history") === "balance") return Response.json({ history: listPartyBalanceHistory(parameters.get("party_id")) }, { headers: { "Cache-Control": "no-store" } }); const kind = queryKind(parameters.get("kind")); return Response.json({ parties: listParties(kind) }, { headers: { "Cache-Control": "no-store" } }); }); } catch (error) { return errorResponse(error); }
 }
-
-/**
- * POST /api/parties
- * Body: { kind, name, contact_phone, contact_name, email, address, city,
- *         head_office, category, image_url, nif, nis, rc, tax_article, rib }.
- * `image_url` accepts an uploaded image encoded as a data URL.
- */
 export async function POST(request: Request) {
-  try {
-    const party = createParty(await request.json());
-    return Response.json({ party }, { status: 201 });
-  } catch (error) {
-    return errorResponse(error);
-  }
+  try { return await withAccountDatabase(request, async () => Response.json({ party: createParty(await request.json()) }, { status: 201 })); } catch (error) { return errorResponse(error); }
 }
-
 export async function PATCH(request: Request) {
-  try {
-    const party = updateParty(await request.json());
-    return Response.json({ party });
-  } catch (error) {
-    return errorResponse(error);
-  }
+  try { return await withAccountDatabase(request, async () => Response.json({ party: updateParty(await request.json()) })); } catch (error) { return errorResponse(error); }
 }
-
 export async function DELETE(request: Request) {
-  try {
-    const input = await request.json() as { id?: unknown };
-    const party = deleteParty(input.id);
-    return Response.json({ party });
-  } catch (error) {
-    return errorResponse(error);
-  }
+  try { return await withAccountDatabase(request, async () => { const input = await request.json() as { id?: unknown }; return Response.json({ party: deleteParty(input.id) }); }); } catch (error) { return errorResponse(error); }
 }

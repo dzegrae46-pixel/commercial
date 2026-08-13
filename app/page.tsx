@@ -71,7 +71,6 @@ type ViewMode = "list" | "grid";
 
 type CompanySettings = {
   name: string;
-  accessPassword: string;
   logoDataUrl: string;
   defaultTaxRate: number;
   activityLine1: string;
@@ -368,6 +367,7 @@ type ArticleRecord = {
   category: string;
   subcategory: string;
   subsubcategory: string;
+  subsubsubcategory: string;
   description: string;
   unit: string;
   image_url: string;
@@ -384,7 +384,10 @@ type CategoryTree = {
   name: string;
   subcategories: {
     name: string;
-    subcategories: string[];
+    subcategories: {
+      name: string;
+      subcategories: string[];
+    }[];
   }[];
 };
 
@@ -392,9 +395,10 @@ type ClientCategoryRecord = { id: number; name: string; created_at?: string; upd
 
 type CategoryEditTarget = {
   key: string;
-  level: 1 | 2 | 3;
+  level: 1 | 2 | 3 | 4;
   category: string;
   subcategory: string;
+  subsubcategory?: string;
   currentName: string;
 };
 
@@ -581,7 +585,6 @@ const libraryTabs: { value: LibraryCategory; label: string; icon: LucideIcon }[]
 ];
 
 const DEFAULT_COMPANY: CompanySettings = {
-  accessPassword: "genie2020",
   name: "Génie Système Réseau",
   logoDataUrl: "/example-gsr-logo.svg",
   defaultTaxRate: 0,
@@ -645,7 +648,6 @@ const readCompanySettings = (): CompanySettings => {
       name: typeof stored.name === "string" && stored.name.trim()
         ? stored.name.trim().slice(0, 40)
         : DEFAULT_COMPANY.name,
-      accessPassword: cleanCompanyValue(stored.accessPassword, DEFAULT_COMPANY.accessPassword, 128),
       logoDataUrl: stored.logoDataUrl === ""
         ? ""
         : typeof stored.logoDataUrl === "string" && isSafeImageSource(stored.logoDataUrl)
@@ -685,7 +687,6 @@ const subscribeToCompany = (onChange: () => void) => {
 const persistCompanySettings = (nextSettings: CompanySettings) => {
   const cleaned: CompanySettings = {
     name: nextSettings.name.trim().slice(0, 40) || DEFAULT_COMPANY.name,
-    accessPassword: cleanCompanyValue(nextSettings.accessPassword, DEFAULT_COMPANY.accessPassword, 128),
     logoDataUrl: nextSettings.logoDataUrl === "" || isSafeImageSource(nextSettings.logoDataUrl) ? nextSettings.logoDataUrl : DEFAULT_COMPANY.logoDataUrl,
     defaultTaxRate: Math.min(100, Math.max(0, Number(nextSettings.defaultTaxRate) || 0)),
     activityLine1: cleanCompanyValue(nextSettings.activityLine1, DEFAULT_COMPANY.activityLine1),
@@ -738,7 +739,7 @@ const initials = (name: string) => {
 const normalizeLabel = (value: string) =>
   value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
-const categoryTreeForArticles = (articles: ArticleRecord[]): CategoryTree[] => {
+const legacyCategoryTreeForArticles = (articles: ArticleRecord[]): unknown[] => {
   const categories = new Map<string, Map<string, Set<string>>>();
   for (const article of articles) {
     const category = article.category.trim() || "Non classée";
@@ -763,6 +764,47 @@ const categoryTreeForArticles = (articles: ArticleRecord[]): CategoryTree[] => {
         .sort((left, right) => left.name.localeCompare(right.name, "fr")),
     }))
     .sort((left, right) => left.name.localeCompare(right.name, "fr"));
+};
+
+const categoryTreeForArticles = (articles: ArticleRecord[]): CategoryTree[] => {
+  type FourthLevels = Set<string>;
+  type ThirdLevels = Map<string, FourthLevels>;
+  type Subcategories = Map<string, ThirdLevels>;
+  const categories = new Map<string, Subcategories>();
+  const ensureCategory = (name: string) => {
+    const value = categories.get(name) ?? new Map<string, ThirdLevels>();
+    categories.set(name, value);
+    return value;
+  };
+  const ensureSubcategory = (category: string, name: string) => {
+    const children = ensureCategory(category);
+    const value = children.get(name) ?? new Map<string, FourthLevels>();
+    children.set(name, value);
+    return value;
+  };
+  const ensureThirdLevel = (category: string, subcategory: string, name: string) => {
+    const children = ensureSubcategory(category, subcategory);
+    const value = children.get(name) ?? new Set<string>();
+    children.set(name, value);
+    return value;
+  };
+  for (const article of articles) {
+    const category = article.category.trim() || "Non classée";
+    const subcategory = article.subcategory.trim() || "Sans sous-catégorie";
+    const thirdLevel = article.subsubcategory.trim() || "Sans sous-sous-catégorie";
+    const fourthLevels = ensureThirdLevel(category, subcategory, thirdLevel);
+    if (article.subsubsubcategory.trim()) fourthLevels.add(article.subsubsubcategory.trim());
+  }
+  return [...categories.entries()].map(([name, subcategories]) => ({
+    name,
+    subcategories: [...subcategories.entries()].map(([subcategory, thirdLevels]) => ({
+      name: subcategory,
+      subcategories: [...thirdLevels.entries()].map(([thirdLevel, fourthLevels]) => ({
+        name: thirdLevel,
+        subcategories: [...fourthLevels].sort((left, right) => left.localeCompare(right, "fr")),
+      })).sort((left, right) => left.name.localeCompare(right.name, "fr")),
+    })).sort((left, right) => left.name.localeCompare(right.name, "fr")),
+  })).sort((left, right) => left.name.localeCompare(right.name, "fr"));
 };
 
 const formatDa = (value: number) =>
@@ -1063,7 +1105,8 @@ function CompanyLogo({
   );
 }
 
-function AccessGate({ company, onUnlocked }: { company: CompanySettings; onUnlocked: () => void }) {
+/* Legacy browser-only access gate.
+function AccessGateLegacy({ company, onUnlocked }: { company: CompanySettings; onUnlocked: () => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
@@ -1110,6 +1153,37 @@ function AccessGate({ company, onUnlocked }: { company: CompanySettings; onUnloc
       </form>
     </main>
   );
+}
+
+*/
+
+function AccessGate({ onUnlocked }: { onUnlocked: () => void }) {
+  const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const creating = mode === "sign-up";
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true); setError("");
+    try {
+      const response = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: mode, password }) });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Impossible de vous connecter.");
+      setPassword("");
+      onUnlocked();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Impossible de vous connecter.");
+    } finally { setSubmitting(false); }
+  };
+  return <main className="access-gate"><form className="access-gate-card" onSubmit={submit}>
+    <div className="access-gate-brand"><span className="brand-mark"><span /></span><span>Commercial</span></div>
+    <div className="access-gate-heading"><span className="access-gate-icon"><Settings2 size={22} /></span><h1>{creating ? "Créer un compte" : "Connexion"}</h1><p>{creating ? "Choisissez un mot de passe : une nouvelle base vide sera créée pour ce compte." : "Saisissez le mot de passe de votre compte pour ouvrir sa base."}</p></div>
+    <label className="access-gate-field" htmlFor="app-access-password">Mot de passe<input id="app-access-password" autoFocus required minLength={8} maxLength={256} autoComplete={creating ? "new-password" : "current-password"} type="password" value={password} onChange={(event) => { setPassword(event.target.value); setError(""); }} placeholder="8 caractères minimum" aria-describedby={error ? "app-access-error" : undefined} /></label>
+    {error && <p className="access-gate-error" id="app-access-error" role="alert">{error}</p>}
+    <button type="submit" className="primary-button access-gate-submit" disabled={submitting}>{submitting ? "Patientez…" : creating ? "Créer le compte" : "Se connecter"}</button>
+    <button type="button" className="text-button" onClick={() => { setMode(creating ? "sign-in" : "sign-up"); setPassword(""); setError(""); }} disabled={submitting}>{creating ? "J’ai déjà un compte" : "Créer un compte"}</button>
+  </form></main>;
 }
 
 function StatusBadge({ label, tone = "gray" }: { label: string; tone?: string }) {
@@ -2566,7 +2640,8 @@ function DocumentDetailsModal({
   );
 }
 
-function CategoryManagerModal({
+/* Legacy three-depth manager retained in source history only.
+function LegacyCategoryManagerModal({
   initialArticles,
   onClose,
   onChanged,
@@ -2588,7 +2663,7 @@ function CategoryManagerModal({
   const [busyKey, setBusyKey] = useState("");
   const [error, setError] = useState("");
   const [collapsedBranches, setCollapsedBranches] = useState<Set<string>>(() => new Set());
-  const tree = catalogTree;
+  const tree: any = catalogTree;
   const levelTwoCount = tree.reduce((total, category) => total + category.subcategories.length, 0);
   const levelThreeCount = tree.reduce(
     (total, category) => total + category.subcategories.reduce((subtotal, subcategory) => subtotal + subcategory.subcategories.length, 0),
@@ -2866,6 +2941,201 @@ function CategoryManagerModal({
   );
 }
 
+*/
+
+function CategoryManagerModal({
+  initialArticles,
+  onClose,
+  onChanged,
+  notify,
+}: {
+  initialArticles: ArticleRecord[];
+  onClose: () => void;
+  onChanged: () => void;
+  notify: (message: string) => void;
+}) {
+  const [articles, setArticles] = useState(initialArticles);
+  const [catalogTree, setCatalogTree] = useState<CategoryTree[]>(() => categoryTreeForArticles(initialArticles));
+  const [editing, setEditing] = useState<CategoryEditTarget | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const [newDepth, setNewDepth] = useState<1 | 2 | 3 | 4>(1);
+  const [newName, setNewName] = useState("");
+  const [newCategory, setNewCategory] = useState("");
+  const [newSubcategory, setNewSubcategory] = useState("");
+  const [newSubsubcategory, setNewSubsubcategory] = useState("");
+  const [categorySearch, setCategorySearch] = useState("");
+  const [busyKey, setBusyKey] = useState("");
+  const [error, setError] = useState("");
+  const [collapsedBranches, setCollapsedBranches] = useState<Set<string>>(() => new Set());
+  const tree = catalogTree;
+  const selectedNewCategory = tree.find((item) => item.name === newCategory);
+  const availableNewSubcategories = selectedNewCategory?.subcategories ?? [];
+  const selectedNewSubcategory = availableNewSubcategories.find((item) => item.name === newSubcategory);
+  const availableNewThirdLevels = selectedNewSubcategory?.subcategories ?? [];
+  const categoryLabels = ["", "Catégorie", "Sous-catégorie", "Sous-sous-catégorie", "Sous-sous-sous-catégorie"];
+  const counts = [
+    tree.length,
+    tree.reduce((total, category) => total + category.subcategories.length, 0),
+    tree.reduce((total, category) => total + category.subcategories.reduce((subtotal, subcategory) => subtotal + subcategory.subcategories.length, 0), 0),
+    tree.reduce((total, category) => total + category.subcategories.reduce((subtotal, subcategory) => subtotal + subcategory.subcategories.reduce((deepTotal, third) => deepTotal + third.subcategories.length, 0), 0), 0),
+  ];
+  const branchKeys = tree.flatMap((category) => [
+    `1:${category.name}`,
+    ...category.subcategories.flatMap((subcategory) => [
+      `2:${category.name}:${subcategory.name}`,
+      ...subcategory.subcategories.map((third) => `3:${category.name}:${subcategory.name}:${third.name}`),
+    ]),
+  ]);
+  const normalizedSearch = normalizeLabel(categorySearch.trim());
+  const visibleTree = !normalizedSearch ? tree : tree.flatMap((category) => {
+    const subcategories = category.subcategories.flatMap((subcategory) => {
+      const thirdLevels = subcategory.subcategories.flatMap((third) => {
+        const fourthLevels = third.subcategories.filter((fourth) => normalizeLabel(`${category.name} ${subcategory.name} ${third.name} ${fourth}`).includes(normalizedSearch));
+        const matchesThird = normalizeLabel(`${category.name} ${subcategory.name} ${third.name}`).includes(normalizedSearch);
+        return matchesThird || fourthLevels.length ? [{ ...third, subcategories: matchesThird ? third.subcategories : fourthLevels }] : [];
+      });
+      const matchesSubcategory = normalizeLabel(`${category.name} ${subcategory.name}`).includes(normalizedSearch);
+      return matchesSubcategory || thirdLevels.length ? [{ ...subcategory, subcategories: matchesSubcategory ? subcategory.subcategories : thirdLevels }] : [];
+    });
+    const matchesCategory = normalizeLabel(category.name).includes(normalizedSearch);
+    return matchesCategory || subcategories.length ? [{ ...category, subcategories: matchesCategory ? category.subcategories : subcategories }] : [];
+  });
+
+  const refresh = async () => {
+    const [articlesResponse, categoriesResponse] = await Promise.all([fetch("/api/articles", { cache: "no-store" }), fetch("/api/categories", { cache: "no-store" })]);
+    const articlePayload = await articlesResponse.json() as { articles?: ArticleRecord[]; error?: string };
+    const categoryPayload = await categoriesResponse.json() as { categories?: CategoryTree[]; error?: string };
+    if (!articlesResponse.ok) throw new Error(articlePayload.error || "Impossible de recharger les catégories.");
+    if (!categoriesResponse.ok) throw new Error(categoryPayload.error || "Impossible de recharger l’arborescence.");
+    setArticles(articlePayload.articles ?? []);
+    setCatalogTree(categoryPayload.categories ?? []);
+    onChanged();
+  };
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/categories", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json() as { categories?: CategoryTree[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "Impossible de charger les catégories.");
+        setCatalogTree(payload.categories ?? []);
+      })
+      .catch((requestError: Error) => { if (requestError.name !== "AbortError") setError(requestError.message); });
+    return () => controller.abort();
+  }, []);
+  const toggleBranch = (key: string) => setCollapsedBranches((current) => {
+    const next = new Set(current);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+  const countFor = (target: CategoryEditTarget) => articles.filter((article) =>
+    article.category === target.category
+    && (target.level < 2 || article.subcategory === target.currentName || target.level !== 2)
+    && (target.level < 3 || (article.subcategory === target.subcategory && article.subsubcategory === target.currentName) || target.level !== 3)
+    && (target.level < 4 || (article.subcategory === target.subcategory && article.subsubcategory === target.subsubcategory && article.subsubsubcategory === target.currentName)),
+  ).length;
+  const create = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!newName.trim() || (newDepth >= 2 && !newCategory) || (newDepth >= 3 && !newSubcategory) || (newDepth === 4 && !newSubsubcategory)) {
+      setError("Choisissez chaque catégorie parente avant d’ajouter cette sous-catégorie.");
+      return;
+    }
+    setBusyKey("create"); setError("");
+    try {
+      const response = await fetch("/api/categories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ level: newDepth, name: newName.trim(), category: newCategory, subcategory: newSubcategory, subsubcategory: newSubsubcategory }) });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Impossible d’ajouter la catégorie.");
+      const added = newName.trim(); setNewName(""); await refresh(); notify(`« ${added} » ajoutée.`);
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Impossible d’ajouter la catégorie."); } finally { setBusyKey(""); }
+  };
+  const saveRename = async (event: React.FormEvent) => {
+    event.preventDefault(); if (!editing || !draftName.trim()) return;
+    setBusyKey(editing.key); setError("");
+    try {
+      const response = await fetch("/api/categories", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...editing, nextName: draftName.trim() }) });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Impossible de renommer la catégorie.");
+      setEditing(null); await refresh(); notify("Catégorie renommée.");
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Impossible de renommer la catégorie."); } finally { setBusyKey(""); }
+  };
+  const remove = async (target: CategoryEditTarget) => {
+    if (!window.confirm(`Supprimer « ${target.currentName} » ? Les articles concernés seront déclassés à cette profondeur.`)) return;
+    setBusyKey(target.key); setError("");
+    try {
+      const response = await fetch("/api/categories", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify(target) });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Impossible de supprimer la catégorie.");
+      await refresh(); notify("Catégorie supprimée.");
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Impossible de supprimer la catégorie."); } finally { setBusyKey(""); }
+  };
+  const node = (target: CategoryEditTarget, hasChildren: boolean) => {
+    const isEditing = editing?.key === target.key;
+    const isSystem = target.level === 1 && normalizeLabel(target.currentName) === normalizeLabel("Non classée");
+    const expanded = !collapsedBranches.has(target.key);
+    return <div className={`category-manager-node category-level-${target.level}`} key={target.key} role="treeitem" aria-level={target.level} aria-expanded={hasChildren ? expanded : undefined}>
+      {hasChildren ? <button type="button" className={`category-tree-toggle ${expanded ? "expanded" : ""}`} onClick={() => toggleBranch(target.key)} aria-label={`${expanded ? "Replier" : "Déplier"} ${target.currentName}`}><ChevronDown size={15} /></button> : <span className="category-tree-leaf" aria-hidden="true" />}
+      <span className="category-manager-node-icon"><Folder size={16} /></span>
+      {isEditing ? <form className="category-rename-form" onSubmit={saveRename}><label><span>Renommer</span><input autoFocus value={draftName} onChange={(event) => setDraftName(event.target.value)} /></label><button type="submit" className="icon-button category-save-button" disabled={busyKey === target.key}><Save size={16} /></button><button type="button" className="icon-button" onClick={() => setEditing(null)}><X size={16} /></button></form> : <><span className="category-manager-node-copy"><small>{categoryLabels[target.level]}</small><strong>{target.currentName}</strong></span><span className="category-usage-count">{countFor(target)} article{countFor(target) === 1 ? "" : "s"}</span>{isSystem ? <span className="category-system-label">Catégorie système</span> : <span className="category-manager-actions"><button type="button" className="icon-button" onClick={() => { setEditing(target); setDraftName(target.currentName); }} disabled={Boolean(busyKey)} aria-label={`Modifier ${target.currentName}`}><Pencil size={15} /></button><button type="button" className="icon-button danger-text" onClick={() => void remove(target)} disabled={Boolean(busyKey)} aria-label={`Supprimer ${target.currentName}`}><Trash2 size={15} /></button></span>}</>}
+    </div>;
+  };
+  /*
+  return <div className="modal-backdrop category-manager-backdrop" role="presentation" onMouseDown={onClose}><div className="modal-card expanded-modal category-manager-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+    <div className="modal-header"><div><h2>Catégories disponibles</h2><p>Organisez le catalogue par catégorie et sous-catégories, jusqu’à quatre profondeurs.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+    <div className="category-manager-summary">{counts.map((count, index) => <div key={categoryLabels[index + 1]}><small>{categoryLabels[index + 1]}</small><strong>{count}</strong><span>{index === 0 ? "catégories" : "éléments"}</span></div>)}</div>
+    {error && <p className="form-error" role="alert">{error}</p>}
+    <form className="category-create-form" onSubmit={create}><div className="category-create-copy"><Plus size={16} /><span><strong>Ajouter</strong><small>Créez une catégorie ou une sous-catégorie vide.</small></span></div><label><span>Type</span><select value={newDepth} onChange={(event) => { setNewDepth(Number(event.target.value) as 1 | 2 | 3 | 4); setNewCategory(""); setNewSubcategory(""); setNewSubsubcategory(""); }}><option value={1}>Catégorie</option><option value={2}>Sous-catégorie</option><option value={3}>Sous-sous-catégorie</option><option value={4}>Sous-sous-sous-catégorie</option></select></label>{newDepth >= 2 && <label><span>Catégorie parente</span><select value={newCategory} onChange={(event) => { setNewCategory(event.target.value); setNewSubcategory(""); setNewSubsubcategory(""); }} required><option value="">Choisir…</option>{tree.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>}{newDepth >= 3 && <label><span>Sous-catégorie parente</span><select value={newSubcategory} onChange={(event) => { setNewSubcategory(event.target.value); setNewSubsubcategory(""); }} required><option value="">Choisir…</option>{availableNewSubcategories.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>}{newDepth === 4 && <label><span>Sous-sous-catégorie parente</span><select value={newSubsubcategory} onChange={(event) => setNewSubsubcategory(event.target.value)} required><option value="">Choisir…</option>{availableNewThirdLevels.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>}<label className="category-create-name"><span>Nom</span><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Nouvelle catégorie" required /></label><button type="submit" className="primary-button" disabled={Boolean(busyKey)}><Plus size={15} />Ajouter</button></form>
+    <div className="category-tree-toolbar"><div><strong>Arborescence du catalogue</strong><span>Catégorie → Sous-catégorie → Sous-sous-catégorie → Sous-sous-sous-catégorie</span></div><label className="search-control"><Search size={14} /><input value={categorySearch} onChange={(event) => setCategorySearch(event.target.value)} placeholder="Rechercher une catégorie…" aria-label="Rechercher une catégorie" /></label><div><button type="button" onClick={() => setCollapsedBranches(new Set())}>Tout déplier</button><button type="button" onClick={() => setCollapsedBranches(new Set(branchKeys))}>Tout replier</button></div></div>
+    <div className="category-manager-tree" role="tree" aria-label="Arborescence des catégories">{visibleTree.map((category) => { const categoryTarget: CategoryEditTarget = { key: `1:${category.name}`, level: 1, category: category.name, subcategory: "", subsubcategory: "", currentName: category.name }; const categoryExpanded = !collapsedBranches.has(categoryTarget.key); return <section className="category-manager-branch" key={category.name}>{node(categoryTarget, category.subcategories.length > 0)}{categoryExpanded && category.subcategories.length > 0 && <div className="category-manager-children" role="group">{category.subcategories.map((subcategory) => { const subcategoryTarget: CategoryEditTarget = { key: `2:${category.name}:${subcategory.name}`, level: 2, category: category.name, subcategory: "", subsubcategory: "", currentName: subcategory.name }; const subcategoryExpanded = !collapsedBranches.has(subcategoryTarget.key); return <div className="category-manager-subbranch" key={subcategory.name}>{node(subcategoryTarget, subcategory.subcategories.length > 0)}{subcategoryExpanded && subcategory.subcategories.length > 0 && <div className="category-manager-grandchildren" role="group">{subcategory.subcategories.map((third) => { const thirdTarget: CategoryEditTarget = { key: `3:${category.name}:${subcategory.name}:${third.name}`, level: 3, category: category.name, subcategory: subcategory.name, subsubcategory: "", currentName: third.name }; const thirdExpanded = !collapsedBranches.has(thirdTarget.key); return <div className="category-manager-subbranch" key={third.name}>{node(thirdTarget, third.subcategories.length > 0)}{thirdExpanded && third.subcategories.length > 0 && <div className="category-manager-greatgrandchildren" role="group">{third.subcategories.map((fourth) => node({ key: `4:${category.name}:${subcategory.name}:${third.name}:${fourth}`, level: 4, category: category.name, subcategory: subcategory.name, subsubcategory: third.name, currentName: fourth }, false))}</div>}</div>; })}</div>}</div>; })}</div>}</section>; })}</div>
+    {!visibleTree.length && <div className="category-manager-empty"><Folder size={22} /><span>{categorySearch ? "Aucune catégorie trouvée." : "Aucune catégorie disponible."}</span></div>}</div>
+    <div className="modal-actions"><button type="button" className="primary-button" onClick={onClose}>Terminé</button></div>
+  </div></div>;
+  */
+
+  const renderThirdLevel = (category: CategoryTree, subcategory: CategoryTree["subcategories"][number], third: CategoryTree["subcategories"][number]["subcategories"][number]) => {
+    const target: CategoryEditTarget = { key: `3:${category.name}:${subcategory.name}:${third.name}`, level: 3, category: category.name, subcategory: subcategory.name, subsubcategory: "", currentName: third.name };
+    const expanded = !collapsedBranches.has(target.key);
+    return <div className="category-manager-subbranch" key={third.name}>
+      {node(target, third.subcategories.length > 0)}
+      {expanded && third.subcategories.length > 0 && <div className="category-manager-greatgrandchildren" role="group">
+        {third.subcategories.map((fourth) => node({ key: `4:${category.name}:${subcategory.name}:${third.name}:${fourth}`, level: 4, category: category.name, subcategory: subcategory.name, subsubcategory: third.name, currentName: fourth }, false))}
+      </div>}
+    </div>;
+  };
+  const renderSubcategory = (category: CategoryTree, subcategory: CategoryTree["subcategories"][number]) => {
+    const target: CategoryEditTarget = { key: `2:${category.name}:${subcategory.name}`, level: 2, category: category.name, subcategory: "", subsubcategory: "", currentName: subcategory.name };
+    const expanded = !collapsedBranches.has(target.key);
+    return <div className="category-manager-subbranch" key={subcategory.name}>
+      {node(target, subcategory.subcategories.length > 0)}
+      {expanded && subcategory.subcategories.length > 0 && <div className="category-manager-grandchildren" role="group">{subcategory.subcategories.map((third) => renderThirdLevel(category, subcategory, third))}</div>}
+    </div>;
+  };
+  const renderCategory = (category: CategoryTree) => {
+    const target: CategoryEditTarget = { key: `1:${category.name}`, level: 1, category: category.name, subcategory: "", subsubcategory: "", currentName: category.name };
+    const expanded = !collapsedBranches.has(target.key);
+    return <section className="category-manager-branch" key={category.name}>
+      {node(target, category.subcategories.length > 0)}
+      {expanded && category.subcategories.length > 0 && <div className="category-manager-children" role="group">{category.subcategories.map((subcategory) => renderSubcategory(category, subcategory))}</div>}
+    </section>;
+  };
+  return <div className="modal-backdrop category-manager-backdrop" role="presentation" onMouseDown={onClose}>
+    <div className="modal-card expanded-modal category-manager-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="modal-header"><div><h2>Catégories disponibles</h2><p>Organisez le catalogue jusqu’à quatre profondeurs.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+      <div className="category-manager-summary">{counts.map((count, index) => <div key={categoryLabels[index + 1]}><small>{categoryLabels[index + 1]}</small><strong>{count}</strong><span>{index === 0 ? "catégories" : "éléments"}</span></div>)}</div>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <form className="category-create-form" onSubmit={create}>
+        <div className="category-create-copy"><Plus size={16} /><span><strong>Ajouter</strong><small>Créez une catégorie ou une sous-catégorie vide.</small></span></div>
+        <label><span>Type</span><select value={newDepth} onChange={(event) => { setNewDepth(Number(event.target.value) as 1 | 2 | 3 | 4); setNewCategory(""); setNewSubcategory(""); setNewSubsubcategory(""); }}><option value={1}>Catégorie</option><option value={2}>Sous-catégorie</option><option value={3}>Sous-sous-catégorie</option><option value={4}>Sous-sous-sous-catégorie</option></select></label>
+        {newDepth >= 2 && <label><span>Catégorie parente</span><select value={newCategory} onChange={(event) => { setNewCategory(event.target.value); setNewSubcategory(""); setNewSubsubcategory(""); }} required><option value="">Choisir…</option>{tree.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>}
+        {newDepth >= 3 && <label><span>Sous-catégorie parente</span><select value={newSubcategory} onChange={(event) => { setNewSubcategory(event.target.value); setNewSubsubcategory(""); }} required><option value="">Choisir…</option>{availableNewSubcategories.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>}
+        {newDepth === 4 && <label><span>Sous-sous-catégorie parente</span><select value={newSubsubcategory} onChange={(event) => setNewSubsubcategory(event.target.value)} required><option value="">Choisir…</option>{availableNewThirdLevels.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>}
+        <label className="category-create-name"><span>Nom</span><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Nouvelle catégorie" required /></label><button type="submit" className="primary-button" disabled={Boolean(busyKey)}><Plus size={15} />Ajouter</button>
+      </form>
+      <div className="category-tree-toolbar"><div><strong>Arborescence du catalogue</strong><span>Catégorie → Sous-catégorie → Sous-sous-catégorie → Sous-sous-sous-catégorie</span></div><label className="search-control"><Search size={14} /><input value={categorySearch} onChange={(event) => setCategorySearch(event.target.value)} placeholder="Rechercher une catégorie…" aria-label="Rechercher une catégorie" /></label><div><button type="button" onClick={() => setCollapsedBranches(new Set())}>Tout déplier</button><button type="button" onClick={() => setCollapsedBranches(new Set(branchKeys))}>Tout replier</button></div></div>
+      <div className="category-manager-tree" role="tree" aria-label="Arborescence des catégories">{visibleTree.map(renderCategory)}{!visibleTree.length && <div className="category-manager-empty"><Folder size={22} /><span>{categorySearch ? "Aucune catégorie trouvée." : "Aucune catégorie disponible."}</span></div>}</div>
+      <div className="modal-actions"><button type="button" className="primary-button" onClick={onClose}>Terminé</button></div>
+    </div>
+  </div>;
+}
+
 function ArticlesTable({
   search,
   setSearch,
@@ -2887,8 +3157,9 @@ function ArticlesTable({
   onEdit: (article: ArticleRecord) => void;
   refreshKey: number;
 }) {
-  const [request, setRequest] = useState<{ rows: ArticleRecord[]; error: string; loadedKey: number }>({
+  const [request, setRequest] = useState<{ rows: ArticleRecord[]; categories: CategoryTree[]; error: string; loadedKey: number }>({
     rows: [],
+    categories: [],
     error: "",
     loadedKey: -1,
   });
@@ -2904,14 +3175,14 @@ function ArticlesTable({
     fetch("/api/articles", { signal: controller.signal, cache: "no-store" })
       .then((response) => {
         if (!response.ok) throw new Error("Base indisponible");
-        return response.json() as Promise<{ articles: ArticleRecord[] }>;
+        return response.json() as Promise<{ articles: ArticleRecord[]; categories?: CategoryTree[] }>;
       })
-      .then(({ articles }) => {
-        if (active) setRequest({ rows: articles, error: "", loadedKey: reloadKey });
+      .then(({ articles, categories }) => {
+        if (active) setRequest({ rows: articles, categories: categories ?? [], error: "", loadedKey: reloadKey });
       })
       .catch((requestError: Error) => {
         if (active && requestError.name !== "AbortError") {
-          setRequest({ rows: [], error: "Impossible de charger la base SQLite locale.", loadedKey: reloadKey });
+          setRequest({ rows: [], categories: [], error: "Impossible de charger la base SQLite locale.", loadedKey: reloadKey });
         }
       });
 
@@ -2938,12 +3209,28 @@ function ArticlesTable({
     }
   };
 
+  const categoryOptions = request.categories.flatMap((category) => [
+    { value: JSON.stringify([1, category.name]), label: category.name },
+    ...category.subcategories.flatMap((subcategory) => [
+      { value: JSON.stringify([2, category.name, subcategory.name]), label: `— ${subcategory.name}` },
+      ...subcategory.subcategories.flatMap((third) => [
+        { value: JSON.stringify([3, category.name, subcategory.name, third.name]), label: `— — ${third.name}` },
+        ...third.subcategories.map((fourth) => ({ value: JSON.stringify([4, category.name, subcategory.name, third.name, fourth]), label: `— — — ${fourth}` })),
+      ]),
+    ]),
+  ]);
+  const selectedCategoryPath = (() => {
+    try { return categoryFilter === "all" ? [] : JSON.parse(categoryFilter) as [number, string, string?, string?, string?]; } catch { return []; }
+  })();
   const filtered = request.rows.filter((article) => {
-    const matchesSearch = `${article.name} ${article.sku} ${article.brand} ${article.category} ${article.subcategory ?? ""} ${article.subsubcategory ?? ""} ${article.description ?? ""} ${article.unit ?? ""}`.toLowerCase().includes(search.toLowerCase());
-    const matchesCategory = categoryFilter === "all" || article.category === categoryFilter;
+    const matchesSearch = normalizeLabel(`${article.name} ${article.sku} ${article.brand} ${article.category} ${article.subcategory ?? ""} ${article.subsubcategory ?? ""} ${article.subsubsubcategory ?? ""} ${article.description ?? ""} ${article.unit ?? ""}`).includes(normalizeLabel(search));
+    const matchesCategory = !selectedCategoryPath.length
+      || (selectedCategoryPath[0] === 1 && article.category === selectedCategoryPath[1])
+      || (selectedCategoryPath[0] === 2 && article.category === selectedCategoryPath[1] && article.subcategory === selectedCategoryPath[2])
+      || (selectedCategoryPath[0] === 3 && article.category === selectedCategoryPath[1] && article.subcategory === selectedCategoryPath[2] && article.subsubcategory === selectedCategoryPath[3])
+      || (selectedCategoryPath[0] === 4 && article.category === selectedCategoryPath[1] && article.subcategory === selectedCategoryPath[2] && article.subsubcategory === selectedCategoryPath[3] && article.subsubsubcategory === selectedCategoryPath[4]);
     return matchesSearch && matchesCategory && (!filterActive || article.stock <= 10);
   });
-  const categories = Array.from(new Set(request.rows.map((article) => article.category).filter(Boolean))).sort();
   const money = (value: number) => `${new Intl.NumberFormat("fr-FR").format(value)} DA`;
 
   return (
@@ -2952,7 +3239,7 @@ function ArticlesTable({
         <div className="table-title"><h1>Catalogue articles</h1><span>{loading ? "Connexion à SQLite…" : `${filtered.length} articles`}</span></div>
         <div className="table-actions">
           <label className="search-control"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nom, référence, catégorie…" aria-label="Rechercher dans le catalogue" />{search && <button type="button" aria-label="Effacer la recherche" onClick={() => setSearch("")}><X size={14} /></button>}</label>
-          <label className="compact-select article-category-select"><span>Catégorie</span><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} aria-label="Filtrer par catégorie"><option value="all">Toutes</option>{categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
+          <label className="compact-select article-category-select"><span>Catégorie</span><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} aria-label="Filtrer par catégorie"><option value="all">Toutes les catégories</option>{categoryOptions.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select></label>
           <button type="button" className="secondary-button category-manager-button" onClick={() => setCategoryManagerOpen(true)} disabled={loading || Boolean(request.error)}><Folder size={16} /> Catégories</button>
           <button className={`filter-button ${filterActive ? "active" : ""}`} onClick={() => setFilterActive(!filterActive)} aria-pressed={filterActive}><SlidersHorizontal size={16} /><span>{filterActive ? "Stock faible" : "Filtrer"}</span></button>
           <div className="view-toggle" aria-label="Mode d’affichage"><button className={viewMode === "grid" ? "active" : ""} onClick={() => setViewMode("grid")} aria-pressed={viewMode === "grid"}><Grid2X2 size={15} /> Grille</button><button className={viewMode === "list" ? "active" : ""} onClick={() => setViewMode("list")} aria-pressed={viewMode === "list"}><List size={15} /> Liste</button></div>
@@ -2969,7 +3256,7 @@ function ArticlesTable({
               <div className="article-card-body">
                 <div className="article-card-title"><span className="sku-code">{article.sku}</span><h2>{article.name}</h2></div>
                 <p>{article.description || "Description non renseignée."}</p>
-                <div className="article-hierarchy"><span>{article.category || "Sans catégorie"}</span>{article.subcategory && <><i>›</i><span>{article.subcategory}</span></>}{article.subsubcategory && <><i>›</i><span>{article.subsubcategory}</span></>}</div>
+                <div className="article-hierarchy"><span>{article.category || "Sans catégorie"}</span>{article.subcategory && <><i>›</i><span>{article.subcategory}</span></>}{article.subsubcategory && <><i>›</i><span>{article.subsubcategory}</span></>}{article.subsubsubcategory && <><i>›</i><span>{article.subsubsubcategory}</span></>}</div>
                 <div className="article-card-prices"><div><small>Prix achat</small><strong>{money(article.purchase_price)}</strong></div><div><small>Prix vente · {article.sale_prices?.length || 1} tarif{(article.sale_prices?.length || 1) === 1 ? "" : "s"}</small><strong>{money(article.sale_price)}</strong></div></div>
               </div>
               <footer><span className={`stock-value ${article.stock <= 10 ? "low" : ""}`}>{article.stock} {article.unit || "unité"}{article.stock > 1 && article.unit === "unité" ? "s" : ""}</span><button type="button" className="secondary-button" onClick={() => onEdit(article)}><Pencil size={14} /> Organiser</button></footer>
@@ -2980,7 +3267,7 @@ function ArticlesTable({
       )}
       {!loading && !request.error && viewMode === "list" && (
         <div className="table-scroll"><table><thead><tr><th>Article</th><th>Catégorisation</th><th>Unité</th><th>Prix d’achat</th><th>Prix de vente</th><th>Stock</th><th>Statut</th><th /></tr></thead><tbody>
-          {filtered.map((article) => <tr key={article.id}><td><div className="identity-cell"><ProductVisual article={article} className="table-product-visual" /><div><strong>{article.name}</strong><small>{article.description || article.brand}</small></div></div></td><td><div className="article-hierarchy"><span>{article.category || "Sans catégorie"}</span>{article.subcategory && <><i>›</i><span>{article.subcategory}</span></>}{article.subsubcategory && <><i>›</i><span>{article.subsubcategory}</span></>}</div></td><td><span className="soft-label">{article.unit || "unité"}</span></td><td className="number">{money(article.purchase_price)}</td><td className="number"><strong>{money(article.sale_price)}</strong><small>{article.sale_prices?.length || 1} tarif{(article.sale_prices?.length || 1) === 1 ? "" : "s"}</small></td><td><span className={`stock-value ${article.stock <= 10 ? "low" : ""}`}>{article.stock}</span></td><td><StatusBadge label={article.status} tone={article.stock <= 10 ? "orange" : "green"} /></td><td><RowActions label={article.name} notify={notify} onEdit={() => onEdit(article)} onDelete={() => void deleteArticle(article)} /></td></tr>)}
+          {filtered.map((article) => <tr key={article.id}><td><div className="identity-cell"><ProductVisual article={article} className="table-product-visual" /><div><strong>{article.name}</strong><small>{article.description || article.brand}</small></div></div></td><td><div className="article-hierarchy"><span>{article.category || "Sans catégorie"}</span>{article.subcategory && <><i>›</i><span>{article.subcategory}</span></>}{article.subsubcategory && <><i>›</i><span>{article.subsubcategory}</span></>}{article.subsubsubcategory && <><i>›</i><span>{article.subsubsubcategory}</span></>}</div></td><td><span className="soft-label">{article.unit || "unité"}</span></td><td className="number">{money(article.purchase_price)}</td><td className="number"><strong>{money(article.sale_price)}</strong><small>{article.sale_prices?.length || 1} tarif{(article.sale_prices?.length || 1) === 1 ? "" : "s"}</small></td><td><span className={`stock-value ${article.stock <= 10 ? "low" : ""}`}>{article.stock}</span></td><td><StatusBadge label={article.status} tone={article.stock <= 10 ? "orange" : "green"} /></td><td><RowActions label={article.name} notify={notify} onEdit={() => onEdit(article)} onDelete={() => void deleteArticle(article)} /></td></tr>)}
           {!filtered.length && <EmptyRow columns={8} />}
         </tbody></table></div>
       )}
@@ -3656,13 +3943,9 @@ function SettingsPage({
   const [city, setCity] = useState(company.city);
   const [phone, setPhone] = useState(company.phone);
   const [feedbackEnabled, setFeedbackEnabled] = useState(company.feedbackEnabled);
-  const [currentAccessPassword, setCurrentAccessPassword] = useState("");
-  const [newAccessPassword, setNewAccessPassword] = useState("");
-  const [confirmAccessPassword, setConfirmAccessPassword] = useState("");
   const logoInput = useRef<HTMLInputElement | null>(null);
   const previewCompany = {
     name: name.trim() || "Nom de l’entreprise",
-    accessPassword: company.accessPassword,
     logoDataUrl,
     defaultTaxRate: Number(defaultTaxRate) || 0,
     activityLine1,
@@ -3714,26 +3997,7 @@ function SettingsPage({
           className="settings-form"
           onSubmit={(event) => {
             event.preventDefault();
-            const passwordChangeRequested = Boolean(currentAccessPassword || newAccessPassword || confirmAccessPassword);
-            if (passwordChangeRequested && currentAccessPassword !== company.accessPassword) {
-              notify("Le mot de passe actuel est incorrect");
-              return;
-            }
-            if (passwordChangeRequested && newAccessPassword.trim().length < 4) {
-              notify("Le nouveau mot de passe doit contenir au moins 4 caractères");
-              return;
-            }
-            if (passwordChangeRequested && newAccessPassword !== confirmAccessPassword) {
-              notify("La confirmation du mot de passe ne correspond pas");
-              return;
-            }
-            const accessPassword = passwordChangeRequested ? newAccessPassword.trim() : company.accessPassword;
-            const saved = onSave({ name, accessPassword, logoDataUrl, defaultTaxRate: Number(defaultTaxRate), activityLine1, activityLine2, rc, taxArticle, nif, rib, bank, address, city, phone, feedbackEnabled });
-            if (saved && passwordChangeRequested) {
-              setCurrentAccessPassword("");
-              setNewAccessPassword("");
-              setConfirmAccessPassword("");
-            }
+            const saved = onSave({ name, logoDataUrl, defaultTaxRate: Number(defaultTaxRate), activityLine1, activityLine2, rc, taxArticle, nif, rib, bank, address, city, phone, feedbackEnabled });
             notify(saved ? "Identité de l’entreprise enregistrée" : "Impossible d’enregistrer sur cet appareil");
           }}
         >
@@ -3803,6 +4067,7 @@ function SettingsPage({
             <i aria-hidden="true" />
           </label>
 
+          {/* Le mot de passe est désormais géré uniquement à la connexion.
           <div className="settings-section-title settings-access-title">
             <span><Settings2 size={17} /></span>
             <div><h2>Accès à l’application</h2><p>Un mot de passe est demandé à l’ouverture dans un nouvel onglet.</p></div>
@@ -3820,6 +4085,7 @@ function SettingsPage({
             <small>Mot de passe par défaut : genie2020.</small>
           </label>
 
+          */}
           <div className="field-label">
             Logo de l’entreprise
             <div className="logo-field">
@@ -3869,9 +4135,6 @@ function SettingsPage({
                 setCity(DEFAULT_COMPANY.city);
                 setPhone(DEFAULT_COMPANY.phone);
                 setFeedbackEnabled(DEFAULT_COMPANY.feedbackEnabled);
-                setCurrentAccessPassword("");
-                setNewAccessPassword("");
-                setConfirmAccessPassword("");
                 notify("Valeurs par défaut restaurées dans le formulaire");
               }}
             >
@@ -4681,7 +4944,7 @@ function CreateModal({
   }, [isDocument]);
 
   const filteredArticles = articleRequest.rows.filter((article) =>
-    `${article.name} ${article.sku} ${article.brand} ${article.category} ${article.subcategory ?? ""} ${article.subsubcategory ?? ""}`
+    `${article.name} ${article.sku} ${article.brand} ${article.category} ${article.subcategory ?? ""} ${article.subsubcategory ?? ""} ${article.subsubsubcategory ?? ""}`
       .toLowerCase()
       .includes(articleQuery.toLowerCase()),
   );
@@ -5014,6 +5277,7 @@ function ArticleFormModal({
   const [category, setCategory] = useState(article?.category ?? "");
   const [subcategory, setSubcategory] = useState(article?.subcategory ?? "");
   const [subsubcategory, setSubsubcategory] = useState(article?.subsubcategory ?? "");
+  const [subsubsubcategory, setSubsubsubcategory] = useState(article?.subsubsubcategory ?? "");
   const [categoryTree, setCategoryTree] = useState<CategoryTree[]>([]);
   const [clientPriceCategories, setClientPriceCategories] = useState<ClientCategoryRecord[]>([]);
   const [description, setDescription] = useState(article?.description ?? "");
@@ -5074,6 +5338,9 @@ function ArticleFormModal({
   const normalizedSubcategory = subcategory.trim().toLocaleLowerCase("fr");
   const selectedSubcategory = subcategoryOptions.find((item) => item.name.toLocaleLowerCase("fr") === normalizedSubcategory);
   const thirdLevelOptions = selectedSubcategory?.subcategories ?? [];
+  const normalizedThirdLevel = subsubcategory.trim().toLocaleLowerCase("fr");
+  const selectedThirdLevel = thirdLevelOptions.find((item) => item.name.toLocaleLowerCase("fr") === normalizedThirdLevel);
+  const fourthLevelOptions = selectedThirdLevel?.subcategories ?? [];
   const computedSalePrices = salePrices.map((price) => {
     const clientCategory = price.clientCategory.trim() || "Standard";
     const salePrice = price.mode === "margin"
@@ -5115,6 +5382,7 @@ function ArticleFormModal({
           category: category.trim(),
           subcategory: subcategory.trim(),
           subsubcategory: subsubcategory.trim(),
+          subsubsubcategory: subsubsubcategory.trim(),
           description: description.trim(),
           unit,
           image_url: imageUrl,
@@ -5148,8 +5416,8 @@ function ArticleFormModal({
           <label className="field-label">Unité<select value={unit} onChange={(event) => setUnit(event.target.value)}><option value="unité">Unité</option><option value="M">Mètre (M)</option><option value="Bobine">Bobine</option><option value="kg">Kilogramme (kg)</option><option value="L">Litre (L)</option><option value="lot">Lot</option></select></label>
         </div>
         <section className="article-category-editor">
-          <div className="form-section-label"><Folder size={15} /><span>Arborescence catalogue — 3 niveaux</span></div>
-          <div className="form-grid form-grid-three">
+          <div className="form-section-label"><Folder size={15} /><span>Arborescence catalogue</span></div>
+          <div className="form-grid form-grid-four">
             <label className="field-label">Catégorie
               <input required list="article-category-options" autoComplete="off" value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Choisir ou ajouter…" />
               <datalist id="article-category-options">{categoryTree.map((item) => <option key={item.name} value={item.name} />)}</datalist>
@@ -5158,12 +5426,16 @@ function ArticleFormModal({
               <input required list="article-subcategory-options" autoComplete="off" value={subcategory} onChange={(event) => setSubcategory(event.target.value)} placeholder="Choisir ou ajouter…" />
               <datalist id="article-subcategory-options">{subcategoryOptions.map((item) => <option key={item.name} value={item.name} />)}</datalist>
             </label>
-            <label className="field-label">Niveau 3
+            <label className="field-label">Sous-sous-catégorie
               <input required list="article-third-category-options" autoComplete="off" value={subsubcategory} onChange={(event) => setSubsubcategory(event.target.value)} placeholder="Choisir ou ajouter…" />
-              <datalist id="article-third-category-options">{thirdLevelOptions.map((item) => <option key={item} value={item} />)}</datalist>
+              <datalist id="article-third-category-options">{thirdLevelOptions.map((item) => <option key={item.name} value={item.name} />)}</datalist>
+            </label>
+            <label className="field-label">Sous-sous-sous-catégorie
+              <input required list="article-fourth-category-options" autoComplete="off" value={subsubsubcategory} onChange={(event) => setSubsubsubcategory(event.target.value)} placeholder="Choisir ou ajouter…" />
+              <datalist id="article-fourth-category-options">{fourthLevelOptions.map((item) => <option key={item} value={item} />)}</datalist>
             </label>
           </div>
-          <p className="category-editor-hint"><Plus size={13} />Les 3 familles sont libres : choisissez une valeur existante, ajoutez-en une nouvelle ou renommez-la directement sur cet article.</p>
+          <p className="category-editor-hint"><Plus size={13} />Choisissez une valeur existante ou ajoutez une catégorie à l’une des quatre profondeurs.</p>
         </section>
         <label className="field-label">Description complète<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description affichée sur les commandes lorsque l’option est activée." rows={3} /></label>
         <div className="form-grid">
@@ -5261,6 +5533,14 @@ export default function WorkspaceApp() {
   const company = useSyncExternalStore(subscribeToCompany, readCompanySettings, () => DEFAULT_COMPANY);
   const [accessGranted, setAccessGranted] = useState(false);
   useEffect(() => {
+    let active = true;
+    fetch("/api/auth", { cache: "no-store" })
+      .then((response) => response.json() as Promise<{ signedIn?: boolean }>)
+      .then((payload) => { if (active && payload.signedIn) setAccessGranted(true); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
     document.title = "Commercial";
   }, [company.name]);
   useEffect(() => {
@@ -5323,6 +5603,7 @@ export default function WorkspaceApp() {
   };
 
   useEffect(() => {
+    if (!accessGranted) return;
     const controller = new AbortController();
     fetch("/api/articles", { signal: controller.signal, cache: "no-store" })
       .then(async (response) => {
@@ -5334,16 +5615,18 @@ export default function WorkspaceApp() {
         if (error.name !== "AbortError") console.error("Impossible de charger les statistiques du catalogue", error);
       });
     return () => controller.abort();
-  }, [catalogVersion]);
+  }, [accessGranted, catalogVersion]);
 
   useEffect(() => {
+    if (!accessGranted) return;
     void fetch("/api/client-categories", { cache: "no-store" }).then(async (response) => {
       const payload = await response.json() as { categories?: ClientCategoryRecord[] };
       if (response.ok) setClientCategories(payload.categories ?? []);
     }).catch(() => undefined);
-  }, []);
+  }, [accessGranted]);
 
   useEffect(() => {
+    if (!accessGranted) return;
     const controller = new AbortController();
     let active = true;
 
@@ -5376,9 +5659,10 @@ export default function WorkspaceApp() {
       active = false;
       controller.abort();
     };
-  }, []);
+  }, [accessGranted]);
 
   useEffect(() => {
+    if (!accessGranted) return;
     const controller = new AbortController();
     let active = true;
 
@@ -5405,9 +5689,10 @@ export default function WorkspaceApp() {
       active = false;
       controller.abort();
     };
-  }, [partyVersion]);
+  }, [accessGranted, partyVersion]);
 
   useEffect(() => {
+    if (!accessGranted) return;
     const controller = new AbortController();
     Promise.all([
       fetch("/api/finance", { signal: controller.signal, cache: "no-store" }).then(async (response) => {
@@ -5439,7 +5724,7 @@ export default function WorkspaceApp() {
       })
       .catch((error: Error) => { if (error.name !== "AbortError") console.error("Impossible de charger la finance SQLite", error); });
     return () => controller.abort();
-  }, [financeVersion]);
+  }, [accessGranted, financeVersion]);
 
   const navigate = (nextPage: PageKey) => {
     if (window.location.hash !== `#${nextPage}`) window.location.hash = nextPage;
@@ -5884,7 +6169,7 @@ export default function WorkspaceApp() {
   };
 
   if (!accessGranted) {
-    return <AccessGate company={company} onUnlocked={() => setAccessGranted(true)} />;
+    return <AccessGate onUnlocked={() => setAccessGranted(true)} />;
   }
 
   return (

@@ -208,13 +208,13 @@ test("persists and manages user feedback in local SQLite", async () => {
   assert.match(sqlite, /export function createFeedback/);
   assert.match(sqlite, /export function updateFeedback/);
   assert.match(sqlite, /export function deleteFeedback/);
-  assert.match(route, /export function GET/);
+  assert.match(route, /export async function GET/);
   assert.match(route, /export async function POST/);
   assert.match(route, /export async function PATCH/);
   assert.match(route, /export async function DELETE/);
 });
 
-test("persists the three-level catalog and clean seeds in offline SQLite", async () => {
+test("persists the four-depth catalog in isolated local SQLite databases", async () => {
   const [schema, sqlite, route, categoriesRoute, worker, hosting, gitignore] = await Promise.all([
     readFile(new URL("db/schema.ts", root), "utf8"),
     readFile(new URL("lib/sqlite.ts", root), "utf8"),
@@ -229,6 +229,7 @@ test("persists the three-level catalog and clean seeds in offline SQLite", async
   assert.match(schema, /CREATE TABLE IF NOT EXISTS articles/);
   assert.match(schema, /subcategory TEXT NOT NULL/);
   assert.match(schema, /subsubcategory TEXT NOT NULL/);
+  assert.match(schema, /subsubsubcategory TEXT NOT NULL/);
   assert.match(schema, /description TEXT NOT NULL/);
   assert.match(schema, /unit TEXT NOT NULL/);
   assert.match(schema, /image_url TEXT NOT NULL/);
@@ -276,12 +277,13 @@ test("supports detailed article organization and the dedicated product grid", as
 
   assert.match(page, /subcategory: string/);
   assert.match(page, /subsubcategory: string/);
+  assert.match(page, /subsubsubcategory: string/);
   assert.match(page, /description: string/);
   assert.match(page, /unit: string/);
   assert.match(page, /image_url: string/);
   assert.match(page, /Arborescence catalogue/);
   assert.match(page, /Sous-catégorie/);
-  assert.match(page, /Niveau 3/);
+  assert.match(page, /Sous-sous-sous-catégorie/);
   assert.match(page, /Description complète/);
   assert.match(page, /Mètre \(M\)/);
   assert.match(page, /Bobine/);
