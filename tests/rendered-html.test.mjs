@@ -293,6 +293,11 @@ test("supports detailed article organization and the dedicated product grid", as
   assert.match(page, /article-card-image/);
   assert.match(page, /article-hierarchy/);
   assert.match(page, /article-category-select/);
+  assert.match(page, /article-hierarchy-filters/);
+  assert.match(page, /Filtrer par famille/);
+  assert.match(page, /Filtrer par sous-famille/);
+  assert.match(page, /Filtrer par catégorie/);
+  assert.match(page, /Filtrer par sous-catégorie/);
   assert.match(page, /article-category-options/);
   assert.match(page, /article-subcategory-options/);
   assert.match(page, /article-third-category-options/);

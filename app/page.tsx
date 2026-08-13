@@ -3165,7 +3165,10 @@ function ArticlesTable({
     loadedKey: -1,
   });
   const [reloadKey, setReloadKey] = useState(0);
-  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [familyFilter, setFamilyFilter] = useState("");
+  const [subfamilyFilter, setSubfamilyFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [subcategoryFilter, setSubcategoryFilter] = useState("");
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
   const loading = request.loadedKey !== reloadKey;
 
@@ -3210,26 +3213,18 @@ function ArticlesTable({
     }
   };
 
-  const categoryOptions = request.categories.flatMap((category) => [
-    { value: JSON.stringify([1, category.name]), label: category.name },
-    ...category.subcategories.flatMap((subcategory) => [
-      { value: JSON.stringify([2, category.name, subcategory.name]), label: `— ${subcategory.name}` },
-      ...subcategory.subcategories.flatMap((third) => [
-        { value: JSON.stringify([3, category.name, subcategory.name, third.name]), label: `— — ${third.name}` },
-        ...third.subcategories.map((fourth) => ({ value: JSON.stringify([4, category.name, subcategory.name, third.name, fourth]), label: `— — — ${fourth}` })),
-      ]),
-    ]),
-  ]);
-  const selectedCategoryPath = (() => {
-    try { return categoryFilter === "all" ? [] : JSON.parse(categoryFilter) as [number, string, string?, string?, string?]; } catch { return []; }
-  })();
+  const selectedFamily = request.categories.find((family) => family.name === familyFilter);
+  const subfamilyOptions = selectedFamily?.subcategories ?? [];
+  const selectedSubfamily = subfamilyOptions.find((subfamily) => subfamily.name === subfamilyFilter);
+  const categoryOptions = selectedSubfamily?.subcategories ?? [];
+  const selectedCategory = categoryOptions.find((category) => category.name === categoryFilter);
+  const subcategoryOptions = selectedCategory?.subcategories ?? [];
   const filtered = request.rows.filter((article) => {
     const matchesSearch = normalizeLabel(`${article.name} ${article.sku} ${article.brand} ${article.category} ${article.subcategory ?? ""} ${article.subsubcategory ?? ""} ${article.subsubsubcategory ?? ""} ${article.description ?? ""} ${article.unit ?? ""}`).includes(normalizeLabel(search));
-    const matchesCategory = !selectedCategoryPath.length
-      || (selectedCategoryPath[0] === 1 && article.category === selectedCategoryPath[1])
-      || (selectedCategoryPath[0] === 2 && article.category === selectedCategoryPath[1] && article.subcategory === selectedCategoryPath[2])
-      || (selectedCategoryPath[0] === 3 && article.category === selectedCategoryPath[1] && article.subcategory === selectedCategoryPath[2] && article.subsubcategory === selectedCategoryPath[3])
-      || (selectedCategoryPath[0] === 4 && article.category === selectedCategoryPath[1] && article.subcategory === selectedCategoryPath[2] && article.subsubcategory === selectedCategoryPath[3] && article.subsubsubcategory === selectedCategoryPath[4]);
+    const matchesCategory = (!familyFilter || article.category === familyFilter)
+      && (!subfamilyFilter || article.subcategory === subfamilyFilter)
+      && (!categoryFilter || article.subsubcategory === categoryFilter)
+      && (!subcategoryFilter || article.subsubsubcategory === subcategoryFilter);
     return matchesSearch && matchesCategory && (!filterActive || article.stock <= 10);
   });
   const money = (value: number) => `${new Intl.NumberFormat("fr-FR").format(value)} DA`;
@@ -3239,8 +3234,13 @@ function ArticlesTable({
       <div className="table-header">
         <div className="table-title"><h1>Catalogue articles</h1><span>{loading ? "Connexion à SQLite…" : `${filtered.length} articles`}</span></div>
         <div className="table-actions">
-          <label className="search-control"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nom, référence, catégorie…" aria-label="Rechercher dans le catalogue" />{search && <button type="button" aria-label="Effacer la recherche" onClick={() => setSearch("")}><X size={14} /></button>}</label>
-          <label className="compact-select article-category-select"><span>Catégorie</span><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} aria-label="Filtrer par catégorie"><option value="all">Toutes les catégories</option>{categoryOptions.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select></label>
+          <label className="search-control"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nom, référence, famille, catégorie…" aria-label="Rechercher dans le catalogue et les catégories" />{search && <button type="button" aria-label="Effacer la recherche" onClick={() => setSearch("")}><X size={14} /></button>}</label>
+          <div className="article-hierarchy-filters" aria-label="Filtres de l’arborescence du catalogue">
+            <label className="compact-select article-category-select"><span>Famille</span><select value={familyFilter} onChange={(event) => { setFamilyFilter(event.target.value); setSubfamilyFilter(""); setCategoryFilter(""); setSubcategoryFilter(""); }} aria-label="Filtrer par famille"><option value="">Toutes</option>{request.categories.map((family) => <option key={family.name} value={family.name}>{family.name}</option>)}</select></label>
+            <label className="compact-select article-category-select"><span>Sous-famille</span><select value={subfamilyFilter} onChange={(event) => { setSubfamilyFilter(event.target.value); setCategoryFilter(""); setSubcategoryFilter(""); }} aria-label="Filtrer par sous-famille" disabled={!familyFilter}><option value="">Toutes</option>{subfamilyOptions.map((subfamily) => <option key={subfamily.name} value={subfamily.name}>{subfamily.name}</option>)}</select></label>
+            <label className="compact-select article-category-select"><span>Catégorie</span><select value={categoryFilter} onChange={(event) => { setCategoryFilter(event.target.value); setSubcategoryFilter(""); }} aria-label="Filtrer par catégorie" disabled={!subfamilyFilter}><option value="">Toutes</option>{categoryOptions.map((category) => <option key={category.name} value={category.name}>{category.name}</option>)}</select></label>
+            <label className="compact-select article-category-select"><span>Sous-catégorie</span><select value={subcategoryFilter} onChange={(event) => setSubcategoryFilter(event.target.value)} aria-label="Filtrer par sous-catégorie" disabled={!categoryFilter}><option value="">Toutes</option>{subcategoryOptions.map((subcategory) => <option key={subcategory} value={subcategory}>{subcategory}</option>)}</select></label>
+          </div>
           <button type="button" className="secondary-button category-manager-button" onClick={() => setCategoryManagerOpen(true)} disabled={loading || Boolean(request.error)}><Folder size={16} /> Catégories</button>
           <button className={`filter-button ${filterActive ? "active" : ""}`} onClick={() => setFilterActive(!filterActive)} aria-pressed={filterActive}><SlidersHorizontal size={16} /><span>{filterActive ? "Stock faible" : "Filtrer"}</span></button>
           <div className="view-toggle" aria-label="Mode d’affichage"><button className={viewMode === "grid" ? "active" : ""} onClick={() => setViewMode("grid")} aria-pressed={viewMode === "grid"}><Grid2X2 size={15} /> Grille</button><button className={viewMode === "list" ? "active" : ""} onClick={() => setViewMode("list")} aria-pressed={viewMode === "list"}><List size={15} /> Liste</button></div>
