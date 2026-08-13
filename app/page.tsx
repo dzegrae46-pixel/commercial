@@ -27,6 +27,7 @@ import {
   Home,
   ImageIcon,
   List,
+  LogOut,
   Mail,
   MapPin,
   MessageSquareText,
@@ -5532,6 +5533,7 @@ export default function WorkspaceApp() {
   const page = useSyncExternalStore(subscribeToPage, readPageFromUrl, () => "dashboard") as PageKey;
   const company = useSyncExternalStore(subscribeToCompany, readCompanySettings, () => DEFAULT_COMPANY);
   const [accessGranted, setAccessGranted] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   useEffect(() => {
     let active = true;
     fetch("/api/auth", { cache: "no-store" })
@@ -5732,6 +5734,20 @@ export default function WorkspaceApp() {
     setActiveTab("all");
     setFilterActive(false);
     setViewMode(nextPage === "articles" ? "grid" : "list");
+  };
+
+  const signOut = async () => {
+    setSigningOut(true);
+    try {
+      const response = await fetch("/api/auth", { method: "DELETE" });
+      if (!response.ok) throw new Error("Impossible de vous déconnecter.");
+      window.location.hash = "dashboard";
+      setAccessGranted(false);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Impossible de vous déconnecter.");
+    } finally {
+      setSigningOut(false);
+    }
   };
 
   const adjustArticleStock = async (articleId: number, stockDelta: number, reason: string) => {
@@ -6210,6 +6226,9 @@ export default function WorkspaceApp() {
         <div className="sidebar-footer">
           <button className="workspace-card" onClick={() => setWorkspaceOpen((value) => !value)}>
             <CompanyLogo company={company} className="workspace-avatar" /><span><strong>{company.name}</strong><small>Offre gratuite</small></span><MoreHorizontal size={17} />
+          </button>
+          <button className="logout-button" type="button" onClick={signOut} disabled={signingOut}>
+            <LogOut size={17} /><span>{signingOut ? "Déconnexion…" : "Déconnexion"}</span>
           </button>
         </div>
       </aside>}

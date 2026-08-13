@@ -705,6 +705,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .nav-item.active { background: var(--coral-soft); color: #dc4f29; font-weight: 600; }
 .nav-item.active svg { stroke-width: 2.2; }
 .sidebar-footer { margin-top: auto; padding-top: 10px; }
+.logout-button { align-items: center; background: transparent; border: 0; border-radius: 6px; color: #62626a; display: flex; font-size: 13px; font-weight: 550; gap: 9px; margin-top: 7px; min-height: 36px; padding: 0 9px; text-align: left; width: 100%; }
+.logout-button:hover:not(:disabled) { background: #fff0ec; color: #c64024; }
+.logout-button:disabled { cursor: wait; opacity: .6; }
 .workspace-card { align-items: center; background: white; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); display: flex; gap: 9px; padding: 8px; text-align: left; width: 100%; }
 .workspace-card:hover { border-color: var(--line-strong); }
 .workspace-card > span:nth-child(2) { display: grid; gap: 2px; min-width: 0; }
