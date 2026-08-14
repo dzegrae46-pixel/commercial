@@ -6,6 +6,7 @@ import {
   ArrowRight,
   BarChart3,
   Banknote,
+  Ban,
   Bell,
   Boxes,
   Building2,
@@ -109,6 +110,7 @@ type ClientRecord = {
   name: string;
   initials: string;
   color: string;
+  phone: string;
   contact: string;
   email: string;
   billed: string;
@@ -128,8 +130,11 @@ type ClientRecord = {
   rc?: string;
   taxArticle?: string;
   rib?: string;
+  bank?: string;
+  note?: string;
   imageUrl?: string;
   contactStatus?: string;
+  isBlocked?: boolean;
 };
 
 type SupplierRecord = {
@@ -137,6 +142,7 @@ type SupplierRecord = {
   name: string;
   initials: string;
   color: string;
+  phone: string;
   contact: string;
   category: string;
   purchases: string;
@@ -154,8 +160,11 @@ type SupplierRecord = {
   rc?: string;
   taxArticle?: string;
   rib?: string;
+  bank?: string;
+  note?: string;
   imageUrl?: string;
   contactStatus?: string;
+  isBlocked?: boolean;
 };
 
 type DocumentRecord = {
@@ -237,6 +246,7 @@ type ApiPartyRecord = {
   id: number;
   kind: "client" | "supplier";
   name: string;
+  phone: string;
   contact_phone: string;
   contact_name: string;
   email: string;
@@ -250,6 +260,8 @@ type ApiPartyRecord = {
   rc: string;
   tax_article: string;
   rib: string;
+  bank: string;
+  note: string;
   billed: number;
   paid?: number;
   credit?: number;
@@ -257,6 +269,7 @@ type ApiPartyRecord = {
   status: string;
   image_url: string;
   contact_status: string;
+  is_blocked: number;
 };
 
 type PartyBalanceHistoryRecord = {
@@ -409,6 +422,7 @@ type CreatePayload = {
   detail: string;
   documentType: string;
   contactName?: string;
+  contactPhone?: string;
   category?: string;
   clientCategory?: string;
   email?: string;
@@ -420,6 +434,8 @@ type CreatePayload = {
   rc?: string;
   taxArticle?: string;
   rib?: string;
+  bank?: string;
+  note?: string;
   imageUrl?: string;
   contactStatus?: string;
   articleName?: string;
@@ -457,7 +473,7 @@ const pageMeta: Record<PageKey, { label: string; subtitle: string; icon: LucideI
   clients: { label: "Clients", subtitle: "Relations et soldes clients", icon: Users },
   suppliers: { label: "Fournisseurs", subtitle: "Partenaires et achats", icon: Truck },
   articles: { label: "Articles", subtitle: "Catalogue et niveaux de stock", icon: Boxes },
-  purchases: { label: "Achats", subtitle: "Documents, réceptions et retours", icon: ShoppingBag },
+  purchases: { label: "Achats", subtitle: "Commandes, bons d’achat et factures", icon: ShoppingBag },
   sales: { label: "Ventes", subtitle: "Devis, commandes et factures", icon: Store },
   finance: { label: "Finance", subtitle: "Dépenses, charges et règlements", icon: WalletCards },
   documents: { label: "Documents", subtitle: "Tous vos fichiers commerciaux", icon: Files },
@@ -515,7 +531,7 @@ const topStats: Record<PageKey, { label: string; value: string; trend: string; i
   purchases: [
     { label: "Achats", value: "2 docs", trend: "Tests", icon: ShoppingBag },
     { label: "Factures", value: "1", trend: "Amazon", icon: FileCheck2 },
-    { label: "Réceptions", value: "1", trend: "Google", icon: ClipboardList },
+    { label: "Bons d’achat", value: "1", trend: "Google", icon: ClipboardList },
   ],
   sales: [
     { label: "Ventes", value: "2 docs", trend: "Tests", icon: Store },
@@ -530,7 +546,7 @@ const topStats: Record<PageKey, { label: string; value: string; trend: string; i
   documents: [
     { label: "Documents", value: "4", trend: "Achats + ventes", icon: Files },
     { label: "Fichiers PDF", value: "2", trend: "Factures", icon: FileText },
-    { label: "Images", value: "2", trend: "BL / réception", icon: FileImage },
+    { label: "Images", value: "2", trend: "BL / bon d’achat", icon: FileImage },
   ],
   feedback: [
     { label: "Ouverts", value: "À traiter", trend: "Signalements actifs", icon: Bug },
@@ -564,14 +580,14 @@ const docTabs: { value: DocType; label: string; icon: LucideIcon }[] = [
 const documentTabsFor = (page: "purchases" | "sales") =>
   docTabs.map((tab) =>
     tab.value === "delivery"
-      ? { ...tab, label: page === "purchases" ? "Réceptions" : "Bons de livraison" }
+      ? { ...tab, label: page === "purchases" ? "Bons d’achat" : "Bons de livraison" }
       : tab,
   );
 
 const documentTypeForTab = (tab: DocType, page: "purchases" | "sales") => {
   if (tab === "quotes") return "Devis";
   if (tab === "orders") return "Bon de commande";
-  if (tab === "delivery") return page === "purchases" ? "Bon de réception" : "Bon de livraison";
+  if (tab === "delivery") return page === "purchases" ? "Bon d’achat" : "Bon de livraison";
   if (tab === "invoices") return "Facture";
   return "";
 };
@@ -581,7 +597,7 @@ const libraryTabs: { value: LibraryCategory; label: string; icon: LucideIcon }[]
   { value: "invoices", label: "Factures", icon: ReceiptText },
   { value: "quotes", label: "Devis", icon: FileText },
   { value: "orders", label: "Commandes", icon: ClipboardList },
-  { value: "delivery", label: "BL / Réceptions", icon: Truck },
+  { value: "delivery", label: "BL / Bons d’achat", icon: Truck },
   { value: "returns", label: "Retours", icon: ArrowDownRight },
 ];
 
@@ -880,7 +896,7 @@ const documentTone = (document: ApiDocumentRecord): string => {
 
 const displayDocumentType = (document: ApiDocumentRecord) =>
   document.type === "delivery" && document.direction === "purchases"
-    ? "Bon de réception"
+    ? "Bon d’achat"
     : document.type_label;
 
 const toDocumentRecord = (document: ApiDocumentRecord): DocumentRecord => {
@@ -940,6 +956,7 @@ const toClientRecord = (party: ApiPartyRecord): ClientRecord => ({
   name: party.name,
   initials: initials(party.name),
   color: normalizeLabel(party.name).includes("amazon") ? "sun" : "blue",
+  phone: party.phone || "—",
   contact: party.contact_phone || "—",
   email: party.email || "E-mail non renseigné",
   contactName: party.contact_name || undefined,
@@ -947,14 +964,17 @@ const toClientRecord = (party: ApiPartyRecord): ClientRecord => ({
   city: party.city || undefined,
   headOffice: party.head_office || undefined,
   category: party.category || undefined,
-  clientCategory: party.client_category || party.category || "Standard",
+  clientCategory: party.client_category || "",
   nif: party.nif || undefined,
   nis: party.nis || undefined,
   rc: party.rc || undefined,
   taxArticle: party.tax_article || undefined,
   rib: party.rib || undefined,
+  bank: party.bank || undefined,
+  note: party.note || undefined,
   imageUrl: party.image_url || undefined,
-  contactStatus: party.contact_status || "Actif",
+  contactStatus: party.contact_status || "Divers",
+  isBlocked: Boolean(party.is_blocked),
   billed: formatDa(party.billed ?? 0),
   paid: formatDa(party.paid ?? 0),
   credit: formatDa(party.credit ?? 0),
@@ -968,6 +988,7 @@ const toSupplierRecord = (party: ApiPartyRecord): SupplierRecord => ({
   name: party.name,
   initials: initials(party.name),
   color: normalizeLabel(party.name).includes("amazon") ? "sun" : "blue",
+  phone: party.phone || "—",
   contact: party.contact_phone || "—",
   contactName: party.contact_name || undefined,
   email: party.email || undefined,
@@ -979,8 +1000,11 @@ const toSupplierRecord = (party: ApiPartyRecord): SupplierRecord => ({
   rc: party.rc || undefined,
   taxArticle: party.tax_article || undefined,
   rib: party.rib || undefined,
+  bank: party.bank || undefined,
+  note: party.note || undefined,
   imageUrl: party.image_url || undefined,
-  contactStatus: party.contact_status || "Actif",
+  contactStatus: party.contact_status || "Divers",
+  isBlocked: Boolean(party.is_blocked),
   category: party.category || "Général",
   purchases: formatDa(party.billed ?? 0),
   paid: formatDa(party.paid ?? 0),
@@ -1042,7 +1066,7 @@ function DocumentLogo({
   if (format && format !== "PDF") Icon = FileImage;
   else if (normalized.includes("facture")) Icon = ReceiptText;
   else if (normalized.includes("commande")) Icon = ClipboardList;
-  else if (normalized.includes("livraison") || normalized.includes("reception")) Icon = Truck;
+  else if (normalized.includes("livraison") || normalized.includes("reception") || normalized.includes("achat")) Icon = Truck;
   else if (normalized.includes("retour")) Icon = ArrowDownRight;
 
   return (
@@ -1189,6 +1213,40 @@ function AccessGate({ onUnlocked }: { onUnlocked: () => void }) {
 
 function StatusBadge({ label, tone = "gray" }: { label: string; tone?: string }) {
   return <span className={`status-badge status-${tone}`}>{label}</span>;
+}
+
+function DocumentTypePickerModal({
+  direction,
+  onClose,
+  onSelect,
+}: {
+  direction: "purchases" | "sales";
+  onClose: () => void;
+  onSelect: (documentType: string) => void;
+}) {
+  const options = direction === "purchases"
+    ? [
+        { type: "Bon de commande", code: "BC-A", description: "Commander auprès du fournisseur" },
+        { type: "Bon d’achat", code: "BA", description: "Enregistrer les articles achetés" },
+        { type: "Facture", code: "FAC-A", description: "Comptabiliser la facture d’achat" },
+      ]
+    : [
+        { type: "Devis", code: "DEV-V", description: "Préparer une proposition commerciale" },
+        { type: "Bon de commande", code: "BC-V", description: "Confirmer la commande du client" },
+        { type: "Bon de livraison", code: "BL", description: "Sortir et livrer les articles" },
+        { type: "Facture", code: "FAC-V", description: "Facturer la vente" },
+      ];
+  const [selected, setSelected] = useState(options[0].type);
+  return (
+    <div className="modal-backdrop premium-picker-backdrop" role="presentation" onMouseDown={onClose}>
+      <div className="modal-card document-type-picker-modal" role="dialog" aria-modal="true" aria-labelledby="document-type-picker-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-header"><div><h2 id="document-type-picker-title">Nouveau document {direction === "purchases" ? "d’achat" : "de vente"}</h2><p>Choisissez le flux à créer avant de renseigner les lignes.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+        <section className="document-type-available"><span>Disponible <b>{options.length}</b> types de documents</span><div>{options.map((option) => <button type="button" key={option.type} className={selected === option.type ? "active" : ""} onClick={() => setSelected(option.type)} aria-pressed={selected === option.type}><DocumentLogo type={option.type} tone={selected === option.type ? "blue" : "gray"} /><strong>{option.code}</strong><span>{option.type}</span>{selected === option.type && <Check size={14} />}</button>)}</div></section>
+        <div className="document-type-selection"><small>Type sélectionné</small><strong>{selected}</strong><p>{options.find((option) => option.type === selected)?.description}</p></div>
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button type="button" className="primary-button" onClick={() => onSelect(selected)}>Continuer <ArrowRight size={16} /></button></div>
+      </div>
+    </div>
+  );
 }
 
 function RowActions({
@@ -1370,7 +1428,7 @@ function ClientsTable({
   onDelete,
   onOpen,
   onEdit,
-  onDuplicate,
+  onBlock,
   onSettle,
 }: {
   rows: ClientRecord[];
@@ -1384,27 +1442,27 @@ function ClientsTable({
   onDelete: (name: string) => void;
   onOpen: (client: ClientRecord) => void;
   onEdit: (client: ClientRecord) => void;
-  onDuplicate: (client: ClientRecord) => void;
+  onBlock: (client: ClientRecord) => void;
   onSettle: (client: ClientRecord) => void;
 }) {
   const filtered = rows.filter((client) => {
-    const matchesSearch = `${client.name} ${client.contact} ${client.email} ${client.contactName ?? ""} ${client.contactStatus ?? ""} ${client.nif ?? ""} ${client.nis ?? ""} ${client.rc ?? ""} ${client.taxArticle ?? ""} ${client.rib ?? ""}`.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = `${client.name} ${client.phone} ${client.contact} ${client.email} ${client.contactName ?? ""} ${client.contactStatus ?? ""} ${client.nif ?? ""} ${client.nis ?? ""} ${client.rc ?? ""} ${client.taxArticle ?? ""} ${client.rib ?? ""} ${client.bank ?? ""} ${client.note ?? ""}`.toLowerCase().includes(search.toLowerCase());
     return matchesSearch && (!filterActive || client.balance !== "0 DA");
   });
 
   return (
     <TableCard title="Tous les clients" count={`${filtered.length} clients`} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode}>
       <table className="parties-table clients-table">
-        <thead><tr><th>Client</th><th>Contact</th><th>Statut contact</th><th>Total facturé</th><th>Solde</th><th>Compte</th><th>Dernière activité</th><th /></tr></thead>
+        <thead><tr><th>Client</th><th>Contact</th><th>Fonction contact</th><th>Total facturé</th><th>Solde</th><th>Compte</th><th>Dernière activité</th><th /></tr></thead>
         <tbody>
           {filtered.map((client) => (
             <tr key={client.name}>
-              <td><div className="identity-cell"><EntityLogo name={client.name} tone={client.color} kind="client" imageUrl={client.imageUrl} /><div><strong>{client.name}</strong><small>{client.email}</small><small>Catégorie : {client.clientCategory || "Standard"}</small></div></div></td>
-              <td>{client.contactName ? <><strong>{client.contactName}</strong><small>{client.contact}{client.city ? ` · ${client.city}` : ""}</small></> : <><span>{client.contact}</span>{client.city && <small>{client.city}</small>}</>}</td>
-              <td><StatusBadge label={client.contactStatus || "Actif"} tone={client.contactStatus === "Bloqué" ? "red" : client.contactStatus === "Inactif" ? "gray" : client.contactStatus === "Prospect" ? "blue" : "green"} /></td>
+              <td><div className="identity-cell"><EntityLogo name={client.name} tone={client.color} kind="client" imageUrl={client.imageUrl} /><div><strong>{client.name}</strong><small>{client.email}</small><small>{client.clientCategory ? `Catégorie : ${client.clientCategory}` : "Sans catégorie client"}</small></div></div></td>
+              <td>{client.contactName ? <><strong>{client.contactName}</strong><small>{client.contact} · {client.phone}</small></> : <><span>{client.phone}</span><small>Contact : {client.contact}</small></>}</td>
+              <td><StatusBadge label={client.contactStatus || "Divers"} tone={client.contactStatus === "Directeur" ? "blue" : client.contactStatus === "Administration" ? "green" : "gray"} /></td>
               <td className="number">{client.billed}</td>
               <td className="number">{client.balance}</td>
-              <td><StatusBadge label={client.status} tone={client.balance === "0 DA" ? "green" : "orange"} /></td>
+              <td><StatusBadge label={client.isBlocked ? "Bloqué" : client.status} tone={client.isBlocked ? "red" : client.balance === "0 DA" ? "green" : "orange"} /></td>
               <td>{client.activity}</td>
               <td className="party-row-cell">
                 <div className="party-row-actions">
@@ -1416,7 +1474,7 @@ function ClientsTable({
                   >
                     <Banknote size={16} /><span>Encaisser</span>
                   </button>
-                  <RowActions label={client.name} notify={notify} onOpen={() => onOpen(client)} onEdit={() => onEdit(client)} onDuplicate={() => onDuplicate(client)} onDelete={() => onDelete(client.name)} />
+                  <RowActions label={client.name} notify={notify} onOpen={() => onOpen(client)} onEdit={() => onEdit(client)} extraActions={[{ label: client.isBlocked ? "Débloquer le client" : "Bloquer le client", icon: Ban, onClick: () => onBlock(client) }]} onDelete={() => onDelete(client.name)} />
                 </div>
               </td>
             </tr>
@@ -1440,7 +1498,7 @@ function SuppliersTable({
   onDelete,
   onOpen,
   onEdit,
-  onDuplicate,
+  onBlock,
   onSettle,
 }: {
   rows: SupplierRecord[];
@@ -1454,28 +1512,28 @@ function SuppliersTable({
   onDelete: (name: string) => void;
   onOpen: (supplier: SupplierRecord) => void;
   onEdit: (supplier: SupplierRecord) => void;
-  onDuplicate: (supplier: SupplierRecord) => void;
+  onBlock: (supplier: SupplierRecord) => void;
   onSettle: (supplier: SupplierRecord) => void;
 }) {
   const filtered = rows.filter((supplier) => {
-    const matchesSearch = `${supplier.name} ${supplier.contact} ${supplier.category} ${supplier.contactStatus ?? ""} ${supplier.nif ?? ""} ${supplier.nis ?? ""} ${supplier.rc ?? ""} ${supplier.taxArticle ?? ""} ${supplier.rib ?? ""}`.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = `${supplier.name} ${supplier.phone} ${supplier.contact} ${supplier.email ?? ""} ${supplier.category} ${supplier.contactStatus ?? ""} ${supplier.nif ?? ""} ${supplier.nis ?? ""} ${supplier.rc ?? ""} ${supplier.taxArticle ?? ""} ${supplier.rib ?? ""} ${supplier.bank ?? ""} ${supplier.note ?? ""}`.toLowerCase().includes(search.toLowerCase());
     return matchesSearch && (!filterActive || supplier.balance !== "0 DA");
   });
 
   return (
     <TableCard title="Tous les fournisseurs" count={`${filtered.length} fournisseurs`} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode}>
       <table className="parties-table suppliers-table">
-        <thead><tr><th>Fournisseur</th><th>Contact</th><th>Statut contact</th><th>Catégorie</th><th>Total achats</th><th>Solde</th><th>Compte</th><th /></tr></thead>
+        <thead><tr><th>Fournisseur</th><th>Contact</th><th>Fonction contact</th><th>Catégorie</th><th>Total achats</th><th>Solde</th><th>Compte</th><th /></tr></thead>
         <tbody>
           {filtered.map((supplier) => (
             <tr key={supplier.name}>
-              <td><div className="identity-cell"><EntityLogo name={supplier.name} tone={supplier.color} kind="supplier" imageUrl={supplier.imageUrl} /><strong>{supplier.name}</strong></div></td>
-              <td>{supplier.contactName ? <><strong>{supplier.contactName}</strong><small>{supplier.contact}{supplier.city ? ` · ${supplier.city}` : ""}</small></> : <><span>{supplier.contact}</span>{supplier.city && <small>{supplier.city}</small>}</>}</td>
-              <td><StatusBadge label={supplier.contactStatus || "Actif"} tone={supplier.contactStatus === "Bloqué" ? "red" : supplier.contactStatus === "Inactif" ? "gray" : supplier.contactStatus === "Prospect" ? "blue" : "green"} /></td>
+              <td><div className="identity-cell"><EntityLogo name={supplier.name} tone={supplier.color} kind="supplier" imageUrl={supplier.imageUrl} /><div><strong>{supplier.name}</strong><small>{supplier.email || "E-mail non renseigné"}</small></div></div></td>
+              <td>{supplier.contactName ? <><strong>{supplier.contactName}</strong><small>{supplier.contact} · {supplier.phone}</small></> : <><span>{supplier.phone}</span><small>Contact : {supplier.contact}</small></>}</td>
+              <td><StatusBadge label={supplier.contactStatus || "Divers"} tone={supplier.contactStatus === "Directeur" ? "blue" : supplier.contactStatus === "Administration" ? "green" : "gray"} /></td>
               <td><span className="soft-label">{supplier.category}</span></td>
               <td className="number">{supplier.purchases}</td>
               <td className="number">{supplier.balance}</td>
-              <td><StatusBadge label={supplier.status} tone={supplier.balance === "0 DA" ? "green" : "orange"} /></td>
+              <td><StatusBadge label={supplier.isBlocked ? "Bloqué" : supplier.status} tone={supplier.isBlocked ? "red" : supplier.balance === "0 DA" ? "green" : "orange"} /></td>
               <td className="party-row-cell">
                 <div className="party-row-actions">
                   <button
@@ -1486,7 +1544,7 @@ function SuppliersTable({
                   >
                     <Banknote size={16} /><span>Payer</span>
                   </button>
-                  <RowActions label={supplier.name} notify={notify} onOpen={() => onOpen(supplier)} onEdit={() => onEdit(supplier)} onDuplicate={() => onDuplicate(supplier)} onDelete={() => onDelete(supplier.name)} />
+                  <RowActions label={supplier.name} notify={notify} onOpen={() => onOpen(supplier)} onEdit={() => onEdit(supplier)} extraActions={[{ label: supplier.isBlocked ? "Débloquer le fournisseur" : "Bloquer le fournisseur", icon: Ban, onClick: () => onBlock(supplier) }]} onDelete={() => onDelete(supplier.name)} />
                 </div>
               </td>
             </tr>
@@ -1674,7 +1732,7 @@ function PrintableDocument({
     : "—";
   const printableType = record.type === "Bon de livraison"
     ? "Bon De Livraison"
-    : record.type === "Bon de réception"
+    : record.type === "Bon d’achat"
       ? "Bon De Réception"
       : record.type === "Bon de commande"
         ? "Bon De Commande"
@@ -1919,7 +1977,7 @@ function PartyDetailsModal({
           <div className="party-detail-identity">
             <EntityLogo name={party.name} tone={party.color} kind={kind} imageUrl={party.imageUrl} />
             <div><h2 id="party-detail-title">{party.name}</h2><p>{kind === "client" ? "Fiche client complète" : "Fiche fournisseur complète"}</p></div>
-            <StatusBadge label={party.status} tone={remaining > 0 ? "orange" : "green"} />
+            <StatusBadge label={party.isBlocked ? "Bloqué" : party.status} tone={party.isBlocked ? "red" : remaining > 0 ? "orange" : "green"} />
           </div>
           <div className="party-detail-actions">
             <button type="button" className="secondary-button" onClick={onEdit}><Pencil size={16} /> Modifier</button>
@@ -1932,7 +1990,7 @@ function PartyDetailsModal({
 
         <div className="party-summary-grid">
           <article><span>{kind === "client" ? "Total facturé" : "Total achats"}</span><strong>{formatDa(total)}</strong></article>
-          <article><span>Total réglé</span><strong>{formatDa(paid)}</strong></article>
+          <article><span>{kind === "client" ? "Montant encaissé" : "Montant payé"}</span><strong>{formatDa(paid)}</strong></article>
           <article className={remaining > 0 ? "balance-due" : ""}><span>Solde restant</span><strong>{formatDa(remaining)}</strong></article>
           <article className={credit > 0 ? "credit-available" : ""}><span>Crédit disponible</span><strong>{formatDa(credit)}</strong></article>
         </div>
@@ -1941,19 +1999,21 @@ function PartyDetailsModal({
           <section className="party-information-card">
             <div className="party-section-title"><ContactRound size={17} /><div><h3>Informations générales</h3><p>Coordonnées, adresse et données fiscales</p></div></div>
             <dl className="party-info-grid">
-              <div><dt>Contact principal</dt><dd>{party.contactName || "—"}</dd></div>
-              <div><dt>Téléphone</dt><dd>{party.contact || "—"}</dd></div>
+              <div><dt>Téléphone</dt><dd>{party.phone || "—"}</dd></div>
               <div><dt>E-mail</dt><dd>{party.email === "E-mail non renseigné" ? "—" : party.email || "—"}</dd></div>
-              <div><dt>Catégorie</dt><dd>{kind === "client" && "clientCategory" in party ? party.clientCategory || "Standard" : party.category || "—"}</dd></div>
-              <div><dt>Statut contact</dt><dd><StatusBadge label={party.contactStatus || "Actif"} tone={party.contactStatus === "Actif" ? "green" : "blue"} /></dd></div>
+              <div><dt>Contact principal</dt><dd>{party.contactName || "—"}</dd></div>
+              <div><dt>Téléphone du contact</dt><dd>{party.contact || "—"}</dd></div>
+              <div><dt>Catégorie</dt><dd>{kind === "client" && "clientCategory" in party ? party.clientCategory || "—" : party.category || "—"}</dd></div>
+              <div><dt>Fonction du contact</dt><dd><StatusBadge label={party.contactStatus || "Divers"} tone={party.contactStatus === "Directeur" ? "blue" : party.contactStatus === "Administration" ? "green" : "gray"} /></dd></div>
               <div className="party-info-wide"><dt>Adresse</dt><dd>{party.address || "—"}</dd></div>
-              <div><dt>Ville</dt><dd>{party.city || "—"}</dd></div>
-              <div><dt>Siège social</dt><dd>{party.headOffice || "—"}</dd></div>
+              {kind === "supplier" && <div className="party-info-wide"><dt>Siège social</dt><dd>{party.headOffice || "—"}</dd></div>}
               <div><dt>NIF</dt><dd>{party.nif || "—"}</dd></div>
               <div><dt>NIS</dt><dd>{party.nis || "—"}</dd></div>
               <div><dt>RC</dt><dd>{party.rc || "—"}</dd></div>
               <div><dt>N° article</dt><dd>{party.taxArticle || "—"}</dd></div>
               <div className="party-info-wide"><dt>RIB</dt><dd>{party.rib || "—"}</dd></div>
+              <div className="party-info-wide"><dt>Banque</dt><dd>{party.bank || "—"}</dd></div>
+              <div className="party-info-wide"><dt>Note</dt><dd>{party.note || "—"}</dd></div>
             </dl>
           </section>
 
@@ -2010,27 +2070,29 @@ function ClientCategoryManagerModal({ categories, onClose, onChanged }: { catego
       await onChanged();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Impossible de modifier la catégorie."); } finally { setSaving(false); }
   };
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal-card compact-modal client-category-manager" role="dialog" aria-modal="true" aria-labelledby="client-category-title" onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><h2 id="client-category-title">Catégories clients</h2><p>Créez les segments utilisés pour les prix d’achat par client.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div><div className="inline-create-row"><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Nouvelle catégorie" /><button type="button" className="primary-button" disabled={!newName.trim() || saving} onClick={() => void save({ name: newName.trim() }, "POST")}><Plus size={15} /> Ajouter</button></div><div className="client-category-list">{rows.map((row) => <div className="client-category-row" key={row.id}><input value={row.name} onChange={(event) => setRows((current) => current.map((item) => item.id === row.id ? { ...item, name: event.target.value } : item))} /><button type="button" className="secondary-button" disabled={saving || !row.name.trim()} onClick={() => void save({ id: row.id, name: row.name.trim() }, "PATCH")}><Save size={15} /> Enregistrer</button><button type="button" className="icon-button danger-text" disabled={saving} onClick={() => void save({ id: row.id }, "DELETE")} aria-label={`Supprimer ${row.name}`}><Trash2 size={16} /></button></div>)}</div>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Terminé</button></div></div></div>;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal-card compact-modal client-category-manager" role="dialog" aria-modal="true" aria-labelledby="client-category-title" onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><h2 id="client-category-title">Catégories clients</h2><p>La liste est vide au départ : ajoutez uniquement vos propres catégories pour les tarifs de vente.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div><div className="inline-create-row"><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Nouvelle catégorie" /><button type="button" className="primary-button" disabled={!newName.trim() || saving} onClick={() => void save({ name: newName.trim() }, "POST")}><Plus size={15} /> Ajouter</button></div><div className="client-category-list">{rows.map((row) => <div className="client-category-row" key={row.id}><input value={row.name} onChange={(event) => setRows((current) => current.map((item) => item.id === row.id ? { ...item, name: event.target.value } : item))} /><button type="button" className="secondary-button" disabled={saving || !row.name.trim()} onClick={() => void save({ id: row.id, name: row.name.trim() }, "PATCH")}><Save size={15} /> Enregistrer</button><button type="button" className="icon-button danger-text" disabled={saving} onClick={() => void save({ id: row.id }, "DELETE")} aria-label={`Supprimer ${row.name}`}><Trash2 size={16} /></button></div>)}</div>{!rows.length && <p className="client-category-empty">Aucune catégorie client. Utilisez « Ajouter » pour créer la première.</p>}{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Terminé</button></div></div></div>;
 }
 
 function PartyEditorModal({ party, kind, clientCategories = [], onClose, onSaved }: { party: PartyRow; kind: "client" | "supplier"; clientCategories?: ClientCategoryRecord[]; onClose: () => void; onSaved: (party: ApiPartyRecord) => void }) {
   const [name, setName] = useState(party.name);
-  const [contact, setContact] = useState(party.contact === "—" ? "" : party.contact);
+  const [phone, setPhone] = useState(party.phone === "—" ? "" : party.phone);
+  const [contactPhone, setContactPhone] = useState(party.contact === "—" ? "" : party.contact);
   const [contactName, setContactName] = useState(party.contactName || "");
   const [email, setEmail] = useState(party.email === "E-mail non renseigné" ? "" : party.email || "");
-  const [city, setCity] = useState(party.city || "");
   const [address, setAddress] = useState(party.address || "");
   const [headOffice, setHeadOffice] = useState(party.headOffice || "");
   const [category, setCategory] = useState(party.category || "");
-  const [clientCategory, setClientCategory] = useState("clientCategory" in party ? party.clientCategory || "Standard" : "Standard");
+  const [clientCategory, setClientCategory] = useState("clientCategory" in party ? party.clientCategory || "" : "");
   const [availableClientCategories, setAvailableClientCategories] = useState(clientCategories);
   const [nif, setNif] = useState(party.nif || "");
   const [nis, setNis] = useState(party.nis || "");
   const [rc, setRc] = useState(party.rc || "");
   const [taxArticle, setTaxArticle] = useState(party.taxArticle || "");
   const [rib, setRib] = useState(party.rib || "");
+  const [bank, setBank] = useState(party.bank || "");
+  const [note, setNote] = useState(party.note || "");
   const [imageUrl, setImageUrl] = useState(party.imageUrl || "");
-  const [contactStatus, setContactStatus] = useState(party.contactStatus || "Actif");
+  const [contactStatus, setContactStatus] = useState(party.contactStatus || "Divers");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const photoInput = useRef<HTMLInputElement | null>(null);
@@ -2044,7 +2106,7 @@ function PartyEditorModal({ party, kind, clientCategories = [], onClose, onSaved
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError("");
     try {
-      const response = await fetch("/api/parties", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: party.id, name, contact_phone: contact, contact_name: contactName, email, city, address, head_office: headOffice, category, client_category: clientCategory, nif, nis, rc, tax_article: taxArticle, rib, image_url: imageUrl, contact_status: contactStatus }) });
+      const response = await fetch("/api/parties", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: party.id, name, phone, contact_phone: contactPhone, contact_name: contactName, email, address, head_office: kind === "supplier" ? headOffice : "", category, client_category: clientCategory, nif, nis, rc, tax_article: taxArticle, rib, bank, note, image_url: imageUrl, contact_status: contactStatus }) });
       const payload = await response.json() as { party?: ApiPartyRecord; error?: string };
       if (!response.ok || !payload.party) throw new Error(payload.error || "Impossible de modifier le tiers.");
       onSaved(payload.party);
@@ -2053,9 +2115,15 @@ function PartyEditorModal({ party, kind, clientCategories = [], onClose, onSaved
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card expanded-modal party-editor-modal" role="dialog" aria-modal="true" aria-labelledby="party-edit-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
     <div className="modal-header"><div><h2 id="party-edit-title">Modifier {kind === "client" ? "le client" : "le fournisseur"}</h2><p>Coordonnées et informations fiscales complètes.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
     <div className="party-editor-sections">
-      <section><div className="form-section-label"><ContactRound size={15} /><span>Identité et contact</span></div><div className="entity-photo-upload"><EntityLogo name={name || party.name} tone={party.color} kind={kind} imageUrl={imageUrl} /><div><strong>Photo du {kind === "client" ? "client" : "fournisseur"}</strong><small>PNG, JPG ou WebP · 1,5 Mo maximum</small><span><button type="button" className="secondary-button" onClick={() => photoInput.current?.click()}><Upload size={15} /> Importer</button>{imageUrl && <button type="button" className="text-button danger-text" onClick={() => setImageUrl("")}>Supprimer</button>}</span></div><input ref={photoInput} className="hidden-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void readUploadedImage(file).then(setImageUrl).catch((reason: Error) => setError(reason.message)); }} /></div><div className="form-grid"><label className="field-label">Nom<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label className="field-label">Statut contact<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Actif</option><option>Prospect</option><option>Inactif</option><option>Bloqué</option></select></label><label className="field-label">Contact<input value={contactName} onChange={(event) => setContactName(event.target.value)} /></label><label className="field-label">Téléphone<input value={contact} onChange={(event) => setContact(event.target.value)} /></label><label className="field-label">E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label></div></section>
-      <section><div className="form-section-label"><MapPin size={15} /><span>Adresse et organisation</span></div><div className="form-grid"><label className="field-label">Adresse<input value={address} onChange={(event) => setAddress(event.target.value)} /></label><label className="field-label">Ville<input value={city} onChange={(event) => setCity(event.target.value)} /></label><label className="field-label">Siège social<input value={headOffice} onChange={(event) => setHeadOffice(event.target.value)} /></label>{kind === "client" ? <label className="field-label">Catégorie client<select value={clientCategory} onChange={(event) => setClientCategory(event.target.value)}>{availableClientCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label> : <label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} /></label>}</div></section>
-      <section><div className="form-section-label"><ReceiptText size={15} /><span>Informations fiscales</span></div><div className="form-grid form-grid-three"><label className="field-label">NIF<input value={nif} onChange={(event) => setNif(event.target.value)} /></label><label className="field-label">NIS<input value={nis} onChange={(event) => setNis(event.target.value)} /></label><label className="field-label">RC<input value={rc} onChange={(event) => setRc(event.target.value)} /></label><label className="field-label">N° article<input value={taxArticle} onChange={(event) => setTaxArticle(event.target.value)} /></label><label className="field-label">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} /></label></div></section>
+      <section>
+        <div className="form-section-label"><ContactRound size={15} /><span>Identité et contact</span></div>
+        <div className="entity-photo-upload"><EntityLogo name={name || party.name} tone={party.color} kind={kind} imageUrl={imageUrl} /><div><strong>Photo du {kind === "client" ? "client" : "fournisseur"}</strong><small>PNG, JPG ou WebP · 1,5 Mo maximum</small><span><button type="button" className="secondary-button" onClick={() => photoInput.current?.click()}><Upload size={15} /> Importer</button>{imageUrl && <button type="button" className="text-button danger-text" onClick={() => setImageUrl("")}>Supprimer</button>}</span></div><input ref={photoInput} className="hidden-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void readUploadedImage(file).then(setImageUrl).catch((reason: Error) => setError(reason.message)); }} /></div>
+        <div className="form-grid"><label className="field-label">Nom<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label className="field-label">Téléphone<input inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} /></label><label className="field-label">E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label></div>
+        <div className="form-section-label contact-subsection"><ContactRound size={15} /><span>Contact principal</span></div>
+        <div className="form-grid form-grid-three"><label className="field-label">Nom du contact<input value={contactName} onChange={(event) => setContactName(event.target.value)} /></label><label className="field-label">Téléphone du contact<input inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} /></label><label className="field-label">Fonction<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label></div>
+      </section>
+      <section><div className="form-section-label"><MapPin size={15} /><span>Adresse et organisation</span></div><div className="form-grid"><label className="field-label form-field-wide">Adresse<input value={address} onChange={(event) => setAddress(event.target.value)} /></label>{kind === "supplier" && <label className="field-label">Siège social<input value={headOffice} onChange={(event) => setHeadOffice(event.target.value)} /></label>}{kind === "client" ? <label className="field-label">Catégorie client<select value={clientCategory} onChange={(event) => setClientCategory(event.target.value)}><option value="">Sans catégorie</option>{availableClientCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label> : <label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} /></label>}</div></section>
+      <section><div className="form-section-label"><ReceiptText size={15} /><span>Informations fiscales et bancaires</span></div><div className="form-grid"><label className="field-label">NIF<input value={nif} onChange={(event) => setNif(event.target.value)} /></label><label className="field-label">NIS<input value={nis} onChange={(event) => setNis(event.target.value)} /></label><label className="field-label">RC<input value={rc} onChange={(event) => setRc(event.target.value)} /></label><label className="field-label">N° article<input value={taxArticle} onChange={(event) => setTaxArticle(event.target.value)} /></label><label className="field-label form-field-wide">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} /></label><label className="field-label">Banque<input value={bank} onChange={(event) => setBank(event.target.value)} /></label></div><label className="field-label party-note-field">Note<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Informations internes sur ce tiers…" /></label></section>
     </div>
     {error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div>
   </form></div>;
@@ -2074,21 +2142,23 @@ function QuickPartyCreateModal({
 }) {
   const [name, setName] = useState("");
   const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
   const [category, setCategory] = useState("");
-  const [clientCategory, setClientCategory] = useState("Standard");
+  const [clientCategory, setClientCategory] = useState("");
   const [clientPriceCategories, setClientPriceCategories] = useState<ClientCategoryRecord[]>([]);
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
-  const [city, setCity] = useState("");
   const [headOffice, setHeadOffice] = useState("");
   const [nif, setNif] = useState("");
   const [nis, setNis] = useState("");
   const [rc, setRc] = useState("");
   const [taxArticle, setTaxArticle] = useState("");
   const [rib, setRib] = useState("");
+  const [bank, setBank] = useState("");
+  const [note, setNote] = useState("");
   const [imageUrl, setImageUrl] = useState("");
-  const [contactStatus, setContactStatus] = useState("Actif");
+  const [contactStatus, setContactStatus] = useState("Divers");
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -2110,10 +2180,10 @@ function QuickPartyCreateModal({
         kind,
         name,
         contact_name: contactName,
-        contact_phone: phone,
+        phone,
+        contact_phone: contactPhone,
         email,
         address,
-        city,
         head_office: headOffice,
         category,
         client_category: kind === "client" ? clientCategory : undefined,
@@ -2122,6 +2192,8 @@ function QuickPartyCreateModal({
         rc,
         tax_article: taxArticle,
         rib,
+        bank,
+        note,
         image_url: imageUrl,
         contact_status: contactStatus,
       });
@@ -2148,27 +2220,29 @@ function QuickPartyCreateModal({
             {detailsOpen && (
               <div className="expanded-fields">
                 <div className="form-section-label"><ContactRound size={15} /><span>Contact principal</span></div>
-                <div className="form-grid">
+                <div className="form-grid form-grid-three">
                   <label className="field-label">Nom du contact<span className="input-with-icon"><ContactRound size={15} /><input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Nom et prénom" /></span></label>
-                  <label className="field-label">E-mail<span className="input-with-icon"><Mail size={15} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="contact@entreprise.dz" /></span></label>
-                  <label className="field-label">Statut du contact<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Actif</option><option>Prospect</option><option>Inactif</option><option>Bloqué</option></select></label>
+                  <label className="field-label">Téléphone du contact<input inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} placeholder="0550 00 00 00" /></label>
+                  <label className="field-label">Fonction<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label>
                 </div>
+                <label className="field-label">E-mail<span className="input-with-icon"><Mail size={15} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="contact@entreprise.dz" /></span></label>
                 <div className="form-section-label"><MapPin size={15} /><span>Adresse et organisation</span></div>
                 <div className="form-grid">
-                  <label className="field-label">Adresse<span className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Rue, zone, bâtiment" /></span></label>
-                  <label className="field-label">Ville<span className="input-with-icon"><MapPin size={15} /><input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Béjaïa" /></span></label>
+                  <label className="field-label form-field-wide">Adresse<span className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Rue, zone, bâtiment" /></span></label>
                 </div>
                 {kind === "supplier" && <div className="form-grid"><label className="field-label">Siège social<span className="input-with-icon"><Building2 size={15} /><input value={headOffice} onChange={(event) => setHeadOffice(event.target.value)} placeholder="Ville, pays ou adresse du siège" /></span></label><label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Informatique, transport…" /></label></div>}
 
-                {kind === "client" && <label className="field-label">Catégorie client<select value={clientCategory} onChange={(event) => setClientCategory(event.target.value)}>{[...clientPriceCategories.map((item) => item.name), clientCategory].filter((name, index, values) => name && values.indexOf(name) === index).map((name) => <option key={name} value={name}>{name}</option>)}</select></label>}
+                {kind === "client" && <label className="field-label">Catégorie client<select value={clientCategory} onChange={(event) => setClientCategory(event.target.value)}><option value="">Sans catégorie</option>{clientPriceCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label>}
                 <div className="form-section-label fiscal-label"><ReceiptText size={15} /><span>Informations fiscales</span><small>Facultatif</small></div>
                 <div className="form-grid quick-party-fiscal-grid">
                   <label className="field-label">NIF<input value={nif} onChange={(event) => setNif(event.target.value)} placeholder="N° fiscal" /></label>
                   <label className="field-label">NIS<input value={nis} onChange={(event) => setNis(event.target.value)} placeholder="N° statistique" /></label>
                   <label className="field-label">RC<input value={rc} onChange={(event) => setRc(event.target.value)} placeholder="Registre commerce" /></label>
                   <label className="field-label">N° article<input value={taxArticle} onChange={(event) => setTaxArticle(event.target.value)} placeholder="Article fiscal" /></label>
-                  <label className="field-label">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} placeholder="Relevé d’identité bancaire" /></label>
+                  <label className="field-label form-field-wide">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} placeholder="Relevé d’identité bancaire" /></label>
+                  <label className="field-label">Banque<input value={bank} onChange={(event) => setBank(event.target.value)} placeholder="Banque / agence" /></label>
                 </div>
+                <label className="field-label">Note<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder={`Informations internes sur ce ${label}…`} /></label>
               </div>
             )}
           </section>
@@ -2228,6 +2302,8 @@ function FinanceEntryModal({ onClose, onSaved }: { onClose: () => void; onSaved:
 function FinanceWorkspacePage({
   entries,
   parties,
+  purchases,
+  sales,
   treasuryLedger,
   employees,
   attendance,
@@ -2251,6 +2327,8 @@ function FinanceWorkspacePage({
 }: {
   entries: FinanceEntry[];
   parties: PartyRow[];
+  purchases: DocumentRecord[];
+  sales: DocumentRecord[];
   treasuryLedger: TreasuryLedgerRow[];
   employees: EmployeeRecord[];
   attendance: EmployeeAttendanceRecord[];
@@ -2279,15 +2357,17 @@ function FinanceWorkspacePage({
   const incoming = treasuryLedger.filter((row) => row.direction === "in").reduce((total, row) => total + row.amount, 0);
   const outgoing = treasuryLedger.filter((row) => row.direction === "out").reduce((total, row) => total + row.amount, 0);
   const settlementRows = parties.filter((party) => ("billed" in party ? party.billed : party.purchases) !== "0 DA" || party.paid !== "0 DA" || party.credit !== "0 DA");
-  const settlementTotal = parties.reduce((sum, party) => sum + numberFromDa("billed" in party ? party.billed : party.purchases), 0);
-  const settlementPaid = parties.reduce((sum, party) => sum + numberFromDa(party.paid), 0);
+  const clientPayments = parties.filter((party) => "billed" in party).reduce((sum, party) => sum + numberFromDa(party.paid), 0);
+  const supplierPayments = parties.filter((party) => "purchases" in party).reduce((sum, party) => sum + numberFromDa(party.paid), 0);
   const settlementDue = parties.reduce((sum, party) => sum + numberFromDa(party.balance), 0);
-  const settlementCredits = parties.reduce((sum, party) => sum + numberFromDa(party.credit), 0);
   const currentMonth = new Date().toISOString().slice(0, 7);
   const today = new Date().toISOString().slice(0, 10);
   const activeEmployees = employees.filter((employee) => employee.status === "Actif");
   const monthlyPayroll = activeEmployees.reduce((sum, employee) => sum + employee.base_salary, 0);
   const paidThisMonth = salaryPayments.filter((payment) => payment.payroll_month === currentMonth).reduce((sum, payment) => sum + payment.amount, 0);
+  const salesRevenue = sales.filter((document) => document.type === "Facture").reduce((sum, document) => sum + Math.abs(document.total || numberFromDa(document.amount)), 0);
+  const purchasesCost = purchases.filter((document) => document.type === "Facture").reduce((sum, document) => sum + Math.abs(document.total || numberFromDa(document.amount)), 0);
+  const profit = salesRevenue - purchasesCost - expenses - charges;
   const presentToday = attendance.filter((entry) => entry.work_date === today && entry.status === "Présent").length;
   const filteredEmployees = employees.filter((employee) =>
     `${employee.name} ${employee.job_title} ${employee.phone} ${employee.status}`.toLowerCase().includes(search.toLowerCase()),
@@ -2332,7 +2412,7 @@ function FinanceWorkspacePage({
             </button>
             <button type="button" className="finance-hub-card finance-card-employees" onClick={() => openSection("employees")}>
               <span className="finance-card-top"><span className="finance-card-icon"><Users size={24} /></span><span className="finance-card-count">{activeEmployees.length} actif{activeEmployees.length === 1 ? "" : "s"}</span></span>
-              <span className="finance-card-copy"><small>Employés &amp; paie</small><strong>{formatDa(monthlyPayroll)}</strong><span>Masse salariale mensuelle</span></span>
+              <span className="finance-card-copy"><small>Employés &amp; paie</small><strong>{formatDa(paidThisMonth)}</strong><span>Total payé ce mois</span></span>
               <span className="finance-card-footer">Gérer l’équipe <ArrowRight size={17} /></span>
             </button>
             <button type="button" className="finance-hub-card finance-card-settlements" onClick={() => openSection("settlements")}>
@@ -2349,7 +2429,7 @@ function FinanceWorkspacePage({
           <div className="finance-hub-footnote">
             <span><i className="finance-dot finance-dot-in" /> Entrées {formatDa(incoming)}</span>
             <span><i className="finance-dot finance-dot-out" /> Sorties {formatDa(outgoing)}</span>
-            <span><i className="finance-dot finance-dot-paid" /> Réglé {formatDa(settlementPaid)}</span>
+            <span><i className="finance-dot finance-dot-paid" /> Bénéfice {formatDa(profit)}</span>
           </div>
         </div>
       )}
@@ -2413,7 +2493,7 @@ function FinanceWorkspacePage({
 
       {section === "settlements" && (
         <>
-          <div className="finance-summary settlement-stats"><div><small>Total facturé / acheté</small><strong>{formatDa(settlementTotal)}</strong></div><div><small>Total réglé</small><strong>{formatDa(settlementPaid)}</strong></div><div><small>À régler</small><strong>{formatDa(settlementDue)}</strong></div><div><small>Crédits</small><strong>{formatDa(settlementCredits)}</strong></div></div>
+          <div className="finance-summary settlement-stats"><div><small>Bénéfice</small><strong className={profit >= 0 ? "positive-number" : "negative-number"}>{formatDa(profit)}</strong></div><div><small>Encaissements clients</small><strong>{formatDa(clientPayments)}</strong></div><div><small>Décaissements fournisseurs</small><strong>{formatDa(supplierPayments)}</strong></div><div><small>À régler</small><strong>{formatDa(settlementDue)}</strong></div></div>
           <div className="table-header finance-subheader"><div className="table-title"><h2>États des règlements</h2><span>Clients et fournisseurs</span></div></div>
           <div className="table-scroll"><table><thead><tr><th>Tiers</th><th>Type</th><th>Total</th><th>Réglé</th><th>À régler</th><th>Crédit</th><th>Statut</th><th /></tr></thead><tbody>{settlementRows.map((party) => { const kind = "billed" in party ? "client" : "supplier"; const total = numberFromDa("billed" in party ? party.billed : party.purchases); return <tr key={`${kind}-${party.id}`}><td><strong>{party.name}</strong></td><td>{kind === "client" ? "Client" : "Fournisseur"}</td><td className="number">{formatDa(total)}</td><td className="number">{party.paid}</td><td className="number">{party.balance}</td><td className="number positive-number">{party.credit}</td><td><StatusBadge label={party.status} tone={party.balance !== "0 DA" ? "orange" : "green"} /></td><td><div className="settlement-row-actions"><button type="button" className="icon-button" onClick={() => onViewParty(party, kind)} aria-label={`Voir la fiche de ${party.name}`}><Eye size={16} /></button><button type="button" className="cash-action" onClick={() => onSettleParty(party, kind)}><Banknote size={16} /><span>{party.balance === "0 DA" ? "Avance" : kind === "client" ? "Encaisser" : "Payer"}</span></button></div></td></tr>; })}{!settlementRows.length && <EmptyRow columns={8} />}</tbody></table></div>
         </>
@@ -3257,7 +3337,7 @@ function ArticlesTable({
               <div className="article-card-body">
                 <div className="article-card-title"><span className="sku-code">{article.sku}</span><h2>{article.name}</h2></div>
                 <p>{article.description || "Description non renseignée."}</p>
-                <div className="article-hierarchy"><span>{article.category || "Sans catégorie"}</span>{article.subcategory && <><i>›</i><span>{article.subcategory}</span></>}{article.subsubcategory && <><i>›</i><span>{article.subsubcategory}</span></>}{article.subsubsubcategory && <><i>›</i><span>{article.subsubsubcategory}</span></>}</div>
+                <div className="article-hierarchy"><span>{article.category || "Sans catégorie"}</span></div>
                 <div className="article-card-prices"><div><small>Prix achat</small><strong>{money(article.purchase_price)}</strong></div><div><small>Prix vente · {article.sale_prices?.length || 1} tarif{(article.sale_prices?.length || 1) === 1 ? "" : "s"}</small><strong>{money(article.sale_price)}</strong></div></div>
               </div>
               <footer><span className={`stock-value ${article.stock <= 10 ? "low" : ""}`}>{article.stock} {article.unit || "unité"}{article.stock > 1 && article.unit === "unité" ? "s" : ""}</span><button type="button" className="secondary-button" onClick={() => onEdit(article)}><Pencil size={14} /> Organiser</button></footer>
@@ -3267,8 +3347,8 @@ function ArticlesTable({
         </div>
       )}
       {!loading && !request.error && viewMode === "list" && (
-        <div className="table-scroll"><table><thead><tr><th>Article</th><th>Catégorisation</th><th>Unité</th><th>Prix d’achat</th><th>Prix de vente</th><th>Stock</th><th>Statut</th><th /></tr></thead><tbody>
-          {filtered.map((article) => <tr key={article.id}><td><div className="identity-cell"><ProductVisual article={article} className="table-product-visual" /><div><strong>{article.name}</strong><small>{article.description || article.brand}</small></div></div></td><td><div className="article-hierarchy"><span>{article.category || "Sans catégorie"}</span>{article.subcategory && <><i>›</i><span>{article.subcategory}</span></>}{article.subsubcategory && <><i>›</i><span>{article.subsubcategory}</span></>}{article.subsubsubcategory && <><i>›</i><span>{article.subsubsubcategory}</span></>}</div></td><td><span className="soft-label">{article.unit || "unité"}</span></td><td className="number">{money(article.purchase_price)}</td><td className="number"><strong>{money(article.sale_price)}</strong><small>{article.sale_prices?.length || 1} tarif{(article.sale_prices?.length || 1) === 1 ? "" : "s"}</small></td><td><span className={`stock-value ${article.stock <= 10 ? "low" : ""}`}>{article.stock}</span></td><td><StatusBadge label={article.status} tone={article.stock <= 10 ? "orange" : "green"} /></td><td><RowActions label={article.name} notify={notify} onEdit={() => onEdit(article)} onDelete={() => void deleteArticle(article)} /></td></tr>)}
+        <div className="table-scroll"><table><thead><tr><th>Article</th><th>Catégorie</th><th>Unité</th><th>Prix d’achat</th><th>Prix de vente</th><th>Stock</th><th>Statut</th><th /></tr></thead><tbody>
+          {filtered.map((article) => <tr key={article.id}><td><div className="identity-cell"><ProductVisual article={article} className="table-product-visual" /><div><strong>{article.name}</strong><small>{article.description || article.brand}</small></div></div></td><td><span className="soft-label">{article.category || "Sans catégorie"}</span></td><td><span className="soft-label">{article.unit || "unité"}</span></td><td className="number">{money(article.purchase_price)}</td><td className="number"><strong>{money(article.sale_price)}</strong><small>{article.sale_prices?.length || 1} tarif{(article.sale_prices?.length || 1) === 1 ? "" : "s"}</small></td><td><span className={`stock-value ${article.stock <= 10 ? "low" : ""}`}>{article.stock}</span></td><td><StatusBadge label={article.status} tone={article.stock <= 10 ? "orange" : "green"} /></td><td><RowActions label={article.name} notify={notify} onEdit={() => onEdit(article)} onDelete={() => void deleteArticle(article)} /></td></tr>)}
           {!filtered.length && <EmptyRow columns={8} />}
         </tbody></table></div>
       )}
@@ -3322,13 +3402,13 @@ function DocumentsTable({
     const matchesTab = activeTab === "all"
       || (activeTab === "quotes" && row.type === "Devis")
       || (activeTab === "orders" && row.type.includes("commande"))
-      || (activeTab === "delivery" && (row.type.includes("livraison") || row.type.includes("réception")))
+      || (activeTab === "delivery" && (row.type.includes("livraison") || row.type.includes("achat")))
       || (activeTab === "invoices" && row.type === "Facture")
       || (activeTab === "returns" && row.type === "Bon de retour");
     return matchesSearch && matchesTab && (!filterActive || !closedStatuses.includes(row.status));
   });
   const transferTargets = (row: DocumentRecord) => {
-    const deliveryType = page === "purchases" ? "Bon de réception" : "Bon de livraison";
+    const deliveryType = page === "purchases" ? "Bon d’achat" : "Bon de livraison";
     const orderAlreadyTransferred = row.type === "Bon de commande" && rows.some((candidate) =>
       candidate.sourceDocumentId === row.id && [deliveryType, "Facture"].includes(candidate.type),
     );
@@ -3399,7 +3479,7 @@ function DocumentsTable({
                     <Printer size={16} />
                   </button>
                   <RowActions label={row.number} notify={notify} onOpen={() => onOpen(row)} onEdit={() => onEdit(row)} onDuplicate={() => onDuplicate(row)} onDelete={() => onDelete(row.number)} extraActions={[
-                    ...((row.type === "Bon de livraison" || row.type === "Bon de réception" || row.type === "Facture") && row.articleId && (row.quantity ?? 1) > (row.returnedQuantity ?? 0) ? [{ label: "Créer un retour", icon: RotateCcw, onClick: () => onReturn(row) }] : []),
+                    ...((row.type === "Bon de livraison" || row.type === "Bon d’achat" || row.type === "Facture") && row.articleId && (row.quantity ?? 1) > (row.returnedQuantity ?? 0) ? [{ label: "Créer un retour", icon: RotateCcw, onClick: () => onReturn(row) }] : []),
                   ]} />
                 </div>
               </td>
@@ -3418,7 +3498,7 @@ const toLibraryRecord = (
   index: number,
 ): LibraryRecord => {
   const normalized = normalizeLabel(row.type);
-  const format: LibraryRecord["format"] = normalized.includes("livraison") || normalized.includes("reception")
+  const format: LibraryRecord["format"] = normalized.includes("livraison") || normalized.includes("reception") || normalized.includes("achat")
     ? "JPG"
     : normalized.includes("retour")
       ? "PNG"
@@ -3465,7 +3545,7 @@ function DocumentsLibrary({
     const matchesCategory = category === "all"
       || (category === "quotes" && row.type === "Devis")
       || (category === "orders" && normalizedType.includes("commande"))
-      || (category === "delivery" && (normalizedType.includes("livraison") || normalizedType.includes("reception")))
+      || (category === "delivery" && (normalizedType.includes("livraison") || normalizedType.includes("reception") || normalizedType.includes("achat")))
       || (category === "invoices" && row.type === "Facture")
       || (category === "returns" && normalizedType.includes("retour"));
     const matchesFormat = format === "all"
@@ -3646,7 +3726,7 @@ function Dashboard({
     .slice(0, 5);
   const maximumPartyAmount = Math.max(...partyRanking.map(({ value }) => value), 1);
   const invoicedSales = filteredSales.filter((row) => row.type === "Facture");
-  const recordedPurchases = filteredPurchases.filter((row) => row.type === "Facture" || row.type === "Bon de réception");
+  const recordedPurchases = filteredPurchases.filter((row) => row.type === "Facture" || row.type === "Bon d’achat");
   const activeClients = new Set(filteredSales.map((row) => row.party)).size;
   const activeSuppliers = new Set(filteredPurchases.map((row) => row.party)).size;
   const dashboardKpis: { value: string; label: string; trend: string; tone: string; icon: LucideIcon; direction: "up" | "down" }[] = [
@@ -4375,7 +4455,7 @@ function DocumentEditor({
                 <option value="" disabled>Choisir le document</option>
                 <option>Devis</option>
                 <option>Bon de commande</option>
-                <option>{initialTarget === "purchases" ? "Bon de réception" : "Bon de livraison"}</option>
+                <option>{initialTarget === "purchases" ? "Bon d’achat" : "Bon de livraison"}</option>
                 <option>Facture</option>
               </select>
             </label>
@@ -4546,7 +4626,7 @@ function SimpleDocumentEditor({
   const selectedDraftArticle = selectedArticleId ? articleRequest.rows.find((row) => row.id === selectedArticleId) : null;
   const categoryPriceForParty = (article: ArticleRecord | null | undefined, party: PartyRow | null) => {
     if (!article || initialTarget !== "sales" || !party || !("clientCategory" in party)) return undefined;
-    const category = party.clientCategory || "Standard";
+    const category = party.clientCategory || "Tarif général";
     return article.sale_prices?.find((price) => normalizeLabel(price.client_category || price.label) === normalizeLabel(category))?.sale_price;
   };
   const priceForParty = (article: ArticleRecord, party: PartyRow | null) => {
@@ -4870,12 +4950,14 @@ function CreateModal({
   initialTarget,
   initialDocumentType,
   parties,
+  clientCategories = [],
   onClose,
   onSubmit,
 }: {
   initialTarget: BusinessPage;
   initialDocumentType?: string;
   parties: string[];
+  clientCategories?: ClientCategoryRecord[];
   onClose: () => void;
   onSubmit: (payload: CreatePayload) => Promise<void> | void;
 }) {
@@ -4886,19 +4968,21 @@ function CreateModal({
   const [clientDetailsOpen, setClientDetailsOpen] = useState(false);
   const [supplierDetailsOpen, setSupplierDetailsOpen] = useState(false);
   const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
   const [category, setCategory] = useState("");
-  const [clientCategory, setClientCategory] = useState("Standard");
+  const [clientCategory, setClientCategory] = useState("");
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
-  const [city, setCity] = useState("");
   const [headOffice, setHeadOffice] = useState("");
   const [nif, setNif] = useState("");
   const [nis, setNis] = useState("");
   const [rc, setRc] = useState("");
   const [taxArticle, setTaxArticle] = useState("");
   const [rib, setRib] = useState("");
+  const [bank, setBank] = useState("");
+  const [note, setNote] = useState("");
   const [imageUrl, setImageUrl] = useState("");
-  const [contactStatus, setContactStatus] = useState("Actif");
+  const [contactStatus, setContactStatus] = useState("Divers");
   const [articleQuery, setArticleQuery] = useState("");
   const [selectedArticle, setSelectedArticle] = useState<ArticleRecord | null>(null);
   const [quantity, setQuantity] = useState(1);
@@ -4995,17 +5079,19 @@ function CreateModal({
               detail,
               documentType,
               contactName,
+              contactPhone,
               category,
               clientCategory,
               email,
               address,
-              city,
               headOffice,
               nif,
               nis,
               rc,
               taxArticle,
               rib,
+              bank,
+              note,
               imageUrl,
               contactStatus,
               articleName: selectedArticle?.name,
@@ -5079,7 +5165,7 @@ function CreateModal({
               <label className="field-label">Document
                 <select required value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
                   <option value="" disabled>Choisir le type de document</option>
-                  <option>Devis</option><option>Bon de commande</option><option>{target === "purchases" ? "Bon de réception" : "Bon de livraison"}</option><option>Facture</option>
+                  <option>Devis</option><option>Bon de commande</option><option>{target === "purchases" ? "Bon d’achat" : "Bon de livraison"}</option><option>Facture</option>
                 </select>
               </label>
               <label className="field-label">Date
@@ -5156,7 +5242,7 @@ function CreateModal({
         {!isDocument && (
           <div className="form-grid">
             <label className="field-label">Téléphone<input inputMode="tel" value={detail} onChange={(event) => setDetail(event.target.value)} placeholder="0550 00 00 00" /></label>
-            <label className="field-label">Statut du contact<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Actif</option><option>Prospect</option><option>Inactif</option><option>Bloqué</option></select></label>
+            <label className="field-label">E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="contact@entreprise.dz" /></label>
           </div>
         )}
         {isClient && (
@@ -5168,25 +5254,21 @@ function CreateModal({
             {clientDetailsOpen && (
               <div className="expanded-fields">
                 <div className="form-section-label"><ContactRound size={15} /><span>Contact principal</span></div>
-                <div className="form-grid">
+                <div className="form-grid form-grid-three">
                   <label className="field-label">Nom du contact
                     <span className="input-with-icon"><ContactRound size={15} /><input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Nom et prénom" /></span>
                   </label>
-                  <label className="field-label">E-mail
-                    <span className="input-with-icon"><Mail size={15} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="contact@entreprise.dz" /></span>
-                  </label>
-                  <label className="field-label">Catégorie client<select value={clientCategory} onChange={(event) => setClientCategory(event.target.value)}><option>Standard</option><option>Revendeur</option><option>Grossiste</option></select></label>
+                  <label className="field-label">Téléphone du contact<input inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} placeholder="0550 00 00 00" /></label>
+                  <label className="field-label">Fonction<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label>
                 </div>
                 <div className="form-grid">
-                  <label className="field-label">Adresse
+                  <label className="field-label form-field-wide">Adresse
                     <span className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Rue, zone, bâtiment" /></span>
                   </label>
-                  <label className="field-label">Ville
-                    <span className="input-with-icon"><MapPin size={15} /><input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Alger" /></span>
-                  </label>
+                  <label className="field-label">Catégorie client<select value={clientCategory} onChange={(event) => setClientCategory(event.target.value)}><option value="">Sans catégorie</option>{clientCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label>
                 </div>
                 <div className="form-section-label fiscal-label"><ReceiptText size={15} /><span>Informations fiscales</span><small>Facultatif</small></div>
-                <div className="form-grid form-grid-three">
+                <div className="form-grid">
                   <label className="field-label">NIF
                     <input value={nif} onChange={(event) => setNif(event.target.value)} placeholder="N° fiscal" />
                   </label>
@@ -5199,10 +5281,12 @@ function CreateModal({
                   <label className="field-label">N° article
                     <input value={taxArticle} onChange={(event) => setTaxArticle(event.target.value)} placeholder="Article fiscal" />
                   </label>
-                  <label className="field-label">RIB
+                  <label className="field-label form-field-wide">RIB
                     <input value={rib} onChange={(event) => setRib(event.target.value)} placeholder="Relevé d’identité bancaire" />
                   </label>
+                  <label className="field-label">Banque<input value={bank} onChange={(event) => setBank(event.target.value)} placeholder="Banque / agence" /></label>
                 </div>
+                <label className="field-label">Note<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Informations internes sur ce client…" /></label>
               </div>
             )}
           </section>
@@ -5216,20 +5300,16 @@ function CreateModal({
             {supplierDetailsOpen && (
               <div className="expanded-fields">
                 <div className="form-section-label"><ContactRound size={15} /><span>Contact fournisseur</span></div>
-                <div className="form-grid">
+                <div className="form-grid form-grid-three">
                   <label className="field-label">Nom du contact
                     <span className="input-with-icon"><ContactRound size={15} /><input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Nom et prénom" /></span>
                   </label>
-                  <label className="field-label">E-mail
-                    <span className="input-with-icon"><Mail size={15} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="contact@fournisseur.dz" /></span>
-                  </label>
+                  <label className="field-label">Téléphone du contact<input inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} placeholder="0550 00 00 00" /></label>
+                  <label className="field-label">Fonction<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label>
                 </div>
                 <div className="form-grid">
-                  <label className="field-label">Adresse
+                  <label className="field-label form-field-wide">Adresse
                     <span className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Rue, zone, bâtiment" /></span>
-                  </label>
-                  <label className="field-label">Ville
-                    <span className="input-with-icon"><MapPin size={15} /><input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Alger" /></span>
                   </label>
                 </div>
                 <label className="field-label">Siège social
@@ -5244,8 +5324,10 @@ function CreateModal({
                   <label className="field-label">NIS<input value={nis} onChange={(event) => setNis(event.target.value)} placeholder="N° statistique" /></label>
                   <label className="field-label">RC<input value={rc} onChange={(event) => setRc(event.target.value)} placeholder="Registre commerce" /></label>
                   <label className="field-label">N° article<input value={taxArticle} onChange={(event) => setTaxArticle(event.target.value)} placeholder="Article fiscal" /></label>
-                  <label className="field-label">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} placeholder="Relevé d’identité bancaire" /></label>
+                  <label className="field-label form-field-wide">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} placeholder="Relevé d’identité bancaire" /></label>
+                  <label className="field-label">Banque<input value={bank} onChange={(event) => setBank(event.target.value)} placeholder="Banque / agence" /></label>
                 </div>
+                <label className="field-label">Note<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Informations internes sur ce fournisseur…" /></label>
               </div>
             )}
           </section>
@@ -5267,6 +5349,11 @@ function ArticleFormModal({
   onSaved: (article: ArticleRecord) => void;
 }) {
   const roundArticlePrice = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+  const parseArticleNumber = (value: string | number) => {
+    const parsed = Number(String(value).trim().replace(/\s/g, "").replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const editableArticleNumber = (value: number) => String(roundArticlePrice(value)).replace(".", ",");
   const salePriceFromMargin = (cost: number, margin: number) => roundArticlePrice(Math.max(0, cost * (1 + margin / 100)));
   const marginFromSalePrice = (cost: number, sale: number) => cost > 0
     ? roundArticlePrice(((sale - cost) / cost) * 100)
@@ -5284,25 +5371,25 @@ function ArticleFormModal({
   const [description, setDescription] = useState(article?.description ?? "");
   const [unit, setUnit] = useState(article?.unit ?? "unité");
   const [imageUrl, setImageUrl] = useState(article?.image_url ?? "");
-  const [purchasePrice, setPurchasePrice] = useState(article?.purchase_price ?? 0);
+  const [purchasePrice, setPurchasePrice] = useState(article ? editableArticleNumber(article.purchase_price) : "");
   const [salePrices, setSalePrices] = useState<Array<{
     key: string;
     clientCategory: string;
-    salePrice: number;
-    marginPercent: number;
+    salePrice: string;
+    marginPercent: string;
     mode: "price" | "margin";
   }>>(() => {
     if (article?.sale_prices?.length) return article.sale_prices.map((price, index) => ({
       key: `saved-${index}`,
-      clientCategory: price.client_category || price.label || "Standard",
-      salePrice: price.sale_price,
-      marginPercent: price.margin_percent,
+      clientCategory: price.client_category || price.label || "Tarif général",
+      salePrice: editableArticleNumber(price.sale_price),
+      marginPercent: editableArticleNumber(price.margin_percent),
       mode: "price" as const,
     }));
     const marginPercent = article?.purchase_price
       ? Math.round((((article.sale_price - article.purchase_price) / article.purchase_price) * 100) * 100) / 100
       : 0;
-    return [{ key: "default", clientCategory: "Standard", salePrice: article?.sale_price ?? 0, marginPercent, mode: "price" as const }];
+    return [{ key: "default", clientCategory: "Tarif général", salePrice: article ? editableArticleNumber(article.sale_price) : "", marginPercent: editableArticleNumber(marginPercent), mode: "price" as const }];
   });
   const [stock, setStock] = useState(article?.stock ?? 0);
   const [saving, setSaving] = useState(false);
@@ -5342,14 +5429,15 @@ function ArticleFormModal({
   const normalizedThirdLevel = subsubcategory.trim().toLocaleLowerCase("fr");
   const selectedThirdLevel = thirdLevelOptions.find((item) => item.name.toLocaleLowerCase("fr") === normalizedThirdLevel);
   const fourthLevelOptions = selectedThirdLevel?.subcategories ?? [];
+  const purchaseCost = parseArticleNumber(purchasePrice);
   const computedSalePrices = salePrices.map((price) => {
-    const clientCategory = price.clientCategory.trim() || "Standard";
+    const clientCategory = price.clientCategory.trim() || "Tarif général";
     const salePrice = price.mode === "margin"
-      ? salePriceFromMargin(purchasePrice, Number(price.marginPercent) || 0)
-      : roundArticlePrice(Math.max(0, Number(price.salePrice) || 0));
+      ? salePriceFromMargin(purchaseCost, parseArticleNumber(price.marginPercent))
+      : roundArticlePrice(Math.max(0, parseArticleNumber(price.salePrice)));
     const marginPercent = price.mode === "price"
-      ? marginFromSalePrice(purchasePrice, salePrice)
-      : roundArticlePrice(Number(price.marginPercent) || 0);
+      ? marginFromSalePrice(purchaseCost, salePrice)
+      : roundArticlePrice(parseArticleNumber(price.marginPercent));
     return {
       label: clientCategory,
       client_category: clientCategory,
@@ -5358,12 +5446,12 @@ function ArticleFormModal({
     };
   });
 
-  const updatePurchasePrice = (nextPurchasePrice: number) => {
-    const normalizedPurchasePrice = Math.max(0, nextPurchasePrice || 0);
-    setPurchasePrice(normalizedPurchasePrice);
+  const updatePurchasePrice = (rawPurchasePrice: string) => {
+    const normalizedPurchasePrice = Math.max(0, parseArticleNumber(rawPurchasePrice));
+    setPurchasePrice(rawPurchasePrice);
     setSalePrices((rows) => rows.map((row) => row.mode === "margin"
-      ? { ...row, salePrice: salePriceFromMargin(normalizedPurchasePrice, Number(row.marginPercent) || 0) }
-      : { ...row, marginPercent: marginFromSalePrice(normalizedPurchasePrice, Number(row.salePrice) || 0) }));
+      ? { ...row, salePrice: editableArticleNumber(salePriceFromMargin(normalizedPurchasePrice, parseArticleNumber(row.marginPercent))) }
+      : { ...row, marginPercent: editableArticleNumber(marginFromSalePrice(normalizedPurchasePrice, parseArticleNumber(row.salePrice))) }));
   };
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -5387,8 +5475,8 @@ function ArticleFormModal({
           description: description.trim(),
           unit,
           image_url: imageUrl,
-          purchase_price: Number(purchasePrice),
-          purchase_prices: [{ client_category: "Standard", purchase_price: Number(purchasePrice) }],
+          purchase_price: purchaseCost,
+          purchase_prices: [{ client_category: "Tarif général", purchase_price: purchaseCost }],
           sale_price: computedSalePrices[0]?.sale_price ?? 0,
           sale_prices: computedSalePrices,
           stock: Number(stock),
@@ -5407,9 +5495,13 @@ function ArticleFormModal({
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <form className="modal-card expanded-modal article-editor-modal" role="dialog" aria-modal="true" aria-labelledby="article-editor-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
-        <div className="modal-header"><div><h2 id="article-editor-title">{article ? "Organiser l’article" : "Nouvel article"}</h2><p>Catégorie, sous-catégories, unité, prix, stock et description.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+        <div className="modal-header"><div><h2 id="article-editor-title">{article ? "Modifier l’article" : "Ajouter un article"}</h2><p>Configurez la photo, l’identité, la famille, le stock et les tarifs.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+        <section className="article-premium-hero">
+          <div className="article-photo-upload"><span className={`article-upload-preview ${imageUrl ? "has-image" : ""}`} style={imageUrl && isSafeImageSource(imageUrl) ? { backgroundImage: `url("${imageUrl}")` } : undefined}>{!imageUrl && <Package size={30} />}</span><div><strong>{imageUrl ? "Photo du produit" : "Ajouter la photo du produit"}</strong><small>PNG, JPG ou WebP · 1,5 Mo maximum</small><span><button type="button" className="secondary-button" onClick={() => articlePhotoInput.current?.click()}><Upload size={15} /> Choisir une photo</button>{imageUrl && <button type="button" className="text-button danger-text" onClick={() => setImageUrl("")}>Supprimer</button>}</span></div><input ref={articlePhotoInput} className="hidden-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void readUploadedImage(file).then(setImageUrl).catch((reason: Error) => setError(reason.message)); }} /></div>
+          <label className="field-label">Logo marque (optionnel)<select value={brandLogo} onChange={(event) => setBrandLogo(event.target.value)}><option value="">Icône catalogue</option><option value="/brands/google.png">Google</option><option value="/brands/amazon.svg">Amazon</option></select></label>
+        </section>
         <div className="form-grid">
-          <label className="field-label">Désignation<input autoFocus required value={name} onChange={(event) => setName(event.target.value)} placeholder="MacBook Pro 14 pouces" /></label>
+          <label className="field-label">Désignation<input autoFocus required value={name} onChange={(event) => setName(event.target.value.toLocaleUpperCase("fr"))} placeholder="MACBOOK PRO 14 POUCES" /></label>
           <label className="field-label">Référence / code-barres<input value={sku} onChange={(event) => setSku(event.target.value)} placeholder="Automatique · ART-00001" /><small>Générée automatiquement. Cliquez ici puis scannez pour utiliser le code-barres du produit.</small></label>
         </div>
         <div className="form-grid">
@@ -5419,19 +5511,19 @@ function ArticleFormModal({
         <section className="article-category-editor">
           <div className="form-section-label"><Folder size={15} /><span>Arborescence catalogue</span></div>
           <div className="form-grid form-grid-four">
-            <label className="field-label">Catégorie
+            <label className="field-label">Famille
               <input required list="article-category-options" autoComplete="off" value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Choisir ou ajouter…" />
               <datalist id="article-category-options">{categoryTree.map((item) => <option key={item.name} value={item.name} />)}</datalist>
             </label>
-            <label className="field-label">Sous-catégorie
+            <label className="field-label">Sous-famille
               <input required list="article-subcategory-options" autoComplete="off" value={subcategory} onChange={(event) => setSubcategory(event.target.value)} placeholder="Choisir ou ajouter…" />
               <datalist id="article-subcategory-options">{subcategoryOptions.map((item) => <option key={item.name} value={item.name} />)}</datalist>
             </label>
-            <label className="field-label">Sous-sous-catégorie
+            <label className="field-label">Catégorie
               <input required list="article-third-category-options" autoComplete="off" value={subsubcategory} onChange={(event) => setSubsubcategory(event.target.value)} placeholder="Choisir ou ajouter…" />
               <datalist id="article-third-category-options">{thirdLevelOptions.map((item) => <option key={item.name} value={item.name} />)}</datalist>
             </label>
-            <label className="field-label">Sous-sous-sous-catégorie
+            <label className="field-label">Sous-catégorie
               <input required list="article-fourth-category-options" autoComplete="off" value={subsubsubcategory} onChange={(event) => setSubsubsubcategory(event.target.value)} placeholder="Choisir ou ajouter…" />
               <datalist id="article-fourth-category-options">{fourthLevelOptions.map((item) => <option key={item} value={item} />)}</datalist>
             </label>
@@ -5440,28 +5532,22 @@ function ArticleFormModal({
         </section>
         <label className="field-label">Description complète<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description affichée sur les commandes lorsque l’option est activée." rows={3} /></label>
         <div className="form-grid">
-          <label className="field-label">Prix d’achat<input type="number" min="0" step="1" value={purchasePrice || ""} onChange={(event) => updatePurchasePrice(Number(event.target.value))} /></label>
+          <label className="field-label">Prix d’achat<input type="text" inputMode="decimal" value={purchasePrice} onChange={(event) => updatePurchasePrice(event.target.value)} placeholder="0,00" /></label>
           <label className="field-label">Stock initial / actuel<input type="number" min="0" step="1" value={stock || ""} onChange={(event) => setStock(Number(event.target.value))} /></label>
         </div>
         <section className="article-price-tiers">
-          <div className="article-price-heading"><div><span>Prix de vente par catégorie client</span><small>Saisissez le prix de vente ou la marge : l’autre valeur est calculée automatiquement.</small></div><button type="button" className="secondary-button" onClick={() => setSalePrices((rows) => [...rows, { key: `price-${Date.now()}`, clientCategory: "Standard", salePrice: Number(purchasePrice) || 0, marginPercent: 0, mode: "margin" as const }])} disabled={salePrices.length >= 24}><Plus size={15} /> Ajouter un prix</button></div>
+          <div className="article-price-heading"><div><span>Prix de vente par catégorie client</span><small>La virgule et le point sont acceptés. Le prix et la marge se calculent dans les deux sens.</small></div><button type="button" className="secondary-button" onClick={() => setSalePrices((rows) => [...rows, { key: `price-${Date.now()}`, clientCategory: clientPriceCategories[0]?.name ?? "Tarif général", salePrice: editableArticleNumber(purchaseCost), marginPercent: "0", mode: "margin" as const }])} disabled={salePrices.length >= 24}><Plus size={15} /> Ajouter un prix</button></div>
           <div className="article-price-list">
             {salePrices.map((price) => (
               <div className="article-price-row" key={price.key}>
-                <label className="field-label">Catégorie client<select value={price.clientCategory} onChange={(event) => setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, clientCategory: event.target.value } : row))} required>{[...clientPriceCategories.map((item) => item.name), price.clientCategory].filter((name, index, values) => name && values.indexOf(name) === index).map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
-                <label className="field-label">Prix de vente (DA)<input type="number" min="0" step="1" value={price.salePrice || ""} onChange={(event) => { const salePrice = Math.max(0, Number(event.target.value) || 0); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, salePrice, marginPercent: marginFromSalePrice(purchasePrice, salePrice), mode: "price" as const } : row)); }} /></label>
-                <label className="field-label">Marge (%)<input type="number" min="-100" step="1" value={price.marginPercent || ""} onChange={(event) => { const marginPercent = Math.max(-100, Number(event.target.value) || 0); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, marginPercent, salePrice: salePriceFromMargin(purchasePrice, marginPercent), mode: "margin" as const } : row)); }} /></label>
+                <label className="field-label">Catégorie client<select value={price.clientCategory} onChange={(event) => setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, clientCategory: event.target.value } : row))} required>{["Tarif général", ...clientPriceCategories.map((item) => item.name), price.clientCategory].filter((name, index, values) => name && values.indexOf(name) === index).map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+                <label className="field-label">Prix de vente (DA)<input type="text" inputMode="decimal" value={price.salePrice} onChange={(event) => { const rawSalePrice = event.target.value; const salePrice = Math.max(0, parseArticleNumber(rawSalePrice)); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, salePrice: rawSalePrice, marginPercent: editableArticleNumber(marginFromSalePrice(purchaseCost, salePrice)), mode: "price" as const } : row)); }} placeholder="0,00" /></label>
+                <label className="field-label">Marge (%)<input type="text" inputMode="decimal" value={price.marginPercent} onChange={(event) => { const rawMargin = event.target.value; const marginPercent = Math.max(-100, parseArticleNumber(rawMargin)); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, marginPercent: rawMargin, salePrice: editableArticleNumber(salePriceFromMargin(purchaseCost, marginPercent)), mode: "margin" as const } : row)); }} placeholder="0,00" /></label>
                 <button type="button" className="icon-button danger-text" onClick={() => setSalePrices((rows) => rows.filter((row) => row.key !== price.key))} disabled={salePrices.length === 1} aria-label={`Supprimer le prix ${price.clientCategory}`}><Trash2 size={16} /></button>
               </div>
             ))}
           </div>
         </section>
-        <div className="form-grid article-media-grid">
-          <div className="field-label">Photo produit
-            <div className="article-photo-upload"><span className={`article-upload-preview ${imageUrl ? "has-image" : ""}`} style={imageUrl && isSafeImageSource(imageUrl) ? { backgroundImage: `url("${imageUrl}")` } : undefined}>{!imageUrl && <Package size={24} />}</span><div><strong>{imageUrl ? "Photo prête" : "Aucune photo"}</strong><small>PNG, JPG ou WebP · 1,5 Mo maximum</small><span><button type="button" className="secondary-button" onClick={() => articlePhotoInput.current?.click()}><Upload size={15} /> Importer une photo</button>{imageUrl && <button type="button" className="text-button danger-text" onClick={() => setImageUrl("")}>Supprimer</button>}</span></div><input ref={articlePhotoInput} className="hidden-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void readUploadedImage(file).then(setImageUrl).catch((reason: Error) => setError(reason.message)); }} /></div>
-          </div>
-          <label className="field-label">Logo marque (optionnel)<select value={brandLogo} onChange={(event) => setBrandLogo(event.target.value)}><option value="">Icône catalogue</option><option value="/brands/google.png">Google</option><option value="/brands/amazon.svg">Amazon</option></select></label>
-        </div>
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button type="submit" className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div>
       </form>
@@ -5565,6 +5651,8 @@ export default function WorkspaceApp() {
   const [clientCategories, setClientCategories] = useState<ClientCategoryRecord[]>([]);
   const [clientCategoryManagerOpen, setClientCategoryManagerOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [documentTypePicker, setDocumentTypePicker] = useState<"purchases" | "sales" | null>(null);
+  const [newDocumentType, setNewDocumentType] = useState("");
   const [documentEditorContext, setDocumentEditorContext] = useState<{ direction: "purchases" | "sales"; document: DocumentRecord | null } | null>(null);
   const [articleEditor, setArticleEditor] = useState<ArticleRecord | "new" | null>(null);
   const [catalogVersion, setCatalogVersion] = useState(0);
@@ -5804,28 +5892,17 @@ export default function WorkspaceApp() {
     notify(`${party.name} supprimé`);
   };
 
-  const duplicatePartyRecord = async (party: PartyRow, kind: "client" | "supplier") => {
-    const copy = await postParty({
-      kind,
-      name: `${party.name} (copie)`,
-      contact_phone: party.contact === "—" ? "" : party.contact,
-      contact_name: party.contactName,
-      email: party.email === "E-mail non renseigné" ? "" : party.email,
-      address: party.address,
-      city: party.city,
-      head_office: party.headOffice,
-      category: "category" in party ? party.category : "",
-      nif: party.nif,
-      nis: party.nis,
-      rc: party.rc,
-      tax_article: party.taxArticle,
-      rib: party.rib,
-      image_url: party.imageUrl,
-      contact_status: party.contactStatus,
+  const togglePartyBlocked = async (party: PartyRow, kind: "client" | "supplier") => {
+    const response = await fetch("/api/parties", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: party.id, is_blocked: !party.isBlocked }),
     });
-    if (kind === "client") setClients((rows) => [toClientRecord(copy), ...rows]);
-    else setSuppliers((rows) => [toSupplierRecord(copy), ...rows]);
-    notify(`${party.name} dupliqué`);
+    const payload = await response.json() as { party?: ApiPartyRecord; error?: string };
+    if (!response.ok || !payload.party) throw new Error(payload.error || "Impossible de modifier le blocage du tiers.");
+    if (kind === "client") setClients((rows) => rows.map((row) => row.id === party.id ? toClientRecord(payload.party!) : row));
+    else setSuppliers((rows) => rows.map((row) => row.id === party.id ? toSupplierRecord(payload.party!) : row));
+    notify(`${party.name} ${payload.party.is_blocked ? "bloqué" : "débloqué"}`);
   };
 
   const deleteDocumentRecord = async (document: DocumentRecord, direction: "purchases" | "sales") => {
@@ -5983,29 +6060,31 @@ export default function WorkspaceApp() {
     setCatalogVersion((value) => value + 1);
     setPartyVersion((value) => value + 1);
     notify(`${targetType} ${targetType === "Facture" ? "créée" : "créé"} depuis ${source.number}`);
-    if (targetType === "Facture" || targetType === "Bon de livraison" || targetType === "Bon de réception") {
+    if (targetType === "Facture" || targetType === "Bon de livraison" || targetType === "Bon d’achat") {
       const fallback = (direction === "purchases" ? suppliers : clients).find((party) => party.id === source.partyId);
       await offerSettlementAfterDocument(direction, transferred, fallback);
     }
   };
 
-  const createItem = async ({ target, name, detail, documentType, contactName, category, clientCategory, email, address, city, headOffice, nif, nis, rc, taxArticle, rib, imageUrl, contactStatus, articleId, articleName, articleDescription, unit, showFullDescription, quantity, unitPrice, discount, taxRate, documentDate, partyId, documentId, lines }: CreatePayload) => {
+  const createItem = async ({ target, name, detail, documentType, contactName, contactPhone, category, clientCategory, email, address, headOffice, nif, nis, rc, taxArticle, rib, bank, note, imageUrl, contactStatus, articleId, articleName, articleDescription, unit, showFullDescription, quantity, unitPrice, discount, taxRate, documentDate, partyId, documentId, lines }: CreatePayload) => {
     const cleanName = name.trim();
     let documentForSettlement: DocumentRecord | null = null;
     if (target === "clients") {
       const party = await postParty({
         kind: "client",
         name: cleanName,
-        contact_phone: detail,
+        phone: detail,
+        contact_phone: contactPhone,
         contact_name: contactName,
         email,
         address,
-        city,
         nif,
         nis,
         rc,
         tax_article: taxArticle,
         rib,
+        bank,
+        note,
         image_url: imageUrl,
         contact_status: contactStatus,
         client_category: clientCategory,
@@ -6015,11 +6094,11 @@ export default function WorkspaceApp() {
       const party = await postParty({
         kind: "supplier",
         name: cleanName,
-        contact_phone: detail,
+        phone: detail,
+        contact_phone: contactPhone,
         contact_name: contactName,
         email,
         address,
-        city,
         head_office: headOffice,
         category,
         nif,
@@ -6027,6 +6106,8 @@ export default function WorkspaceApp() {
         rc,
         tax_article: taxArticle,
         rib,
+        bank,
+        note,
         image_url: imageUrl,
         contact_status: contactStatus,
       });
@@ -6074,13 +6155,14 @@ export default function WorkspaceApp() {
       } else {
         setSales((rows) => documentId ? rows.map((row) => row.id === documentId ? record : row) : [record, ...rows]);
       }
-      if (!documentId && ["Facture", "Bon de livraison", "Bon de réception"].includes(record.type)) {
+      if (!documentId && ["Facture", "Bon de livraison", "Bon d’achat"].includes(record.type)) {
         documentForSettlement = record;
       }
       setCatalogVersion((value) => value + 1);
       setPartyVersion((value) => value + 1);
     }
     setCreateOpen(false);
+    setNewDocumentType("");
     setDocumentEditorContext(null);
     notify(documentId ? "Document modifié avec succès" : "Élément ajouté avec succès");
     if (documentForSettlement && (target === "purchases" || target === "sales")) {
@@ -6118,7 +6200,7 @@ export default function WorkspaceApp() {
     ? page as BusinessPage
     : null;
   const createDocumentType = createTarget === "purchases" || createTarget === "sales"
-    ? documentTypeForTab(activeTab, createTarget) || "Devis"
+    ? newDocumentType || documentTypeForTab(activeTab, createTarget) || (createTarget === "purchases" ? "Bon de commande" : "Devis")
     : "";
   const activeDocumentEditor = documentEditorContext ?? (
     createOpen && (createTarget === "purchases" || createTarget === "sales")
@@ -6141,8 +6223,8 @@ export default function WorkspaceApp() {
           icon: FileCheck2,
         },
         {
-          label: page === "purchases" ? "Réceptions" : "Livraisons",
-          value: String(documentStatsRows.filter((row) => row.type === (page === "purchases" ? "Bon de réception" : "Bon de livraison")).length),
+          label: page === "purchases" ? "Bons d’achat" : "Livraisons",
+          value: String(documentStatsRows.filter((row) => row.type === (page === "purchases" ? "Bon d’achat" : "Bon de livraison")).length),
           trend: "Flux enregistrés",
           icon: page === "purchases" ? ClipboardList : Truck,
         },
@@ -6261,6 +6343,10 @@ export default function WorkspaceApp() {
                 notify("Créez un retour depuis le menu d’une livraison ou d’une facture.");
                 return;
               }
+              if (page === "purchases" || page === "sales") {
+                setDocumentTypePicker(page);
+                return;
+              }
               setCreateOpen(true);
             }}><Plus size={17} /> Nouveau</button>}
           </div>
@@ -6275,7 +6361,7 @@ export default function WorkspaceApp() {
               initialDocumentType={activeDocumentEditor.document ? undefined : createDocumentType}
               defaultTaxRate={company.defaultTaxRate}
               parties={activeDocumentEditor.direction === "purchases" ? suppliers : clients}
-              onClose={() => { setCreateOpen(false); setDocumentEditorContext(null); }}
+              onClose={() => { setCreateOpen(false); setNewDocumentType(""); setDocumentEditorContext(null); }}
               onSubmit={createItem}
               onCreateParty={async (body) => {
                 const party = await postParty(body);
@@ -6287,12 +6373,12 @@ export default function WorkspaceApp() {
             />
           ) : <>
           {page === "dashboard" && <Dashboard onViewSales={() => navigate("sales")} purchases={purchases} sales={sales} clients={clients} suppliers={suppliers} />}
-          {page === "clients" && <><div className="clients-toolbar"><button type="button" className="secondary-button" onClick={() => setClientCategoryManagerOpen(true)}><SlidersHorizontal size={15} /> Gérer les catégories clients</button></div><ClientsTable rows={clients} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(party) => setPartyDetails({ party, kind: "client" })} onEdit={(party) => setPartyEditor({ party, kind: "client" })} onDuplicate={(party) => { void duplicatePartyRecord(party, "client").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le client.")); }} onSettle={(party) => setSettlementContext({ party, kind: "client" })} onDelete={(name) => { const party = clients.find((row) => row.name === name); if (party) void deletePartyRecord(party, "client").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le client.")); }} /></>}
-          {page === "suppliers" && <SuppliersTable rows={suppliers} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(party) => setPartyDetails({ party, kind: "supplier" })} onEdit={(party) => setPartyEditor({ party, kind: "supplier" })} onDuplicate={(party) => { void duplicatePartyRecord(party, "supplier").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le fournisseur.")); }} onSettle={(party) => setSettlementContext({ party, kind: "supplier" })} onDelete={(name) => { const party = suppliers.find((row) => row.name === name); if (party) void deletePartyRecord(party, "supplier").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le fournisseur.")); }} />}
+          {page === "clients" && <><div className="clients-toolbar"><button type="button" className="secondary-button" onClick={() => setClientCategoryManagerOpen(true)}><SlidersHorizontal size={15} /> Gérer les catégories clients</button></div><ClientsTable rows={clients} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(party) => setPartyDetails({ party, kind: "client" })} onEdit={(party) => setPartyEditor({ party, kind: "client" })} onBlock={(party) => { void togglePartyBlocked(party, "client").catch((error) => notify(error instanceof Error ? error.message : "Impossible de modifier le blocage du client.")); }} onSettle={(party) => setSettlementContext({ party, kind: "client" })} onDelete={(name) => { const party = clients.find((row) => row.name === name); if (party) void deletePartyRecord(party, "client").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le client.")); }} /></>}
+          {page === "suppliers" && <SuppliersTable rows={suppliers} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(party) => setPartyDetails({ party, kind: "supplier" })} onEdit={(party) => setPartyEditor({ party, kind: "supplier" })} onBlock={(party) => { void togglePartyBlocked(party, "supplier").catch((error) => notify(error instanceof Error ? error.message : "Impossible de modifier le blocage du fournisseur.")); }} onSettle={(party) => setSettlementContext({ party, kind: "supplier" })} onDelete={(name) => { const party = suppliers.find((row) => row.name === name); if (party) void deletePartyRecord(party, "supplier").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le fournisseur.")); }} />}
           {page === "articles" && <ArticlesTable search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} refreshKey={catalogVersion} onEdit={(article) => setArticleEditor(article)} />}
           {page === "purchases" && <DocumentsTable page="purchases" rows={purchases} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(document) => setDocumentDetails(printableContextFor("purchases", document))} onPrint={(document) => setPrintContext(printableContextFor("purchases", document))} onEdit={(document) => setDocumentEditorContext({ direction: "purchases", document })} onDuplicate={(document) => { void duplicateDocumentRecord(document, "purchases").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le document.")); }} onDelete={(number) => { const document = purchases.find((row) => row.number === number); if (document) void deleteDocumentRecord(document, "purchases").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le document.")); }} onReturn={(document) => setReturnContext({ direction: "purchases", document })} onTransfer={(document, targetType) => transferDocument("purchases", document, targetType)} />}
           {page === "sales" && <DocumentsTable page="sales" rows={sales} search={search} setSearch={setSearch} activeTab={activeTab} setActiveTab={setActiveTab} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode} notify={notify} onOpen={(document) => setDocumentDetails(printableContextFor("sales", document))} onPrint={(document) => setPrintContext(printableContextFor("sales", document))} onEdit={(document) => setDocumentEditorContext({ direction: "sales", document })} onDuplicate={(document) => { void duplicateDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de dupliquer le document.")); }} onDelete={(number) => { const document = sales.find((row) => row.number === number); if (document) void deleteDocumentRecord(document, "sales").catch((error) => notify(error instanceof Error ? error.message : "Impossible de supprimer le document.")); }} onReturn={(document) => setReturnContext({ direction: "sales", document })} onTransfer={(document, targetType) => transferDocument("sales", document, targetType)} />}
-          {page === "finance" && <FinanceWorkspacePage entries={financeEntries} parties={[...clients, ...suppliers]} treasuryLedger={treasuryLedger} employees={employees} attendance={employeeAttendance} salaryPayments={salaryPayments} search={search} setSearch={setSearch} onNewCharge={() => setFinanceEntryEditor("new")} onViewCharge={setFinanceEntryDetails} onEditCharge={(entry) => setFinanceEntryEditor(entry)} onDeleteCharge={(entry) => { void deleteFinanceEntryRecord(entry); }} onViewParty={(party, kind) => setPartyDetails({ party, kind })} onSettleParty={(party, kind) => setSettlementContext({ party, kind })} onNewTreasury={() => setTreasuryEntryEditor("new")} onEditTreasury={(entry) => setTreasuryEntryEditor(entry)} onDeleteTreasury={(entry) => { void deleteTreasuryEntryRecord(entry); }} onNewEmployee={() => setEmployeeEditor("new")} onEditEmployee={setEmployeeEditor} onRecordAttendance={setAttendanceEmployee} onPaySalary={setSalaryEmployee} onEditSalaryPayment={(employee, payment) => setSalaryPaymentEditor({ employee, payment })} />}
+          {page === "finance" && <FinanceWorkspacePage entries={financeEntries} parties={[...clients, ...suppliers]} purchases={purchases} sales={sales} treasuryLedger={treasuryLedger} employees={employees} attendance={employeeAttendance} salaryPayments={salaryPayments} search={search} setSearch={setSearch} onNewCharge={() => setFinanceEntryEditor("new")} onViewCharge={setFinanceEntryDetails} onEditCharge={(entry) => setFinanceEntryEditor(entry)} onDeleteCharge={(entry) => { void deleteFinanceEntryRecord(entry); }} onViewParty={(party, kind) => setPartyDetails({ party, kind })} onSettleParty={(party, kind) => setSettlementContext({ party, kind })} onNewTreasury={() => setTreasuryEntryEditor("new")} onEditTreasury={(entry) => setTreasuryEntryEditor(entry)} onDeleteTreasury={(entry) => { void deleteTreasuryEntryRecord(entry); }} onNewEmployee={() => setEmployeeEditor("new")} onEditEmployee={setEmployeeEditor} onRecordAttendance={setAttendanceEmployee} onPaySalary={setSalaryEmployee} onEditSalaryPayment={(employee, payment) => setSalaryPaymentEditor({ employee, payment })} />}
           {page === "documents" && <DocumentsLibrary purchases={purchases} sales={sales} search={search} setSearch={setSearch} viewMode={viewMode} setViewMode={setViewMode} />}
           {page === "feedback" && company.feedbackEnabled && <FeedbackPage notify={notify} />}
           {page === "settings" && <SettingsPage company={company} onSave={persistCompanySettings} notify={notify} />}
@@ -6300,8 +6386,9 @@ export default function WorkspaceApp() {
         </main>
       </div>
       {createOpen && (createTarget === "clients" || createTarget === "suppliers") && (
-        <CreateModal initialTarget={createTarget} initialDocumentType={createDocumentType} parties={[]} onClose={() => setCreateOpen(false)} onSubmit={createItem} />
+        <CreateModal initialTarget={createTarget} initialDocumentType={createDocumentType} parties={[]} clientCategories={clientCategories} onClose={() => setCreateOpen(false)} onSubmit={createItem} />
       )}
+      {documentTypePicker && <DocumentTypePickerModal direction={documentTypePicker} onClose={() => setDocumentTypePicker(null)} onSelect={(documentType) => { setNewDocumentType(documentType); setDocumentTypePicker(null); setCreateOpen(true); }} />}
       {articleEditor && <ArticleFormModal article={articleEditor === "new" ? null : articleEditor} onClose={() => setArticleEditor(null)} onSaved={(article) => { setArticleEditor(null); setCatalogVersion((value) => value + 1); notify(`${article.name} enregistré dans le catalogue`); }} />}
       {returnContext && <ReturnModal document={returnContext.document} direction={returnContext.direction} onClose={() => setReturnContext(null)} onConfirm={confirmReturn} />}
       {clientCategoryManagerOpen && <ClientCategoryManagerModal categories={clientCategories} onClose={() => setClientCategoryManagerOpen(false)} onChanged={refreshClientCategories} />}
@@ -6319,7 +6406,7 @@ export default function WorkspaceApp() {
           onSettle={() => setSettlementContext({ party: currentPartyDetails, kind: partyDetails.kind })}
         />
       )}
-      {partyEditor && <PartyEditorModal party={partyEditor.party} kind={partyEditor.kind} onClose={() => setPartyEditor(null)} onSaved={(party) => { if (partyEditor.kind === "client") setClients((rows) => rows.map((row) => row.id === party.id ? toClientRecord(party) : row)); else setSuppliers((rows) => rows.map((row) => row.id === party.id ? toSupplierRecord(party) : row)); setPartyEditor(null); notify("Tiers mis à jour"); }} />}
+      {partyEditor && <PartyEditorModal party={partyEditor.party} kind={partyEditor.kind} clientCategories={clientCategories} onClose={() => setPartyEditor(null)} onSaved={(party) => { if (partyEditor.kind === "client") setClients((rows) => rows.map((row) => row.id === party.id ? toClientRecord(party) : row)); else setSuppliers((rows) => rows.map((row) => row.id === party.id ? toSupplierRecord(party) : row)); setPartyEditor(null); notify("Tiers mis à jour"); }} />}
       {settlementContext && currentSettlementParty && <SettlementModal key={`${settlementContext.kind}-${currentSettlementParty.id}-${currentSettlementParty.balance}-${settlementContext.originDocument?.id ?? "manual"}`} party={currentSettlementParty} kind={settlementContext.kind} originDocument={settlementContext.originDocument} onClose={() => setSettlementContext(null)} onSaved={() => { setSettlementContext(null); setPartyVersion((value) => value + 1); setFinanceVersion((value) => value + 1); notify("Règlement enregistré"); }} />}
       {documentDetails && <DocumentDetailsModal document={documentDetails.document} onClose={() => setDocumentDetails(null)} onPrint={() => setPrintContext(documentDetails)} />}
       {printContext && <PrintableDocument company={company} context={printContext} onClose={() => setPrintContext(null)} />}

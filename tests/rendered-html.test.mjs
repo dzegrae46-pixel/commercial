@@ -24,7 +24,7 @@ test("contains the compact workspace views and company settings", async () => {
   for (const documentType of [
     "Devis",
     "Commandes",
-    "BL / Réception",
+    "BL / Bons d’achat",
     "Factures",
     "Bons de retour",
   ]) {
@@ -287,7 +287,7 @@ test("supports detailed article organization and the dedicated product grid", as
   assert.match(page, /Description complète/);
   assert.match(page, /Mètre \(M\)/);
   assert.match(page, /Bobine/);
-  assert.match(page, /Importer une photo/);
+  assert.match(page, /Choisir une photo/);
   assert.match(page, /image\/png,image\/jpeg,image\/webp/);
   assert.match(page, /article-product-card/);
   assert.match(page, /article-card-image/);
@@ -536,9 +536,9 @@ test("supports monthly references, contact status, balance charts and margin tar
     readFile(new URL("app/api/employees/route.ts", root), "utf8"),
   ]);
 
-  assert.match(sqlite, /return `\$\{prefix\}-\$\{yearMonth\}\$\{String\(order\)\.padStart\(5, "0"\)\}`/);
+  assert.match(sqlite, /return `\$\{prefix\}-\$\{yearMonth\}-\$\{String\(order\)\.padStart\(5, "0"\)\}`/);
   assert.match(sqlite, /migrateDocumentNumbers/);
-  assert.match(sqlite, /document_number_yyyymm_v1/);
+  assert.match(sqlite, /document_number_direction_yyyymm_v2/);
   assert.match(schema, /sale_prices_json TEXT NOT NULL DEFAULT '\[\]'/);
   assert.match(schema, /purchase_prices_json TEXT NOT NULL DEFAULT '\[\]'/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS client_categories/);
@@ -548,7 +548,19 @@ test("supports monthly references, contact status, balance charts and margin tar
   assert.match(page, /Prix de vente \(DA\)/);
   assert.match(page, /marginFromSalePrice/);
   assert.match(page, /Gérer les catégories clients/);
-  assert.match(schema, /contact_status TEXT NOT NULL DEFAULT 'Actif'/);
+  assert.match(schema, /contact_status TEXT NOT NULL DEFAULT 'Divers'/);
+  assert.match(schema, /phone TEXT NOT NULL DEFAULT ''/);
+  assert.match(schema, /client_category TEXT NOT NULL DEFAULT ''/);
+  assert.match(schema, /bank TEXT NOT NULL DEFAULT ''/);
+  assert.match(schema, /note TEXT NOT NULL DEFAULT ''/);
+  assert.match(schema, /is_blocked INTEGER NOT NULL DEFAULT 0/);
+  assert.match(sqlite, /replace\(",", "\."\)/);
+  assert.match(sqlite, /toLocaleUpperCase\("fr"\)/);
+  assert.match(sqlite, /Bon d’achat/);
+  assert.match(page, /DocumentTypePickerModal/);
+  assert.match(page, /article-premium-hero/);
+  assert.match(page, /Bloquer le client/);
+  assert.match(page, /Téléphone du contact/);
   assert.match(sqlite, /listPartyBalanceHistory/);
   assert.match(partiesRoute, /get\("history"\) === "balance"/);
   assert.match(sqlite, /updateSalaryPayment/);

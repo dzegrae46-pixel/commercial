@@ -63,6 +63,7 @@ export const CREATE_PARTIES_TABLE_SQL = `
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kind TEXT NOT NULL CHECK(kind IN ('client', 'supplier')),
     name TEXT NOT NULL,
+    phone TEXT NOT NULL DEFAULT '',
     contact_phone TEXT NOT NULL DEFAULT '',
     contact_name TEXT NOT NULL DEFAULT '',
     email TEXT NOT NULL DEFAULT '',
@@ -70,14 +71,17 @@ export const CREATE_PARTIES_TABLE_SQL = `
     city TEXT NOT NULL DEFAULT '',
     head_office TEXT NOT NULL DEFAULT '',
     category TEXT NOT NULL DEFAULT '',
-    client_category TEXT NOT NULL DEFAULT 'Standard',
+    client_category TEXT NOT NULL DEFAULT '',
     image_url TEXT NOT NULL DEFAULT '',
     nif TEXT NOT NULL DEFAULT '',
     nis TEXT NOT NULL DEFAULT '',
     rc TEXT NOT NULL DEFAULT '',
     tax_article TEXT NOT NULL DEFAULT '',
     rib TEXT NOT NULL DEFAULT '',
-    contact_status TEXT NOT NULL DEFAULT 'Actif',
+    bank TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    contact_status TEXT NOT NULL DEFAULT 'Divers',
+    is_blocked INTEGER NOT NULL DEFAULT 0 CHECK(is_blocked IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )
@@ -363,8 +367,12 @@ export const ARTICLE_COLUMN_MIGRATIONS = [
  */
 export const PARTY_COLUMN_MIGRATIONS = [
   {
+    name: "phone",
+    sql: "ALTER TABLE parties ADD COLUMN phone TEXT NOT NULL DEFAULT ''",
+  },
+  {
     name: "contact_status",
-    sql: "ALTER TABLE parties ADD COLUMN contact_status TEXT NOT NULL DEFAULT 'Actif'",
+    sql: "ALTER TABLE parties ADD COLUMN contact_status TEXT NOT NULL DEFAULT 'Divers'",
   },
   {
     name: "contact_phone",
@@ -396,7 +404,7 @@ export const PARTY_COLUMN_MIGRATIONS = [
   },
   {
     name: "client_category",
-    sql: "ALTER TABLE parties ADD COLUMN client_category TEXT NOT NULL DEFAULT 'Standard'",
+    sql: "ALTER TABLE parties ADD COLUMN client_category TEXT NOT NULL DEFAULT ''",
   },
   {
     name: "image_url",
@@ -421,6 +429,18 @@ export const PARTY_COLUMN_MIGRATIONS = [
   {
     name: "rib",
     sql: "ALTER TABLE parties ADD COLUMN rib TEXT NOT NULL DEFAULT ''",
+  },
+  {
+    name: "bank",
+    sql: "ALTER TABLE parties ADD COLUMN bank TEXT NOT NULL DEFAULT ''",
+  },
+  {
+    name: "note",
+    sql: "ALTER TABLE parties ADD COLUMN note TEXT NOT NULL DEFAULT ''",
+  },
+  {
+    name: "is_blocked",
+    sql: "ALTER TABLE parties ADD COLUMN is_blocked INTEGER NOT NULL DEFAULT 0",
   },
   // SQLite only permits a constant default in ADD COLUMN. New databases use
   // CURRENT_TIMESTAMP above; a legacy row keeps an empty historical timestamp.

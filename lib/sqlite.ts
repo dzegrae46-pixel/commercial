@@ -106,6 +106,7 @@ export type PartyRecord = {
   id: number;
   kind: PartyKind;
   name: string;
+  phone: string;
   contact_phone: string;
   contact_name: string;
   email: string;
@@ -120,7 +121,10 @@ export type PartyRecord = {
   rc: string;
   tax_article: string;
   rib: string;
+  bank: string;
+  note: string;
   contact_status: string;
+  is_blocked: number;
   created_at: string;
   updated_at: string;
   billed: number;
@@ -334,7 +338,7 @@ type NormalizedLine = {
   lineTotal: number;
 };
 
-type PartyIdentity = Pick<PartyRecord, "id" | "kind" | "name">;
+type PartyIdentity = Pick<PartyRecord, "id" | "kind" | "name" | "is_blocked">;
 
 export type SettlementRecord = {
   payment: PaymentRecord;
@@ -347,7 +351,7 @@ const DEFAULT_DATABASE_PATH = "data/axxam.sqlite";
 const CATALOG_SEED_KEY = "catalog_seed_v4";
 const PARTIES_SEED_KEY = "parties_seed_v1";
 const DOCUMENT_SEED_KEY = "document_seed_v1";
-const DOCUMENT_NUMBER_FORMAT_KEY = "document_number_yyyymm_v1";
+const DOCUMENT_NUMBER_FORMAT_KEY = "document_number_direction_yyyymm_v2";
 
 const documentLabels: Record<DocumentType, string> = {
   quote: "Devis",
@@ -369,7 +373,7 @@ const DOCUMENT_DEMO_SEEDS: readonly {
 }[] = [];
 
 function documentLabel(type: DocumentType, direction?: DocumentDirection): string {
-  if (type === "delivery" && direction === "purchases") return "Bon de réception";
+  if (type === "delivery" && direction === "purchases") return "Bon d’achat";
   return documentLabels[type];
 }
 
@@ -418,7 +422,7 @@ function requiredText(value: unknown, field: string): string {
 function optionalNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
+    const parsed = Number(value.trim().replace(/\s/g, "").replace(",", "."));
     if (Number.isFinite(parsed)) return parsed;
   }
   return undefined;
@@ -457,8 +461,8 @@ function normalizeSalePrices(value: unknown, purchasePrice: number, fallbackSale
     const input = asInputObject(item);
     const clientCategory = cleanText(
       input.client_category ?? input.clientCategory ?? input.category ?? input.label,
-      index === 0 ? "Standard" : `Tarif ${index + 1}`,
-    ) || (index === 0 ? "Standard" : `Tarif ${index + 1}`);
+      index === 0 ? "Tarif général" : `Tarif ${index + 1}`,
+    ) || (index === 0 ? "Tarif général" : `Tarif ${index + 1}`);
     const label = cleanText(input.label, clientCategory) || clientCategory;
     const requestedMargin = optionalNumber(input.margin_percent ?? input.marginPercent ?? input.margin);
     const requestedPrice = optionalNumber(input.sale_price ?? input.salePrice ?? input.price);
@@ -478,7 +482,7 @@ function normalizeSalePrices(value: unknown, purchasePrice: number, fallbackSale
   });
   if (rows.length) return rows;
   const fallbackMargin = purchasePrice > 0 ? roundMoney(((fallbackSalePrice - purchasePrice) / purchasePrice) * 100) : 0;
-  return [{ label: "Standard", client_category: "Standard", margin_percent: fallbackMargin, sale_price: roundMoney(fallbackSalePrice) }];
+  return [{ label: "Tarif général", client_category: "Tarif général", margin_percent: fallbackMargin, sale_price: roundMoney(fallbackSalePrice) }];
 }
 
 function normalizePurchasePrices(value: unknown, fallbackPurchasePrice: number): ArticlePurchasePriceRecord[] {
@@ -495,7 +499,7 @@ function normalizePurchasePrices(value: unknown, fallbackPurchasePrice: number):
     rows.push({ client_category: clientCategory, purchase_price: purchasePrice });
   }
   if (rows.length) return rows;
-  return [{ client_category: "Standard", purchase_price: roundMoney(Math.max(0, fallbackPurchasePrice)) }];
+  return [{ client_category: "Tarif général", purchase_price: roundMoney(Math.max(0, fallbackPurchasePrice)) }];
 }
 
 function roundQuantity(value: number): number {
@@ -538,7 +542,7 @@ function normalizeDocumentType(value: unknown): DocumentType {
   const normalized = normalizeLookup(value);
   // Be permissive for older data whose accented « réception » text was encoded
   // inconsistently.  The intent remains unambiguous because it is a delivery note.
-  if (normalized.includes("livraison") || (normalized.includes("bon de r") && normalized.includes("ception"))) {
+  if (normalized.includes("livraison") || normalized === "bon d'achat" || normalized === "bon achat" || (normalized.includes("bon de r") && normalized.includes("ception"))) {
     return "delivery";
   }
   const aliases: Record<string, DocumentType> = {
@@ -555,6 +559,8 @@ function normalizeDocumentType(value: unknown): DocumentType {
     "bon de livraison": "delivery",
     reception: "delivery",
     "bon de reception": "delivery",
+    "bon d'achat": "delivery",
+    "bon achat": "delivery",
     facture: "invoice",
     factures: "invoice",
     invoice: "invoice",
@@ -569,14 +575,12 @@ function normalizeDocumentType(value: unknown): DocumentType {
   return type;
 }
 
-function documentPrefix(type: DocumentType): string {
-  return {
-    quote: "DEV",
-    order: "BC",
-    delivery: "BL",
-    invoice: "FAC",
-    return: "RET",
-  }[type];
+function documentPrefix(type: DocumentType, direction: DocumentDirection): string {
+  if (type === "quote") return direction === "sales" ? "DEV-V" : "DEV-A";
+  if (type === "order") return direction === "sales" ? "BC-V" : "BC-A";
+  if (type === "delivery") return direction === "sales" ? "BL" : "BA";
+  if (type === "invoice") return direction === "sales" ? "FAC-V" : "FAC-A";
+  return direction === "sales" ? "RET-V" : "RET-A";
 }
 
 function rowNumber(value: unknown): number {
@@ -631,7 +635,7 @@ function toPartyRecord(row: Record<string, unknown>): PartyRecord {
   const paid = rowNumber(party.paid);
   const balance = Math.max(0, rowNumber(party.balance));
   const credit = Math.max(0, rowNumber(party.credit));
-  return { ...party, billed, paid, balance, credit, status: balance > 0 ? "À régler" : credit > 0 ? "Crédit" : "À jour" };
+  return { ...party, billed, paid, balance, credit, status: party.is_blocked ? "Bloqué" : balance > 0 ? "À régler" : credit > 0 ? "Crédit" : "À jour" };
 }
 
 function toDocumentRecord(row: Record<string, unknown>): DocumentRecord {
@@ -801,17 +805,17 @@ function backfillDocumentPartyIds(database: DatabaseSync) {
 function migrateDocumentNumbers(database: DatabaseSync) {
   if (database.prepare("SELECT value FROM app_meta WHERE key = ?").get(DOCUMENT_NUMBER_FORMAT_KEY)) return;
   const rows = database.prepare(`
-    SELECT id, type, document_date
+    SELECT id, direction, type, document_date
     FROM documents
     ORDER BY document_date ASC, created_at ASC, id ASC
-  `).all() as unknown as { id: number; type: DocumentType; document_date: string }[];
+  `).all() as unknown as { id: number; direction: DocumentDirection; type: DocumentType; document_date: string }[];
   const counters = new Map<string, number>();
   const assignments = rows.map((row) => {
     const yearMonth = row.document_date.slice(0, 7).replace("-", "");
-    const key = `${row.type}-${yearMonth}`;
+    const key = `${row.direction}-${row.type}-${yearMonth}`;
     const order = (counters.get(key) ?? 0) + 1;
     counters.set(key, order);
-    return { id: row.id, number: `${documentPrefix(row.type)}-${yearMonth}${String(order).padStart(5, "0")}` };
+    return { id: row.id, number: `${documentPrefix(row.type, row.direction)}-${yearMonth}-${String(order).padStart(5, "0")}` };
   });
   database.exec("BEGIN IMMEDIATE");
   try {
@@ -877,7 +881,7 @@ function seedCatalogOnce(database: DatabaseSync) {
         article.unit,
         article.imageUrl,
         article.purchasePrice,
-        JSON.stringify([{ client_category: "Standard", purchase_price: article.purchasePrice }]),
+        JSON.stringify([{ client_category: "Tarif général", purchase_price: article.purchasePrice }]),
         article.salePrice,
         JSON.stringify(normalizeSalePrices([], article.purchasePrice, article.salePrice)),
         article.stock,
@@ -920,7 +924,7 @@ function seedPartiesOnce(database: DatabaseSync) {
         party.city,
         party.headOffice,
         party.category,
-        party.kind === "client" ? (party.clientCategory || "Standard") : "Standard",
+        party.kind === "client" ? (party.clientCategory || "") : "",
         party.imageUrl,
         party.nif,
         party.nis,
@@ -1024,20 +1028,37 @@ function ensurePartyStorage(database: DatabaseSync) {
   migratePartyColumns(database);
   database.exec(CREATE_PARTIES_KIND_NAME_INDEX_SQL);
   database.exec(CREATE_APP_META_TABLE_SQL);
+  const phoneBackfill = database.prepare("SELECT value FROM app_meta WHERE key = ?").get("party_main_phone_backfill_v1");
+  if (!phoneBackfill) {
+    database.exec("UPDATE parties SET phone = contact_phone WHERE TRIM(phone) = '' AND TRIM(contact_phone) <> ''");
+    database.prepare("INSERT INTO app_meta (key, value) VALUES (?, ?)").run("party_main_phone_backfill_v1", "1");
+  }
 }
 
 function ensureClientCategoryStorage(database: DatabaseSync) {
   database.exec(CREATE_CLIENT_CATEGORIES_TABLE_SQL);
   database.exec(CREATE_CLIENT_CATEGORIES_NAME_INDEX_SQL);
-  const defaults = ["Standard", "Revendeur", "Grossiste"];
-  const insert = database.prepare("INSERT OR IGNORE INTO client_categories (name) VALUES (?)");
-  for (const name of defaults) insert.run(name);
   const marker = database.prepare("SELECT value FROM app_meta WHERE key = ?").get("client_category_backfill_v1");
   if (!marker) {
     database.exec("UPDATE parties SET client_category = category WHERE kind = 'client' AND TRIM(category) <> '' AND client_category = 'Standard'");
     database.prepare("INSERT INTO app_meta (key, value) VALUES (?, ?)").run("client_category_backfill_v1", "1");
   }
   database.exec("INSERT OR IGNORE INTO client_categories (name) SELECT DISTINCT client_category FROM parties WHERE kind = 'client' AND TRIM(client_category) <> ''");
+  const emptyDefaultsMarker = database.prepare("SELECT value FROM app_meta WHERE key = ?").get("client_categories_manual_only_v2");
+  if (!emptyDefaultsMarker) {
+    database.exec(`
+      DELETE FROM client_categories
+      WHERE name IN ('Standard', 'Revendeur', 'Grossiste')
+        AND NOT EXISTS (
+          SELECT 1 FROM parties
+          WHERE kind = 'client' AND client_category = client_categories.name COLLATE NOCASE
+        );
+      UPDATE parties
+      SET contact_status = 'Divers'
+      WHERE contact_status NOT IN ('Directeur', 'Administration', 'Divers');
+    `);
+    database.prepare("INSERT INTO app_meta (key, value) VALUES (?, ?)").run("client_categories_manual_only_v2", "1");
+  }
 }
 
 function ensureDocumentStorage(database: DatabaseSync) {
@@ -1374,16 +1395,16 @@ function validateDocumentTransfer(database: DatabaseSync, source: DocumentRecord
   }
 }
 
-function makeDocumentNumber(database: DatabaseSync, type: DocumentType, documentDate: string): string {
+function makeDocumentNumber(database: DatabaseSync, type: DocumentType, direction: DocumentDirection, documentDate: string): string {
   const yearMonth = documentDate.slice(0, 7).replace("-", "");
-  const prefix = documentPrefix(type);
+  const prefix = documentPrefix(type, direction);
   const row = database.prepare(
     `SELECT MAX(CAST(SUBSTR(number, -5) AS INTEGER)) AS last_order
      FROM documents
-     WHERE type = ? AND SUBSTR(document_date, 1, 7) = ? AND number LIKE ?`,
-  ).get(type, documentDate.slice(0, 7), `${prefix}-${yearMonth}%`);
+     WHERE direction = ? AND type = ? AND SUBSTR(document_date, 1, 7) = ? AND number LIKE ?`,
+  ).get(direction, type, documentDate.slice(0, 7), `${prefix}-${yearMonth}-%`);
   const order = rowNumber(row?.last_order) + 1;
-  return `${prefix}-${yearMonth}${String(order).padStart(5, "0")}`;
+  return `${prefix}-${yearMonth}-${String(order).padStart(5, "0")}`;
 }
 
 export function listArticles(query = ""): ArticleRecord[] {
@@ -1805,10 +1826,10 @@ function normalizePartyKind(value: unknown): PartyKind {
   throw new SqliteValidationError("Le type de tiers doit Ãªtre client ou fournisseur.");
 }
 
-function normalizeContactStatus(value: unknown, fallback = "Actif"): string {
+function normalizeContactStatus(value: unknown, fallback = "Divers"): string {
   const status = cleanText(value, fallback) || fallback;
-  if (!["Actif", "Prospect", "Inactif", "Bloqué"].includes(status)) {
-    throw new SqliteValidationError("Le statut de contact est invalide.");
+  if (!["Directeur", "Administration", "Divers"].includes(status)) {
+    throw new SqliteValidationError("La fonction du contact est invalide.");
   }
   return status;
 }
@@ -1850,7 +1871,7 @@ function partyKindForDirection(direction: DocumentDirection): PartyKind {
 
 function getPartyIdentityById(database: DatabaseSync, id: number): PartyIdentity {
   const row = database.prepare(`
-    SELECT id, kind, name
+    SELECT id, kind, name, is_blocked
     FROM parties
     WHERE id = ?
   `).get(id);
@@ -1864,7 +1885,7 @@ function findPartyIdentityByName(
   name: string,
 ): PartyIdentity {
   const row = database.prepare(`
-    SELECT id, kind, name
+    SELECT id, kind, name, is_blocked
     FROM parties
     WHERE kind = ? AND name = ? COLLATE NOCASE
     ORDER BY id ASC
@@ -1886,6 +1907,13 @@ function validatePartyDirection(party: PartyIdentity, direction: DocumentDirecti
       direction === "sales"
         ? "Le tiers sélectionné doit être un client."
         : "Le tiers sélectionné doit être un fournisseur.",
+    );
+  }
+  if (party.is_blocked) {
+    throw new SqliteValidationError(
+      party.kind === "client"
+        ? "Ce client est bloqué. Débloquez-le avant de créer un document."
+        : "Ce fournisseur est bloqué. Débloquez-le avant de créer un document.",
     );
   }
   return party;
@@ -1945,8 +1973,8 @@ const partyPaidSql = `
 `;
 
 const partySelectSql = `
-  p.id, p.kind, p.name, p.contact_phone, p.contact_name, p.email, p.address, p.city,
-  p.head_office, p.category, p.client_category, p.image_url, p.nif, p.nis, p.rc, p.tax_article, p.rib, p.contact_status, p.created_at, p.updated_at,
+  p.id, p.kind, p.name, p.phone, p.contact_phone, p.contact_name, p.email, p.address, p.city,
+  p.head_office, p.category, p.client_category, p.image_url, p.nif, p.nis, p.rc, p.tax_article, p.rib, p.bank, p.note, p.contact_status, p.is_blocked, p.created_at, p.updated_at,
   ${partyBalanceSql} AS billed,
   ${partyPaidSql} AS paid,
   MAX(0, ${partyBalanceSql} - ${partyPaidSql}) AS balance,
@@ -2030,7 +2058,6 @@ export function deleteClientCategory(value: unknown): ClientCategoryRecord {
   if (!existing) throw new SqliteValidationError("Catégorie client introuvable.");
   const used = database.prepare("SELECT id FROM parties WHERE kind = 'client' AND client_category = ? LIMIT 1").get(existing.name);
   if (used) throw new SqliteValidationError("Cette catégorie est utilisée par un client. Réaffectez d’abord les clients concernés.");
-  if (existing.name.toLocaleLowerCase("fr") === "standard") throw new SqliteValidationError("La catégorie Standard ne peut pas être supprimée.");
   database.prepare("DELETE FROM client_categories WHERE id = ?").run(id);
   return { id, name: existing.name, created_at: "", updated_at: "" };
 }
@@ -2105,21 +2132,25 @@ export function createParty(value: unknown): PartyRecord {
   const input = asInputObject(value);
   const kind = normalizePartyKind(input.kind);
   const name = requiredPartyName(input);
-  const contactPhone = optionalPartyText(input, ["contact_phone", "contactPhone", "phone", "contact"], "Le tÃ©lÃ©phone", 64);
+  const phone = optionalPartyText(input, ["phone", "main_phone", "mainPhone"], "Le téléphone", 64);
+  const contactPhone = optionalPartyText(input, ["contact_phone", "contactPhone", "contact"], "Le téléphone du contact", 64);
   const contactName = optionalPartyText(input, ["contact_name", "contactName"], "Le contact", 160);
   const email = optionalPartyText(input, ["email"], "Lâ€™e-mail", 254);
   const address = optionalPartyText(input, ["address"], "Lâ€™adresse", 300);
   const city = optionalPartyText(input, ["city"], "La ville", 120);
   const headOffice = optionalPartyText(input, ["head_office", "headOffice"], "Le siÃ¨ge", 300);
   const category = optionalPartyText(input, ["category"], "La catÃ©gorie", 120);
-  const clientCategory = optionalPartyText(input, ["client_category", "clientCategory"], "Client category", 120) || "Standard";
+  const clientCategory = optionalPartyText(input, ["client_category", "clientCategory"], "La catégorie client", 120);
   const imageUrl = normalizedImageUrl(firstDefinedValue(input, ["image_url", "imageUrl", "photo", "logo"]));
   const nif = optionalPartyText(input, ["nif"], "Le NIF", 120);
   const nis = optionalPartyText(input, ["nis"], "Le NIS", 120);
   const rc = optionalPartyText(input, ["rc"], "Le RC", 120);
   const taxArticle = optionalPartyText(input, ["tax_article", "taxArticle"], "Le numéro d’article", 120);
   const rib = optionalPartyText(input, ["rib"], "Le RIB", 160);
+  const bank = optionalPartyText(input, ["bank", "banque"], "La banque", 160);
+  const note = optionalPartyText(input, ["note", "notes"], "La note", 2000);
   const contactStatus = normalizeContactStatus(input.contact_status ?? input.contactStatus);
+  const isBlocked = booleanFrom(input.is_blocked ?? input.isBlocked) ? 1 : 0;
 
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new SqliteValidationError("Lâ€™e-mail est invalide.");
@@ -2135,12 +2166,13 @@ export function createParty(value: unknown): PartyRecord {
 
   const result = database.prepare(`
     INSERT INTO parties (
-      kind, name, contact_phone, contact_name, email, address, city,
-      head_office, category, client_category, image_url, nif, nis, rc, tax_article, rib, contact_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      kind, name, phone, contact_phone, contact_name, email, address, city,
+      head_office, category, client_category, image_url, nif, nis, rc, tax_article, rib, bank, note, contact_status, is_blocked
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     kind,
     name,
+    phone,
     contactPhone,
     contactName,
     email,
@@ -2148,14 +2180,17 @@ export function createParty(value: unknown): PartyRecord {
     city,
     headOffice,
     category,
-    kind === "client" ? clientCategory : "Standard",
+    kind === "client" ? clientCategory : "",
     imageUrl,
     nif,
     nis,
     rc,
     taxArticle,
     rib,
+    bank,
+    note,
     contactStatus,
+    isBlocked,
   );
   return getPartyById(database, Number(result.lastInsertRowid));
 }
@@ -2167,9 +2202,10 @@ export function updateParty(value: unknown): PartyRecord {
   const existing = getPartyById(database, id);
   const imageValue = firstDefinedValue(input, ["image_url", "imageUrl", "photo", "logo"]);
   const imageUrl = normalizedImageUrl(imageValue, existing.image_url);
-  const clientCategory = optionalPartyText(input, ["client_category", "clientCategory"], "Client category", 120);
+  const clientCategory = optionalPartyText(input, ["client_category", "clientCategory"], "La catégorie client", 120);
   const name = optionalPartyText(input, ["name"], "Le nom du tiers", 160) || existing.name;
-  const contactPhone = optionalPartyText(input, ["contact_phone", "contactPhone", "phone", "contact"], "Le téléphone", 64);
+  const phone = optionalPartyText(input, ["phone", "main_phone", "mainPhone"], "Le téléphone", 64);
+  const contactPhone = optionalPartyText(input, ["contact_phone", "contactPhone", "contact"], "Le téléphone du contact", 64);
   const contactName = optionalPartyText(input, ["contact_name", "contactName"], "Le contact", 160);
   const email = optionalPartyText(input, ["email"], "L’e-mail", 254);
   const address = optionalPartyText(input, ["address"], "L’adresse", 300);
@@ -2181,9 +2217,14 @@ export function updateParty(value: unknown): PartyRecord {
   const rc = optionalPartyText(input, ["rc"], "Le RC", 120);
   const taxArticle = optionalPartyText(input, ["tax_article", "taxArticle"], "Le numéro d’article", 120);
   const rib = optionalPartyText(input, ["rib"], "Le RIB", 160);
+  const bank = optionalPartyText(input, ["bank", "banque"], "La banque", 160);
+  const note = optionalPartyText(input, ["note", "notes"], "La note", 2000);
   const contactStatus = input.contact_status === undefined && input.contactStatus === undefined
     ? existing.contact_status
     : normalizeContactStatus(input.contact_status ?? input.contactStatus, existing.contact_status);
+  const isBlocked = input.is_blocked === undefined && input.isBlocked === undefined
+    ? existing.is_blocked
+    : booleanFrom(input.is_blocked ?? input.isBlocked) ? 1 : 0;
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new SqliteValidationError("L’e-mail est invalide.");
 
   const duplicate = database.prepare("SELECT id FROM parties WHERE kind = ? AND name = ? COLLATE NOCASE AND id <> ?")
@@ -2192,26 +2233,30 @@ export function updateParty(value: unknown): PartyRecord {
 
   database.prepare(`
     UPDATE parties
-    SET name = ?, contact_phone = ?, contact_name = ?, email = ?, address = ?, city = ?,
-      head_office = ?, category = ?, client_category = ?, image_url = ?, nif = ?, nis = ?, rc = ?, tax_article = ?, rib = ?, contact_status = ?, updated_at = CURRENT_TIMESTAMP
+    SET name = ?, phone = ?, contact_phone = ?, contact_name = ?, email = ?, address = ?, city = ?,
+      head_office = ?, category = ?, client_category = ?, image_url = ?, nif = ?, nis = ?, rc = ?, tax_article = ?, rib = ?, bank = ?, note = ?, contact_status = ?, is_blocked = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(
     name,
-    input.contact_phone === undefined && input.contactPhone === undefined && input.phone === undefined && input.contact === undefined ? existing.contact_phone : contactPhone,
+    input.phone === undefined && input.main_phone === undefined && input.mainPhone === undefined ? existing.phone : phone,
+    input.contact_phone === undefined && input.contactPhone === undefined && input.contact === undefined ? existing.contact_phone : contactPhone,
     input.contact_name === undefined && input.contactName === undefined ? existing.contact_name : contactName,
     input.email === undefined ? existing.email : email,
     input.address === undefined ? existing.address : address,
     input.city === undefined ? existing.city : city,
     input.head_office === undefined && input.headOffice === undefined ? existing.head_office : headOffice,
     input.category === undefined ? existing.category : category,
-    existing.kind === "client" ? (input.client_category === undefined && input.clientCategory === undefined ? existing.client_category : (clientCategory || "Standard")) : "Standard",
+    existing.kind === "client" ? (input.client_category === undefined && input.clientCategory === undefined ? existing.client_category : clientCategory) : "",
     imageUrl,
     input.nif === undefined ? existing.nif : nif,
     input.nis === undefined ? existing.nis : nis,
     input.rc === undefined ? existing.rc : rc,
     input.tax_article === undefined && input.taxArticle === undefined ? existing.tax_article : taxArticle,
     input.rib === undefined ? existing.rib : rib,
+    input.bank === undefined && input.banque === undefined ? existing.bank : bank,
+    input.note === undefined && input.notes === undefined ? existing.note : note,
     contactStatus,
+    isBlocked,
     id,
   );
   return getPartyById(database, id);
@@ -2866,7 +2911,7 @@ export function getNextArticleSku(): string {
 
 export function createArticle(value: unknown): ArticleRecord {
   const input = asInputObject(value);
-  const name = requiredText(input.name, "Le nom de l’article");
+  const name = requiredText(input.name, "Le nom de l’article").toLocaleUpperCase("fr");
   const database = getDatabase();
   const sku = cleanText(input.sku) || nextArticleSkuInDatabase(database);
   const duplicate = database.prepare("SELECT id FROM articles WHERE sku = ?").get(sku);
@@ -2948,7 +2993,7 @@ export function updateArticle(value: unknown): ArticleRecord {
       sale_price = ?, sale_prices_json = ?, purchase_prices_json = ?, stock = ?, status = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(
-    cleanText(input.name, existing.name) || existing.name,
+    (cleanText(input.name, existing.name) || existing.name).toLocaleUpperCase("fr"),
     cleanText(input.sku, existing.sku) || existing.sku,
     cleanText(input.brand, existing.brand),
     cleanText(input.brandLogo ?? input.brand_logo, existing.brand_logo),
@@ -3130,7 +3175,7 @@ export function createDocument(value: unknown): DocumentRecord {
 
   return inTransaction((transaction) => {
     if (type === "return" && source) validateReturnLines(transaction, source, lines);
-    const number = makeDocumentNumber(transaction, type, documentDate);
+    const number = makeDocumentNumber(transaction, type, direction, documentDate);
     const exists = transaction.prepare("SELECT id FROM documents WHERE number = ?").get(number);
     if (exists) throw new SqliteValidationError("Ce numéro de document existe déjà.");
 
