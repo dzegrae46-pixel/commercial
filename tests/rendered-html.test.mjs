@@ -544,7 +544,7 @@ test("supports monthly references, contact status, balance charts and margin tar
   assert.match(schema, /CREATE TABLE IF NOT EXISTS client_categories/);
   assert.match(sqlite, /normalizePurchasePrices/);
   assert.match(sqlite, /listClientCategories/);
-  assert.match(page, /Prix de vente par catégorie client/);
+  assert.match(page, /Tarifs par catégorie client/);
   assert.match(page, /Prix de vente \(DA\)/);
   assert.match(page, /marginFromSalePrice/);
   assert.match(page, /Gérer les catégories clients/);
@@ -559,6 +559,10 @@ test("supports monthly references, contact status, balance charts and margin tar
   assert.match(sqlite, /Bon d’achat/);
   assert.match(page, /DocumentTypePickerModal/);
   assert.match(page, /article-premium-hero/);
+  assert.match(page, /Ajout rapide/);
+  assert.match(page, /Plus de détails/);
+  assert.match(page, /article-quick-price-field/);
+  assert.match(page, /article-logo-picker/);
   assert.match(page, /Bloquer le client/);
   assert.match(page, /Téléphone du contact/);
   assert.match(sqlite, /listPartyBalanceHistory/);
@@ -568,7 +572,7 @@ test("supports monthly references, contact status, balance charts and margin tar
   assert.match(page, /Période du tableau de bord/);
   assert.match(page, /Fournisseurs/);
   assert.match(page, /PartyBalanceHistoryChart/);
-  assert.match(page, /Prix de vente par catégorie client/);
+  assert.match(page, /Tarifs par catégorie client/);
   assert.match(page, /margin_percent/);
   assert.match(page, /Imprimé à \{company\.city\} le/);
   assert.match(page, /FINANCE_CHARGE_CATEGORIES/);

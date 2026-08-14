@@ -5392,6 +5392,7 @@ function ArticleFormModal({
     return [{ key: "default", clientCategory: "Tarif général", salePrice: article ? editableArticleNumber(article.sale_price) : "", marginPercent: editableArticleNumber(marginPercent), mode: "price" as const }];
   });
   const [stock, setStock] = useState(article?.stock ?? 0);
+  const [detailsOpen, setDetailsOpen] = useState(Boolean(article));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const articlePhotoInput = useRef<HTMLInputElement | null>(null);
@@ -5454,6 +5455,18 @@ function ArticleFormModal({
       : { ...row, marginPercent: editableArticleNumber(marginFromSalePrice(normalizedPurchasePrice, parseArticleNumber(row.salePrice))) }));
   };
 
+  const updateQuickSalePrice = (rawSalePrice: string) => {
+    const normalizedSalePrice = Math.max(0, parseArticleNumber(rawSalePrice));
+    setSalePrices((rows) => rows.map((row, index) => index === 0
+      ? {
+        ...row,
+        salePrice: rawSalePrice,
+        marginPercent: editableArticleNumber(marginFromSalePrice(purchaseCost, normalizedSalePrice)),
+        mode: "price" as const,
+      }
+      : row));
+  };
+
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSaving(true);
@@ -5494,62 +5507,67 @@ function ArticleFormModal({
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <form className="modal-card expanded-modal article-editor-modal" role="dialog" aria-modal="true" aria-labelledby="article-editor-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
-        <div className="modal-header"><div><h2 id="article-editor-title">{article ? "Modifier l’article" : "Ajouter un article"}</h2><p>Configurez la photo, l’identité, la famille, le stock et les tarifs.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
-        <section className="article-premium-hero">
-          <div className="article-photo-upload"><span className={`article-upload-preview ${imageUrl ? "has-image" : ""}`} style={imageUrl && isSafeImageSource(imageUrl) ? { backgroundImage: `url("${imageUrl}")` } : undefined}>{!imageUrl && <Package size={30} />}</span><div><strong>{imageUrl ? "Photo du produit" : "Ajouter la photo du produit"}</strong><small>PNG, JPG ou WebP · 1,5 Mo maximum</small><span><button type="button" className="secondary-button" onClick={() => articlePhotoInput.current?.click()}><Upload size={15} /> Choisir une photo</button>{imageUrl && <button type="button" className="text-button danger-text" onClick={() => setImageUrl("")}>Supprimer</button>}</span></div><input ref={articlePhotoInput} className="hidden-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void readUploadedImage(file).then(setImageUrl).catch((reason: Error) => setError(reason.message)); }} /></div>
-          <label className="field-label">Logo marque (optionnel)<select value={brandLogo} onChange={(event) => setBrandLogo(event.target.value)}><option value="">Icône catalogue</option><option value="/brands/google.png">Google</option><option value="/brands/amazon.svg">Amazon</option></select></label>
+      <form className={`modal-card article-editor-modal ${detailsOpen ? "expanded-modal details-open" : "quick-mode"}`} role="dialog" aria-modal="true" aria-labelledby="article-editor-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
+        <div className="modal-header"><div><h2 id="article-editor-title">{article ? "Modifier l’article" : "Ajouter un article"}</h2><p>{article ? "Mettez à jour la fiche complète de l’article." : "Créez l’essentiel maintenant, complétez les détails si nécessaire."}</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+
+        <section className="article-quick-summary">
+          <div className="article-quick-summary-heading"><span>{article ? "Fiche article" : "Ajout rapide"} <b>2</b> champs essentiels</span><small>Désignation et prix suffisent pour enregistrer.</small></div>
+          <div className="article-summary-chips" aria-label="Champs de l’ajout rapide"><span><Package size={14} /> Désignation <MoreHorizontal size={14} /></span><span><Banknote size={14} /> Prix de vente <MoreHorizontal size={14} /></span></div>
+          <button type="button" className={`article-details-toggle ${detailsOpen ? "active" : ""}`} aria-expanded={detailsOpen} onClick={() => setDetailsOpen((value) => !value)}><SlidersHorizontal size={15} />{detailsOpen ? "Masquer les détails" : "Plus de détails"}<ChevronDown size={15} /></button>
         </section>
-        <div className="form-grid">
-          <label className="field-label">Désignation<input autoFocus required value={name} onChange={(event) => setName(event.target.value.toLocaleUpperCase("fr"))} placeholder="MACBOOK PRO 14 POUCES" /></label>
-          <label className="field-label">Référence / code-barres<input value={sku} onChange={(event) => setSku(event.target.value)} placeholder="Automatique · ART-00001" /><small>Générée automatiquement. Cliquez ici puis scannez pour utiliser le code-barres du produit.</small></label>
-        </div>
-        <div className="form-grid">
-          <label className="field-label">Marque<input value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="Apple" /></label>
-          <label className="field-label">Unité<select value={unit} onChange={(event) => setUnit(event.target.value)}><option value="unité">Unité</option><option value="M">Mètre (M)</option><option value="Bobine">Bobine</option><option value="kg">Kilogramme (kg)</option><option value="L">Litre (L)</option><option value="lot">Lot</option></select></label>
-        </div>
-        <section className="article-category-editor">
-          <div className="form-section-label"><Folder size={15} /><span>Arborescence catalogue</span></div>
-          <div className="form-grid form-grid-four">
-            <label className="field-label">Famille
-              <input required list="article-category-options" autoComplete="off" value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Choisir ou ajouter…" />
-              <datalist id="article-category-options">{categoryTree.map((item) => <option key={item.name} value={item.name} />)}</datalist>
-            </label>
-            <label className="field-label">Sous-famille
-              <input required list="article-subcategory-options" autoComplete="off" value={subcategory} onChange={(event) => setSubcategory(event.target.value)} placeholder="Choisir ou ajouter…" />
-              <datalist id="article-subcategory-options">{subcategoryOptions.map((item) => <option key={item.name} value={item.name} />)}</datalist>
-            </label>
-            <label className="field-label">Catégorie
-              <input required list="article-third-category-options" autoComplete="off" value={subsubcategory} onChange={(event) => setSubsubcategory(event.target.value)} placeholder="Choisir ou ajouter…" />
-              <datalist id="article-third-category-options">{thirdLevelOptions.map((item) => <option key={item.name} value={item.name} />)}</datalist>
-            </label>
-            <label className="field-label">Sous-catégorie
-              <input required list="article-fourth-category-options" autoComplete="off" value={subsubsubcategory} onChange={(event) => setSubsubsubcategory(event.target.value)} placeholder="Choisir ou ajouter…" />
-              <datalist id="article-fourth-category-options">{fourthLevelOptions.map((item) => <option key={item} value={item} />)}</datalist>
-            </label>
+
+        <section className="article-quick-fields">
+          <label className="field-label article-designation-field">Désignation<input autoFocus required value={name} onChange={(event) => setName(event.target.value.toLocaleUpperCase("fr"))} placeholder="MACBOOK PRO 14 POUCES" /></label>
+          <label className="field-label article-quick-price-field">Prix de vente<span className="article-currency-input"><input required type="text" inputMode="decimal" value={salePrices[0]?.salePrice ?? ""} onChange={(event) => updateQuickSalePrice(event.target.value)} placeholder="0,00" /><span>DA</span></span><small>La virgule et le point sont acceptés.</small></label>
+        </section>
+
+        {detailsOpen && <div className="article-details-panel">
+          <div className="article-details-heading"><div><Sparkles size={16} /><span>Informations détaillées</span></div><small>Photo, référence, classement, stock et tarifs avancés.</small></div>
+          <section className="article-premium-hero">
+            <div className="article-photo-upload"><span className={`article-upload-preview ${imageUrl ? "has-image" : ""}`} style={imageUrl && isSafeImageSource(imageUrl) ? { backgroundImage: `url("${imageUrl}")` } : undefined}>{!imageUrl && <Package size={30} />}</span><div><strong>{imageUrl ? "Photo du produit" : "Ajouter la photo du produit"}</strong><small>PNG, JPG ou WebP · 1,5 Mo maximum</small><span><button type="button" className="secondary-button" onClick={() => articlePhotoInput.current?.click()}><Upload size={15} /> Choisir une photo</button>{imageUrl && <button type="button" className="text-button danger-text" onClick={() => setImageUrl("")}>Supprimer</button>}</span></div><input ref={articlePhotoInput} className="hidden-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void readUploadedImage(file).then(setImageUrl).catch((reason: Error) => setError(reason.message)); }} /></div>
+            <div className="article-logo-picker"><span>Logo / visuel de marque</span><div>{[
+              { label: "Icône catalogue", value: "" },
+              { label: "Google", value: "/brands/google.png" },
+              { label: "Amazon", value: "/brands/amazon.svg" },
+            ].map((option) => <button key={option.label} type="button" className={brandLogo === option.value ? "active" : ""} aria-pressed={brandLogo === option.value} onClick={() => setBrandLogo(option.value)}><ArticleBrandLogo brand={option.label} logo={option.value} /><span>{option.label}</span>{brandLogo === option.value && <Check size={14} />}</button>)}</div></div>
+          </section>
+
+          <label className="field-label article-reference-field">Référence / code-barres<input value={sku} onChange={(event) => setSku(event.target.value)} placeholder="Automatique · ART-00001" /><small>Générée automatiquement. Vous pouvez aussi scanner ou saisir votre propre référence.</small></label>
+          <div className="form-grid">
+            <label className="field-label">Marque<input value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="Apple" /></label>
+            <label className="field-label">Unité<select value={unit} onChange={(event) => setUnit(event.target.value)}><option value="unité">Unité</option><option value="M">Mètre (M)</option><option value="Bobine">Bobine</option><option value="kg">Kilogramme (kg)</option><option value="L">Litre (L)</option><option value="lot">Lot</option></select></label>
           </div>
-          <p className="category-editor-hint"><Plus size={13} />Choisissez une valeur existante ou ajoutez une catégorie à l’une des quatre profondeurs.</p>
-        </section>
-        <label className="field-label">Description complète<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description affichée sur les commandes lorsque l’option est activée." rows={3} /></label>
-        <div className="form-grid">
-          <label className="field-label">Prix d’achat<input type="text" inputMode="decimal" value={purchasePrice} onChange={(event) => updatePurchasePrice(event.target.value)} placeholder="0,00" /></label>
-          <label className="field-label">Stock initial / actuel<input type="number" min="0" step="1" value={stock || ""} onChange={(event) => setStock(Number(event.target.value))} /></label>
-        </div>
-        <section className="article-price-tiers">
-          <div className="article-price-heading"><div><span>Prix de vente par catégorie client</span><small>La virgule et le point sont acceptés. Le prix et la marge se calculent dans les deux sens.</small></div><button type="button" className="secondary-button" onClick={() => setSalePrices((rows) => [...rows, { key: `price-${Date.now()}`, clientCategory: clientPriceCategories[0]?.name ?? "Tarif général", salePrice: editableArticleNumber(purchaseCost), marginPercent: "0", mode: "margin" as const }])} disabled={salePrices.length >= 24}><Plus size={15} /> Ajouter un prix</button></div>
-          <div className="article-price-list">
-            {salePrices.map((price) => (
-              <div className="article-price-row" key={price.key}>
-                <label className="field-label">Catégorie client<select value={price.clientCategory} onChange={(event) => setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, clientCategory: event.target.value } : row))} required>{["Tarif général", ...clientPriceCategories.map((item) => item.name), price.clientCategory].filter((name, index, values) => name && values.indexOf(name) === index).map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
-                <label className="field-label">Prix de vente (DA)<input type="text" inputMode="decimal" value={price.salePrice} onChange={(event) => { const rawSalePrice = event.target.value; const salePrice = Math.max(0, parseArticleNumber(rawSalePrice)); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, salePrice: rawSalePrice, marginPercent: editableArticleNumber(marginFromSalePrice(purchaseCost, salePrice)), mode: "price" as const } : row)); }} placeholder="0,00" /></label>
-                <label className="field-label">Marge (%)<input type="text" inputMode="decimal" value={price.marginPercent} onChange={(event) => { const rawMargin = event.target.value; const marginPercent = Math.max(-100, parseArticleNumber(rawMargin)); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, marginPercent: rawMargin, salePrice: editableArticleNumber(salePriceFromMargin(purchaseCost, marginPercent)), mode: "margin" as const } : row)); }} placeholder="0,00" /></label>
-                <button type="button" className="icon-button danger-text" onClick={() => setSalePrices((rows) => rows.filter((row) => row.key !== price.key))} disabled={salePrices.length === 1} aria-label={`Supprimer le prix ${price.clientCategory}`}><Trash2 size={16} /></button>
-              </div>
-            ))}
+          <section className="article-category-editor">
+            <div className="form-section-label"><Folder size={15} /><span>Arborescence catalogue</span></div>
+            <div className="form-grid form-grid-four">
+              <label className="field-label">Famille<input list="article-category-options" autoComplete="off" value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Choisir ou ajouter…" /><datalist id="article-category-options">{categoryTree.map((item) => <option key={item.name} value={item.name} />)}</datalist></label>
+              <label className="field-label">Sous-famille<input list="article-subcategory-options" autoComplete="off" value={subcategory} onChange={(event) => setSubcategory(event.target.value)} placeholder="Choisir ou ajouter…" /><datalist id="article-subcategory-options">{subcategoryOptions.map((item) => <option key={item.name} value={item.name} />)}</datalist></label>
+              <label className="field-label">Catégorie<input list="article-third-category-options" autoComplete="off" value={subsubcategory} onChange={(event) => setSubsubcategory(event.target.value)} placeholder="Choisir ou ajouter…" /><datalist id="article-third-category-options">{thirdLevelOptions.map((item) => <option key={item.name} value={item.name} />)}</datalist></label>
+              <label className="field-label">Sous-catégorie<input list="article-fourth-category-options" autoComplete="off" value={subsubsubcategory} onChange={(event) => setSubsubsubcategory(event.target.value)} placeholder="Choisir ou ajouter…" /><datalist id="article-fourth-category-options">{fourthLevelOptions.map((item) => <option key={item} value={item} />)}</datalist></label>
+            </div>
+            <p className="category-editor-hint"><Plus size={13} />Tous les niveaux sont facultatifs et peuvent être complétés plus tard.</p>
+          </section>
+          <label className="field-label">Description complète<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description affichée sur les commandes lorsque l’option est activée." rows={3} /></label>
+          <div className="form-grid">
+            <label className="field-label">Prix d’achat<input type="text" inputMode="decimal" value={purchasePrice} onChange={(event) => updatePurchasePrice(event.target.value)} placeholder="0,00" /></label>
+            <label className="field-label">Stock initial / actuel<input type="number" min="0" step="1" value={stock || ""} onChange={(event) => setStock(Number(event.target.value))} /></label>
           </div>
-        </section>
+          <section className="article-price-tiers">
+            <div className="article-price-heading"><div><span>Tarifs par catégorie client</span><small>Le premier tarif reste synchronisé avec le prix de vente rapide.</small></div><button type="button" className="secondary-button" onClick={() => setSalePrices((rows) => [...rows, { key: `price-${Date.now()}`, clientCategory: clientPriceCategories[0]?.name ?? "Tarif général", salePrice: editableArticleNumber(purchaseCost), marginPercent: "0", mode: "margin" as const }])} disabled={salePrices.length >= 24}><Plus size={15} /> Ajouter un prix</button></div>
+            <div className="article-price-list">
+              {salePrices.map((price) => (
+                <div className="article-price-row" key={price.key}>
+                  <label className="field-label">Catégorie client<select value={price.clientCategory} onChange={(event) => setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, clientCategory: event.target.value } : row))} required>{["Tarif général", ...clientPriceCategories.map((item) => item.name), price.clientCategory].filter((priceName, index, values) => priceName && values.indexOf(priceName) === index).map((priceName) => <option key={priceName} value={priceName}>{priceName}</option>)}</select></label>
+                  <label className="field-label">Prix de vente (DA)<input type="text" inputMode="decimal" value={price.salePrice} onChange={(event) => { const rawSalePrice = event.target.value; const salePrice = Math.max(0, parseArticleNumber(rawSalePrice)); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, salePrice: rawSalePrice, marginPercent: editableArticleNumber(marginFromSalePrice(purchaseCost, salePrice)), mode: "price" as const } : row)); }} placeholder="0,00" /></label>
+                  <label className="field-label">Marge (%)<input type="text" inputMode="decimal" value={price.marginPercent} onChange={(event) => { const rawMargin = event.target.value; const marginPercent = Math.max(-100, parseArticleNumber(rawMargin)); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, marginPercent: rawMargin, salePrice: editableArticleNumber(salePriceFromMargin(purchaseCost, marginPercent)), mode: "margin" as const } : row)); }} placeholder="0,00" /></label>
+                  <button type="button" className="icon-button danger-text" onClick={() => setSalePrices((rows) => rows.filter((row) => row.key !== price.key))} disabled={salePrices.length === 1} aria-label={`Supprimer le prix ${price.clientCategory}`}><Trash2 size={16} /></button>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>}
         {error && <p className="form-error" role="alert">{error}</p>}
-        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button type="submit" className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div>
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button type="submit" className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : article ? "Enregistrer les modifications" : "Ajouter l’article"}</button></div>
       </form>
     </div>
   );
