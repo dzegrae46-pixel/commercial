@@ -5499,13 +5499,26 @@ function ArticleFormModal({
 
         <section className="article-quick-summary">
           <div className="article-quick-summary-heading"><span>{article ? "Fiche article" : "Ajout rapide"} <b>2</b> champs essentiels</span><small>Désignation et prix suffisent pour enregistrer.</small></div>
-          <div className="article-summary-chips" aria-label="Champs de l’ajout rapide"><span><Package size={14} /> Désignation <MoreHorizontal size={14} /></span><span><Banknote size={14} /> Prix de vente <MoreHorizontal size={14} /></span></div>
+          <div className="article-summary-chips" aria-label="Champs de l’article"><span><Package size={14} /> Désignation <MoreHorizontal size={14} /></span><span><Banknote size={14} />{detailsOpen ? "Tarifs clients" : "Prix de vente"}<MoreHorizontal size={14} /></span></div>
           <button type="button" className={`article-details-toggle ${detailsOpen ? "active" : ""}`} aria-expanded={detailsOpen} onClick={() => setDetailsOpen((value) => !value)}><SlidersHorizontal size={15} />{detailsOpen ? "Masquer les détails" : "Plus de détails"}<ChevronDown size={15} /></button>
         </section>
 
         <section className="article-quick-fields">
           <label className="field-label article-designation-field">Désignation<input autoFocus required value={name} onChange={(event) => setName(event.target.value.toLocaleUpperCase("fr"))} placeholder="MACBOOK PRO 14 POUCES" /></label>
-          <label className="field-label article-quick-price-field">Prix de vente<span className="article-currency-input"><input required type="text" inputMode="decimal" value={salePrices[0]?.salePrice ?? ""} onChange={(event) => updateQuickSalePrice(event.target.value)} placeholder="0,00" /><span>DA</span></span><small>La virgule et le point sont acceptés.</small></label>
+          {!detailsOpen && <label className="field-label article-quick-price-field">Prix de vente<span className="article-currency-input"><input required type="text" inputMode="decimal" value={salePrices[0]?.salePrice ?? ""} onChange={(event) => updateQuickSalePrice(event.target.value)} placeholder="0,00" /><span>DA</span></span><small>La virgule et le point sont acceptés.</small></label>}
+          {detailsOpen && <section className="article-price-tiers article-price-tiers-top">
+            <div className="article-price-heading"><div><span>Tarifs par catégorie client</span><small>Définissez directement les prix adaptés à chaque catégorie client.</small></div><button type="button" className="secondary-button" onClick={() => setSalePrices((rows) => [...rows, { key: `price-${Date.now()}`, clientCategory: clientPriceCategories[0]?.name ?? "Tarif général", salePrice: editableArticleNumber(purchaseCost), marginPercent: "0", mode: "margin" as const }])} disabled={salePrices.length >= 24}><Plus size={15} /> Ajouter un prix</button></div>
+            <div className="article-price-list">
+              {salePrices.map((price) => (
+                <div className="article-price-row" key={price.key}>
+                  <label className="field-label">Catégorie client<select value={price.clientCategory} onChange={(event) => setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, clientCategory: event.target.value } : row))} required>{["Tarif général", ...clientPriceCategories.map((item) => item.name), price.clientCategory].filter((priceName, index, values) => priceName && values.indexOf(priceName) === index).map((priceName) => <option key={priceName} value={priceName}>{priceName}</option>)}</select></label>
+                  <label className="field-label">Prix de vente (DA)<input required type="text" inputMode="decimal" value={price.salePrice} onChange={(event) => { const rawSalePrice = event.target.value; const salePrice = Math.max(0, parseArticleNumber(rawSalePrice)); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, salePrice: rawSalePrice, marginPercent: editableArticleNumber(marginFromSalePrice(purchaseCost, salePrice)), mode: "price" as const } : row)); }} placeholder="0,00" /></label>
+                  <label className="field-label">Marge (%)<input type="text" inputMode="decimal" value={price.marginPercent} onChange={(event) => { const rawMargin = event.target.value; const marginPercent = Math.max(-100, parseArticleNumber(rawMargin)); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, marginPercent: rawMargin, salePrice: editableArticleNumber(salePriceFromMargin(purchaseCost, marginPercent)), mode: "margin" as const } : row)); }} placeholder="0,00" /></label>
+                  <button type="button" className="icon-button danger-text" onClick={() => setSalePrices((rows) => rows.filter((row) => row.key !== price.key))} disabled={salePrices.length === 1} aria-label={`Supprimer le prix ${price.clientCategory}`}><Trash2 size={16} /></button>
+                </div>
+              ))}
+            </div>
+          </section>}
         </section>
 
         {detailsOpen && <div className="article-details-panel">
@@ -5538,19 +5551,6 @@ function ArticleFormModal({
             <label className="field-label">Description complète<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description affichée sur les commandes" rows={2} /></label>
             <label className="field-label">Stock initial / actuel<input type="number" min="0" step="1" value={stock || ""} onChange={(event) => setStock(Number(event.target.value))} /></label>
           </div>
-          <section className="article-price-tiers">
-            <div className="article-price-heading"><div><span>Tarifs par catégorie client</span><small>Le premier tarif reste synchronisé avec le prix de vente rapide.</small></div><button type="button" className="secondary-button" onClick={() => setSalePrices((rows) => [...rows, { key: `price-${Date.now()}`, clientCategory: clientPriceCategories[0]?.name ?? "Tarif général", salePrice: editableArticleNumber(purchaseCost), marginPercent: "0", mode: "margin" as const }])} disabled={salePrices.length >= 24}><Plus size={15} /> Ajouter un prix</button></div>
-            <div className="article-price-list">
-              {salePrices.map((price) => (
-                <div className="article-price-row" key={price.key}>
-                  <label className="field-label">Catégorie client<select value={price.clientCategory} onChange={(event) => setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, clientCategory: event.target.value } : row))} required>{["Tarif général", ...clientPriceCategories.map((item) => item.name), price.clientCategory].filter((priceName, index, values) => priceName && values.indexOf(priceName) === index).map((priceName) => <option key={priceName} value={priceName}>{priceName}</option>)}</select></label>
-                  <label className="field-label">Prix de vente (DA)<input type="text" inputMode="decimal" value={price.salePrice} onChange={(event) => { const rawSalePrice = event.target.value; const salePrice = Math.max(0, parseArticleNumber(rawSalePrice)); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, salePrice: rawSalePrice, marginPercent: editableArticleNumber(marginFromSalePrice(purchaseCost, salePrice)), mode: "price" as const } : row)); }} placeholder="0,00" /></label>
-                  <label className="field-label">Marge (%)<input type="text" inputMode="decimal" value={price.marginPercent} onChange={(event) => { const rawMargin = event.target.value; const marginPercent = Math.max(-100, parseArticleNumber(rawMargin)); setSalePrices((rows) => rows.map((row) => row.key === price.key ? { ...row, marginPercent: rawMargin, salePrice: editableArticleNumber(salePriceFromMargin(purchaseCost, marginPercent)), mode: "margin" as const } : row)); }} placeholder="0,00" /></label>
-                  <button type="button" className="icon-button danger-text" onClick={() => setSalePrices((rows) => rows.filter((row) => row.key !== price.key))} disabled={salePrices.length === 1} aria-label={`Supprimer le prix ${price.clientCategory}`}><Trash2 size={16} /></button>
-                </div>
-              ))}
-            </div>
-          </section>
         </div>}
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button type="submit" className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : article ? "Enregistrer les modifications" : "Ajouter l’article"}</button></div>

@@ -565,10 +565,12 @@ test("supports monthly references, contact status, balance charts and margin tar
   assert.match(page, /article-logo-picker/);
   assert.match(page, /article-identity-grid/);
   assert.match(page, /article-stock-description-grid/);
+  assert.match(page, /article-price-tiers-top/);
   assert.match(page, /quick-party-rib-field/);
   assert.match(page, /compact-field-modal/);
   const articleModalSource = page.slice(page.indexOf("function ArticleFormModal"), page.indexOf("function ReturnModal"));
   assert.doesNotMatch(articleModalSource, /Prix d’achat/);
+  assert.equal((articleModalSource.match(/Tarifs par catégorie client/g) ?? []).length, 1);
   assert.match(page, /Bloquer le client/);
   assert.match(page, /Téléphone du contact/);
   assert.match(sqlite, /listPartyBalanceHistory/);

@@ -9388,6 +9388,21 @@ td strong {
   grid-template-columns: minmax(170px, 1fr) 125px 105px 32px;
   padding: 6px;
 }
+.article-price-tiers-top {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 250px minmax(0, 1fr);
+  width: 100%;
+}
+.article-price-tiers-top .article-price-heading {
+  align-content: center;
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+.article-price-tiers-top .article-price-heading .secondary-button { justify-self: start; }
+.article-price-tiers-top .article-price-list { min-width: 0; }
 .article-price-row .icon-button { height: 32px; width: 32px; }
 .article-editor-modal > .modal-actions {
   bottom: -14px;
@@ -9411,6 +9426,7 @@ td strong {
   .party-editor-sections > section:first-child { grid-column: auto; }
   .article-identity-grid { grid-template-columns: 1fr 1fr; }
   .article-reference-field { grid-column: 1 / -1; }
+  .article-price-tiers-top { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 560px) {
