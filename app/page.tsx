@@ -2112,7 +2112,7 @@ function PartyEditorModal({ party, kind, clientCategories = [], onClose, onSaved
       onSaved(payload.party);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Impossible de modifier le tiers."); } finally { setSaving(false); }
   };
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card expanded-modal party-editor-modal" role="dialog" aria-modal="true" aria-labelledby="party-edit-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card expanded-modal party-editor-modal compact-field-modal" role="dialog" aria-modal="true" aria-labelledby="party-edit-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
     <div className="modal-header"><div><h2 id="party-edit-title">Modifier {kind === "client" ? "le client" : "le fournisseur"}</h2><p>Coordonnées et informations fiscales complètes.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
     <div className="party-editor-sections">
       <section>
@@ -2205,7 +2205,7 @@ function QuickPartyCreateModal({
   };
   return (
     <div className="modal-backdrop quick-party-backdrop" role="presentation" onMouseDown={onClose}>
-      <form className={`modal-card quick-party-modal ${detailsOpen ? "expanded-modal details-open" : ""}`} role="dialog" aria-modal="true" aria-labelledby="quick-party-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
+      <form className={`modal-card quick-party-modal compact-field-modal ${detailsOpen ? "expanded-modal details-open" : ""}`} role="dialog" aria-modal="true" aria-labelledby="quick-party-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
         <div className="modal-header"><div><h2 id="quick-party-title">Nouveau {label}</h2><p>Créez sa fiche sans quitter le document. Il sera sélectionné automatiquement.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
         <div className="quick-party-create-layout">
           <label className="field-label quick-party-name">Nom<input autoFocus value={name} onChange={(event) => setName(event.target.value)} required placeholder="Nom complet" /></label>
@@ -2220,29 +2220,28 @@ function QuickPartyCreateModal({
             {detailsOpen && (
               <div className="expanded-fields">
                 <div className="form-section-label"><ContactRound size={15} /><span>Contact principal</span></div>
-                <div className="form-grid form-grid-three">
+                <div className="quick-party-contact-grid">
                   <label className="field-label">Nom du contact<span className="input-with-icon"><ContactRound size={15} /><input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Nom et prénom" /></span></label>
                   <label className="field-label">Téléphone du contact<input inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} placeholder="0550 00 00 00" /></label>
                   <label className="field-label">Fonction<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label>
+                  <label className="field-label">E-mail<span className="input-with-icon"><Mail size={15} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="contact@entreprise.dz" /></span></label>
                 </div>
-                <label className="field-label">E-mail<span className="input-with-icon"><Mail size={15} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="contact@entreprise.dz" /></span></label>
                 <div className="form-section-label"><MapPin size={15} /><span>Adresse et organisation</span></div>
-                <div className="form-grid">
-                  <label className="field-label form-field-wide">Adresse<span className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Rue, zone, bâtiment" /></span></label>
+                <div className="quick-party-organization-grid">
+                  <label className="field-label quick-party-address-field">Adresse<span className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Rue, zone, bâtiment" /></span></label>
+                  {kind === "supplier" && <><label className="field-label">Siège social<span className="input-with-icon"><Building2 size={15} /><input value={headOffice} onChange={(event) => setHeadOffice(event.target.value)} placeholder="Adresse du siège" /></span></label><label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Informatique, transport…" /></label></>}
+                  {kind === "client" && <label className="field-label">Catégorie client<select value={clientCategory} onChange={(event) => setClientCategory(event.target.value)}><option value="">Sans catégorie</option>{clientPriceCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label>}
                 </div>
-                {kind === "supplier" && <div className="form-grid"><label className="field-label">Siège social<span className="input-with-icon"><Building2 size={15} /><input value={headOffice} onChange={(event) => setHeadOffice(event.target.value)} placeholder="Ville, pays ou adresse du siège" /></span></label><label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Informatique, transport…" /></label></div>}
-
-                {kind === "client" && <label className="field-label">Catégorie client<select value={clientCategory} onChange={(event) => setClientCategory(event.target.value)}><option value="">Sans catégorie</option>{clientPriceCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label>}
                 <div className="form-section-label fiscal-label"><ReceiptText size={15} /><span>Informations fiscales</span><small>Facultatif</small></div>
                 <div className="form-grid quick-party-fiscal-grid">
                   <label className="field-label">NIF<input value={nif} onChange={(event) => setNif(event.target.value)} placeholder="N° fiscal" /></label>
                   <label className="field-label">NIS<input value={nis} onChange={(event) => setNis(event.target.value)} placeholder="N° statistique" /></label>
                   <label className="field-label">RC<input value={rc} onChange={(event) => setRc(event.target.value)} placeholder="Registre commerce" /></label>
                   <label className="field-label">N° article<input value={taxArticle} onChange={(event) => setTaxArticle(event.target.value)} placeholder="Article fiscal" /></label>
-                  <label className="field-label form-field-wide">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} placeholder="Relevé d’identité bancaire" /></label>
-                  <label className="field-label">Banque<input value={bank} onChange={(event) => setBank(event.target.value)} placeholder="Banque / agence" /></label>
+                  <label className="field-label quick-party-rib-field">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} placeholder="Relevé d’identité bancaire" /></label>
+                  <label className="field-label quick-party-bank-field">Banque<input value={bank} onChange={(event) => setBank(event.target.value)} placeholder="Banque / agence" /></label>
                 </div>
-                <label className="field-label">Note<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder={`Informations internes sur ce ${label}…`} /></label>
+                <label className="field-label">Note<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder={`Informations internes sur ce ${label}…`} /></label>
               </div>
             )}
           </section>
@@ -5061,7 +5060,7 @@ function CreateModal({
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <form
-        className={`modal-card ${(isDocument || (isClient && clientDetailsOpen) || (isSupplier && supplierDetailsOpen)) ? "expanded-modal" : ""}`}
+        className={`modal-card compact-field-modal ${!isDocument ? "party-create-modal" : "document-create-modal"} ${(isDocument || (isClient && clientDetailsOpen) || (isSupplier && supplierDetailsOpen)) ? "expanded-modal" : ""}`}
         autoComplete="off"
         role="dialog"
         aria-modal="true"
@@ -5252,23 +5251,23 @@ function CreateModal({
               <ChevronDown size={16} />
             </button>
             {clientDetailsOpen && (
-              <div className="expanded-fields">
+              <div className="expanded-fields party-expanded-fields">
                 <div className="form-section-label"><ContactRound size={15} /><span>Contact principal</span></div>
-                <div className="form-grid form-grid-three">
+                <div className="party-create-contact-grid">
                   <label className="field-label">Nom du contact
                     <span className="input-with-icon"><ContactRound size={15} /><input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Nom et prénom" /></span>
                   </label>
                   <label className="field-label">Téléphone du contact<input inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} placeholder="0550 00 00 00" /></label>
                   <label className="field-label">Fonction<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label>
                 </div>
-                <div className="form-grid">
-                  <label className="field-label form-field-wide">Adresse
+                <div className="party-create-organization-grid client-organization-grid">
+                  <label className="field-label">Adresse
                     <span className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Rue, zone, bâtiment" /></span>
                   </label>
                   <label className="field-label">Catégorie client<select value={clientCategory} onChange={(event) => setClientCategory(event.target.value)}><option value="">Sans catégorie</option>{clientCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label>
                 </div>
                 <div className="form-section-label fiscal-label"><ReceiptText size={15} /><span>Informations fiscales</span><small>Facultatif</small></div>
-                <div className="form-grid">
+                <div className="form-grid quick-party-fiscal-grid">
                   <label className="field-label">NIF
                     <input value={nif} onChange={(event) => setNif(event.target.value)} placeholder="N° fiscal" />
                   </label>
@@ -5281,12 +5280,12 @@ function CreateModal({
                   <label className="field-label">N° article
                     <input value={taxArticle} onChange={(event) => setTaxArticle(event.target.value)} placeholder="Article fiscal" />
                   </label>
-                  <label className="field-label form-field-wide">RIB
+                  <label className="field-label quick-party-rib-field">RIB
                     <input value={rib} onChange={(event) => setRib(event.target.value)} placeholder="Relevé d’identité bancaire" />
                   </label>
-                  <label className="field-label">Banque<input value={bank} onChange={(event) => setBank(event.target.value)} placeholder="Banque / agence" /></label>
+                  <label className="field-label quick-party-bank-field">Banque<input value={bank} onChange={(event) => setBank(event.target.value)} placeholder="Banque / agence" /></label>
                 </div>
-                <label className="field-label">Note<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Informations internes sur ce client…" /></label>
+                <label className="field-label">Note<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Informations internes sur ce client…" /></label>
               </div>
             )}
           </section>
@@ -5298,36 +5297,32 @@ function CreateModal({
               <ChevronDown size={16} />
             </button>
             {supplierDetailsOpen && (
-              <div className="expanded-fields">
+              <div className="expanded-fields party-expanded-fields">
                 <div className="form-section-label"><ContactRound size={15} /><span>Contact fournisseur</span></div>
-                <div className="form-grid form-grid-three">
+                <div className="party-create-contact-grid">
                   <label className="field-label">Nom du contact
                     <span className="input-with-icon"><ContactRound size={15} /><input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Nom et prénom" /></span>
                   </label>
                   <label className="field-label">Téléphone du contact<input inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} placeholder="0550 00 00 00" /></label>
                   <label className="field-label">Fonction<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label>
                 </div>
-                <div className="form-grid">
-                  <label className="field-label form-field-wide">Adresse
+                <div className="party-create-organization-grid">
+                  <label className="field-label party-create-address-field">Adresse
                     <span className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Rue, zone, bâtiment" /></span>
                   </label>
+                  <label className="field-label">Siège social<span className="input-with-icon"><Building2 size={15} /><input value={headOffice} onChange={(event) => setHeadOffice(event.target.value)} placeholder="Adresse du siège" /></span></label>
+                  <label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Informatique, transport…" /></label>
                 </div>
-                <label className="field-label">Siège social
-                  <span className="input-with-icon"><Building2 size={15} /><input value={headOffice} onChange={(event) => setHeadOffice(event.target.value)} placeholder="Ville, pays ou adresse du siège" /></span>
-                </label>
-                <label className="field-label">Catégorie
-                  <input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Informatique, transport…" />
-                </label>
                 <div className="form-section-label fiscal-label"><ReceiptText size={15} /><span>Informations fiscales</span><small>Facultatif</small></div>
                 <div className="form-grid quick-party-fiscal-grid">
                   <label className="field-label">NIF<input value={nif} onChange={(event) => setNif(event.target.value)} placeholder="N° fiscal" /></label>
                   <label className="field-label">NIS<input value={nis} onChange={(event) => setNis(event.target.value)} placeholder="N° statistique" /></label>
                   <label className="field-label">RC<input value={rc} onChange={(event) => setRc(event.target.value)} placeholder="Registre commerce" /></label>
                   <label className="field-label">N° article<input value={taxArticle} onChange={(event) => setTaxArticle(event.target.value)} placeholder="Article fiscal" /></label>
-                  <label className="field-label form-field-wide">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} placeholder="Relevé d’identité bancaire" /></label>
-                  <label className="field-label">Banque<input value={bank} onChange={(event) => setBank(event.target.value)} placeholder="Banque / agence" /></label>
+                  <label className="field-label quick-party-rib-field">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} placeholder="Relevé d’identité bancaire" /></label>
+                  <label className="field-label quick-party-bank-field">Banque<input value={bank} onChange={(event) => setBank(event.target.value)} placeholder="Banque / agence" /></label>
                 </div>
-                <label className="field-label">Note<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Informations internes sur ce fournisseur…" /></label>
+                <label className="field-label">Note<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Informations internes sur ce fournisseur…" /></label>
               </div>
             )}
           </section>
@@ -5371,7 +5366,6 @@ function ArticleFormModal({
   const [description, setDescription] = useState(article?.description ?? "");
   const [unit, setUnit] = useState(article?.unit ?? "unité");
   const [imageUrl, setImageUrl] = useState(article?.image_url ?? "");
-  const [purchasePrice, setPurchasePrice] = useState(article ? editableArticleNumber(article.purchase_price) : "");
   const [salePrices, setSalePrices] = useState<Array<{
     key: string;
     clientCategory: string;
@@ -5430,7 +5424,8 @@ function ArticleFormModal({
   const normalizedThirdLevel = subsubcategory.trim().toLocaleLowerCase("fr");
   const selectedThirdLevel = thirdLevelOptions.find((item) => item.name.toLocaleLowerCase("fr") === normalizedThirdLevel);
   const fourthLevelOptions = selectedThirdLevel?.subcategories ?? [];
-  const purchaseCost = parseArticleNumber(purchasePrice);
+  // Le prix d’achat est alimenté par les bons d’achat et reste en lecture seule ici.
+  const purchaseCost = Math.max(0, Number(article?.purchase_price ?? 0));
   const computedSalePrices = salePrices.map((price) => {
     const clientCategory = price.clientCategory.trim() || "Tarif général";
     const salePrice = price.mode === "margin"
@@ -5446,14 +5441,6 @@ function ArticleFormModal({
       sale_price: salePrice,
     };
   });
-
-  const updatePurchasePrice = (rawPurchasePrice: string) => {
-    const normalizedPurchasePrice = Math.max(0, parseArticleNumber(rawPurchasePrice));
-    setPurchasePrice(rawPurchasePrice);
-    setSalePrices((rows) => rows.map((row) => row.mode === "margin"
-      ? { ...row, salePrice: editableArticleNumber(salePriceFromMargin(normalizedPurchasePrice, parseArticleNumber(row.marginPercent))) }
-      : { ...row, marginPercent: editableArticleNumber(marginFromSalePrice(normalizedPurchasePrice, parseArticleNumber(row.salePrice))) }));
-  };
 
   const updateQuickSalePrice = (rawSalePrice: string) => {
     const normalizedSalePrice = Math.max(0, parseArticleNumber(rawSalePrice));
@@ -5507,7 +5494,7 @@ function ArticleFormModal({
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <form className={`modal-card article-editor-modal ${detailsOpen ? "expanded-modal details-open" : "quick-mode"}`} role="dialog" aria-modal="true" aria-labelledby="article-editor-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
+      <form className={`modal-card article-editor-modal compact-field-modal ${detailsOpen ? "expanded-modal details-open" : "quick-mode"}`} role="dialog" aria-modal="true" aria-labelledby="article-editor-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
         <div className="modal-header"><div><h2 id="article-editor-title">{article ? "Modifier l’article" : "Ajouter un article"}</h2><p>{article ? "Mettez à jour la fiche complète de l’article." : "Créez l’essentiel maintenant, complétez les détails si nécessaire."}</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
 
         <section className="article-quick-summary">
@@ -5532,8 +5519,8 @@ function ArticleFormModal({
             ].map((option) => <button key={option.label} type="button" className={brandLogo === option.value ? "active" : ""} aria-pressed={brandLogo === option.value} onClick={() => setBrandLogo(option.value)}><ArticleBrandLogo brand={option.label} logo={option.value} /><span>{option.label}</span>{brandLogo === option.value && <Check size={14} />}</button>)}</div></div>
           </section>
 
-          <label className="field-label article-reference-field">Référence / code-barres<input value={sku} onChange={(event) => setSku(event.target.value)} placeholder="Automatique · ART-00001" /><small>Générée automatiquement. Vous pouvez aussi scanner ou saisir votre propre référence.</small></label>
-          <div className="form-grid">
+          <div className="article-identity-grid">
+            <label className="field-label article-reference-field">Référence / code-barres<input value={sku} onChange={(event) => setSku(event.target.value)} placeholder="Automatique · ART-00001" /></label>
             <label className="field-label">Marque<input value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="Apple" /></label>
             <label className="field-label">Unité<select value={unit} onChange={(event) => setUnit(event.target.value)}><option value="unité">Unité</option><option value="M">Mètre (M)</option><option value="Bobine">Bobine</option><option value="kg">Kilogramme (kg)</option><option value="L">Litre (L)</option><option value="lot">Lot</option></select></label>
           </div>
@@ -5547,9 +5534,8 @@ function ArticleFormModal({
             </div>
             <p className="category-editor-hint"><Plus size={13} />Tous les niveaux sont facultatifs et peuvent être complétés plus tard.</p>
           </section>
-          <label className="field-label">Description complète<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description affichée sur les commandes lorsque l’option est activée." rows={3} /></label>
-          <div className="form-grid">
-            <label className="field-label">Prix d’achat<input type="text" inputMode="decimal" value={purchasePrice} onChange={(event) => updatePurchasePrice(event.target.value)} placeholder="0,00" /></label>
+          <div className="article-stock-description-grid">
+            <label className="field-label">Description complète<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description affichée sur les commandes" rows={2} /></label>
             <label className="field-label">Stock initial / actuel<input type="number" min="0" step="1" value={stock || ""} onChange={(event) => setStock(Number(event.target.value))} /></label>
           </div>
           <section className="article-price-tiers">

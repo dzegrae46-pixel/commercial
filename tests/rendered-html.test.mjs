@@ -563,6 +563,12 @@ test("supports monthly references, contact status, balance charts and margin tar
   assert.match(page, /Plus de détails/);
   assert.match(page, /article-quick-price-field/);
   assert.match(page, /article-logo-picker/);
+  assert.match(page, /article-identity-grid/);
+  assert.match(page, /article-stock-description-grid/);
+  assert.match(page, /quick-party-rib-field/);
+  assert.match(page, /compact-field-modal/);
+  const articleModalSource = page.slice(page.indexOf("function ArticleFormModal"), page.indexOf("function ReturnModal"));
+  assert.doesNotMatch(articleModalSource, /Prix d’achat/);
   assert.match(page, /Bloquer le client/);
   assert.match(page, /Téléphone du contact/);
   assert.match(sqlite, /listPartyBalanceHistory/);
@@ -578,4 +584,6 @@ test("supports monthly references, contact status, balance charts and margin tar
   assert.match(page, /FINANCE_CHARGE_CATEGORIES/);
   assert.match(css, /\.balance-history-chart/);
   assert.match(css, /\.article-price-tiers/);
+  assert.match(css, /scrollbar-thumb/);
+  assert.match(css, /\.quick-party-contact-grid/);
 });
