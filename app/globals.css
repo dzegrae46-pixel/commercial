@@ -4360,19 +4360,124 @@ td strong {
 }
 
 .finance-hub-footnote {
-  align-items: center;
-  color: var(--muted);
-  display: flex;
-  flex-wrap: wrap;
-  font-size: 11px;
-  gap: 18px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.finance-hub-footnote > span {
+.finance-hub-stat {
   align-items: center;
-  display: inline-flex;
-  gap: 6px;
+  background: #f8faff;
+  border: 1px solid #dfe6f3;
+  border-radius: 13px;
+  display: grid;
+  gap: 3px 8px;
+  grid-template-columns: 22px 1fr;
+  padding: 14px 16px;
 }
+
+.finance-hub-stat .finance-dot {
+  grid-row: span 2;
+  height: 12px;
+  width: 12px;
+}
+
+.finance-hub-stat small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.finance-hub-stat strong {
+  color: var(--ink);
+  font-size: clamp(19px, 1.7vw, 26px);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.finance-hub-stat-in { background: #f0fdf7; border-color: #bae9d2; }
+.finance-hub-stat-out { background: #fff7f6; border-color: #f2d0cc; }
+.finance-hub-stat-profit { background: #f5f7ff; border-color: #d8dffc; }
+
+.bank-select { min-width: 0; position: relative; }
+.bank-select-trigger {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 26px minmax(0, 1fr) 16px;
+  height: 38px;
+  padding: 0 10px 0 7px;
+  text-align: left;
+  width: 100%;
+}
+.bank-select-trigger:hover { border-color: #aebbd4; }
+.bank-select-trigger > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bank-logo {
+  align-items: center;
+  border-radius: 7px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 8px;
+  font-weight: 850;
+  height: 25px;
+  justify-content: center;
+  letter-spacing: -.03em;
+  line-height: 1;
+  min-width: 25px;
+  padding: 0 3px;
+}
+.bank-logo-empty { background: #e8edf5; color: #77839a; }
+.bank-select-menu {
+  background: #fff;
+  border: 1px solid #d7dfed;
+  border-radius: 11px;
+  box-shadow: 0 16px 30px rgba(35, 48, 77, .17);
+  left: 0;
+  overflow: hidden;
+  padding: 7px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 5px);
+  z-index: 30;
+}
+.bank-select-search {
+  align-items: center;
+  background: #f6f8fc;
+  border: 1px solid #e1e6f0;
+  border-radius: 8px;
+  color: #78849b;
+  display: flex;
+  gap: 6px;
+  height: 34px;
+  padding: 0 8px;
+}
+.bank-select-search input { background: transparent; border: 0; box-shadow: none; height: 100%; min-width: 0; outline: 0; padding: 0; width: 100%; }
+.bank-select-options { display: grid; gap: 2px; margin-top: 6px; max-height: 224px; overflow-y: auto; padding-right: 2px; }
+.bank-select-options button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  font-size: 11px;
+  gap: 8px;
+  grid-template-columns: 26px minmax(0, 1fr) 16px;
+  min-height: 34px;
+  padding: 4px 6px;
+  text-align: left;
+}
+.bank-select-options button:hover,
+.bank-select-options button.selected { background: #edf2ff; color: #3d4dbe; }
+.bank-select-options .bank-logo { height: 24px; min-width: 24px; }
+.bank-select-empty { color: var(--muted); font-size: 11px; padding: 10px 8px; }
 
 .finance-dot {
   border-radius: 50%;
@@ -8558,6 +8663,7 @@ td strong {
 }
 
 @media (max-width: 760px) {
+  .finance-hub-footnote { grid-template-columns: 1fr; }
   .dashboard-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
   .dashboard-period { width: 100%; }
   .dashboard-period button { flex: 1; padding: 0 6px; }

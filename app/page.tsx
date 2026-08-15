@@ -1453,7 +1453,7 @@ function ClientsTable({
   return (
     <TableCard title="Tous les clients" count={`${filtered.length} clients`} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode}>
       <table className="parties-table clients-table">
-        <thead><tr><th>Client</th><th>Contact</th><th>Fonction contact</th><th>Total facturé</th><th>Solde</th><th>Compte</th><th>Dernière activité</th><th /></tr></thead>
+        <thead><tr><th>Client</th><th>Contact</th><th>Statut du contact</th><th>Total facturé</th><th>Solde</th><th>Compte</th><th>Dernière activité</th><th /></tr></thead>
         <tbody>
           {filtered.map((client) => (
             <tr key={client.name}>
@@ -1523,7 +1523,7 @@ function SuppliersTable({
   return (
     <TableCard title="Tous les fournisseurs" count={`${filtered.length} fournisseurs`} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode}>
       <table className="parties-table suppliers-table">
-        <thead><tr><th>Fournisseur</th><th>Contact</th><th>Fonction contact</th><th>Catégorie</th><th>Total achats</th><th>Solde</th><th>Compte</th><th /></tr></thead>
+        <thead><tr><th>Fournisseur</th><th>Contact</th><th>Statut du contact</th><th>Catégorie</th><th>Total achats</th><th>Solde</th><th>Compte</th><th /></tr></thead>
         <tbody>
           {filtered.map((supplier) => (
             <tr key={supplier.name}>
@@ -2004,7 +2004,7 @@ function PartyDetailsModal({
               <div><dt>Contact principal</dt><dd>{party.contactName || "—"}</dd></div>
               <div><dt>Téléphone du contact</dt><dd>{party.contact || "—"}</dd></div>
               <div><dt>Catégorie</dt><dd>{kind === "client" && "clientCategory" in party ? party.clientCategory || "—" : party.category || "—"}</dd></div>
-              <div><dt>Fonction du contact</dt><dd><StatusBadge label={party.contactStatus || "Divers"} tone={party.contactStatus === "Directeur" ? "blue" : party.contactStatus === "Administration" ? "green" : "gray"} /></dd></div>
+              <div><dt>Statut du contact</dt><dd><StatusBadge label={party.contactStatus || "Divers"} tone={party.contactStatus === "Directeur" ? "blue" : party.contactStatus === "Administration" ? "green" : "gray"} /></dd></div>
               <div className="party-info-wide"><dt>Adresse</dt><dd>{party.address || "—"}</dd></div>
               {kind === "supplier" && <div className="party-info-wide"><dt>Siège social</dt><dd>{party.headOffice || "—"}</dd></div>}
               <div><dt>NIF</dt><dd>{party.nif || "—"}</dd></div>
@@ -2073,6 +2073,59 @@ function ClientCategoryManagerModal({ categories, onClose, onChanged }: { catego
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal-card compact-modal client-category-manager" role="dialog" aria-modal="true" aria-labelledby="client-category-title" onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><h2 id="client-category-title">Catégories clients</h2><p>La liste est vide au départ : ajoutez uniquement vos propres catégories pour les tarifs de vente.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div><div className="inline-create-row"><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Nouvelle catégorie" /><button type="button" className="primary-button" disabled={!newName.trim() || saving} onClick={() => void save({ name: newName.trim() }, "POST")}><Plus size={15} /> Ajouter</button></div><div className="client-category-list">{rows.map((row) => <div className="client-category-row" key={row.id}><input value={row.name} onChange={(event) => setRows((current) => current.map((item) => item.id === row.id ? { ...item, name: event.target.value } : item))} /><button type="button" className="secondary-button" disabled={saving || !row.name.trim()} onClick={() => void save({ id: row.id, name: row.name.trim() }, "PATCH")}><Save size={15} /> Enregistrer</button><button type="button" className="icon-button danger-text" disabled={saving} onClick={() => void save({ id: row.id }, "DELETE")} aria-label={`Supprimer ${row.name}`}><Trash2 size={16} /></button></div>)}</div>{!rows.length && <p className="client-category-empty">Aucune catégorie client. Utilisez « Ajouter » pour créer la première.</p>}{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Terminé</button></div></div></div>;
 }
 
+const BANK_OPTIONS = [
+  { name: "BADR", logo: "BADR", color: "#16794b" },
+  { name: "BEA", logo: "BEA", color: "#c0362c" },
+  { name: "BDL", logo: "BDL", color: "#185a9d" },
+  { name: "BNA", logo: "BNA", color: "#d15e18" },
+  { name: "CPA", logo: "CPA", color: "#198f8a" },
+  { name: "CNEP", logo: "CNEP", color: "#3f55a7" },
+  { name: "CCP", logo: "CCP", color: "#d19a12" },
+  { name: "BANQUE GENERALE", logo: "BG", color: "#7650af" },
+  { name: "BNP PARIBAS", logo: "BNP", color: "#16836a" },
+  { name: "SOCIETE GENERALE", logo: "SG", color: "#d33b3b" },
+  { name: "BUNQUE GULF", logo: "BG", color: "#136b9e" },
+  { name: "AUTRE", logo: "…", color: "#64748b" },
+] as const;
+
+function BankLogo({ bank }: { bank: typeof BANK_OPTIONS[number] }) {
+  return <span className="bank-logo" style={{ backgroundColor: bank.color }} aria-hidden="true">{bank.logo}</span>;
+}
+
+function BankSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const root = useRef<HTMLDivElement | null>(null);
+  const normalizedQuery = query.trim().toLocaleLowerCase("fr");
+  const options = BANK_OPTIONS.filter((bank) => bank.name.toLocaleLowerCase("fr").includes(normalizedQuery));
+  const selected = BANK_OPTIONS.find((bank) => bank.name === value);
+
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      if (root.current && !root.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, []);
+
+  return (
+    <div className="bank-select" ref={root}>
+      <button type="button" className="bank-select-trigger" aria-haspopup="listbox" aria-expanded={open} onClick={() => { setOpen((current) => !current); setQuery(""); }}>
+        {selected ? <BankLogo bank={selected} /> : <span className="bank-logo bank-logo-empty" aria-hidden="true"><Building2 size={14} /></span>}
+        <span>{selected?.name || value || "Choisir une banque"}</span>
+        <ChevronDown size={16} />
+      </button>
+      {open && <div className="bank-select-menu" role="listbox" aria-label="Banques disponibles">
+        <label className="bank-select-search"><Search size={15} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher une banque" aria-label="Rechercher une banque" /></label>
+        <div className="bank-select-options">
+          {options.map((bank) => <button type="button" role="option" aria-selected={bank.name === value} className={bank.name === value ? "selected" : ""} key={bank.name} onClick={() => { onChange(bank.name); setOpen(false); setQuery(""); }}><BankLogo bank={bank} /><span>{bank.name}</span>{bank.name === value && <Check size={16} />}</button>)}
+          {!options.length && <span className="bank-select-empty">Aucune banque trouvée.</span>}
+        </div>
+      </div>}
+    </div>
+  );
+}
+
 function PartyEditorModal({ party, kind, clientCategories = [], onClose, onSaved }: { party: PartyRow; kind: "client" | "supplier"; clientCategories?: ClientCategoryRecord[]; onClose: () => void; onSaved: (party: ApiPartyRecord) => void }) {
   const [name, setName] = useState(party.name);
   const [phone, setPhone] = useState(party.phone === "—" ? "" : party.phone);
@@ -2120,10 +2173,10 @@ function PartyEditorModal({ party, kind, clientCategories = [], onClose, onSaved
         <div className="entity-photo-upload"><EntityLogo name={name || party.name} tone={party.color} kind={kind} imageUrl={imageUrl} /><div><strong>Photo du {kind === "client" ? "client" : "fournisseur"}</strong><small>PNG, JPG ou WebP · 1,5 Mo maximum</small><span><button type="button" className="secondary-button" onClick={() => photoInput.current?.click()}><Upload size={15} /> Importer</button>{imageUrl && <button type="button" className="text-button danger-text" onClick={() => setImageUrl("")}>Supprimer</button>}</span></div><input ref={photoInput} className="hidden-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void readUploadedImage(file).then(setImageUrl).catch((reason: Error) => setError(reason.message)); }} /></div>
         <div className="form-grid"><label className="field-label">Nom<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label className="field-label">Téléphone<input inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} /></label><label className="field-label">E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label></div>
         <div className="form-section-label contact-subsection"><ContactRound size={15} /><span>Contact principal</span></div>
-        <div className="form-grid form-grid-three"><label className="field-label">Nom du contact<input value={contactName} onChange={(event) => setContactName(event.target.value)} /></label><label className="field-label">Téléphone du contact<input inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} /></label><label className="field-label">Fonction<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label></div>
+        <div className="form-grid form-grid-three"><label className="field-label">Nom du contact<input value={contactName} onChange={(event) => setContactName(event.target.value)} /></label><label className="field-label">Téléphone du contact<input inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} /></label><label className="field-label">Statut<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label></div>
       </section>
       <section><div className="form-section-label"><MapPin size={15} /><span>Adresse et organisation</span></div><div className="form-grid"><label className="field-label form-field-wide">Adresse<input value={address} onChange={(event) => setAddress(event.target.value)} /></label>{kind === "supplier" && <label className="field-label">Siège social<input value={headOffice} onChange={(event) => setHeadOffice(event.target.value)} /></label>}{kind === "client" ? <label className="field-label">Catégorie client<select value={clientCategory} onChange={(event) => setClientCategory(event.target.value)}><option value="">Sans catégorie</option>{availableClientCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label> : <label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} /></label>}</div></section>
-      <section><div className="form-section-label"><ReceiptText size={15} /><span>Informations fiscales et bancaires</span></div><div className="form-grid"><label className="field-label">NIF<input value={nif} onChange={(event) => setNif(event.target.value)} /></label><label className="field-label">NIS<input value={nis} onChange={(event) => setNis(event.target.value)} /></label><label className="field-label">RC<input value={rc} onChange={(event) => setRc(event.target.value)} /></label><label className="field-label">N° article<input value={taxArticle} onChange={(event) => setTaxArticle(event.target.value)} /></label><label className="field-label form-field-wide">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} /></label><label className="field-label">Banque<input value={bank} onChange={(event) => setBank(event.target.value)} /></label></div><label className="field-label party-note-field">Note<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Informations internes sur ce tiers…" /></label></section>
+      <section><div className="form-section-label"><ReceiptText size={15} /><span>Informations fiscales et bancaires</span></div><div className="form-grid"><label className="field-label">NIF<input value={nif} onChange={(event) => setNif(event.target.value)} /></label><label className="field-label">NIS<input value={nis} onChange={(event) => setNis(event.target.value)} /></label><label className="field-label">RC<input value={rc} onChange={(event) => setRc(event.target.value)} /></label><label className="field-label">N° article<input value={taxArticle} onChange={(event) => setTaxArticle(event.target.value)} /></label><label className="field-label form-field-wide">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} /></label><label className="field-label">Banque<BankSelect value={bank} onChange={setBank} /></label></div><label className="field-label party-note-field">Note<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Informations internes sur ce tiers…" /></label></section>
     </div>
     {error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div>
   </form></div>;
@@ -2223,7 +2276,7 @@ function QuickPartyCreateModal({
                 <div className="quick-party-contact-grid">
                   <label className="field-label">Nom du contact<span className="input-with-icon"><ContactRound size={15} /><input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Nom et prénom" /></span></label>
                   <label className="field-label">Téléphone du contact<input inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} placeholder="0550 00 00 00" /></label>
-                  <label className="field-label">Fonction<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label>
+                  <label className="field-label">Statut<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label>
                   <label className="field-label">E-mail<span className="input-with-icon"><Mail size={15} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="contact@entreprise.dz" /></span></label>
                 </div>
                 <div className="form-section-label"><MapPin size={15} /><span>Adresse et organisation</span></div>
@@ -2239,7 +2292,7 @@ function QuickPartyCreateModal({
                   <label className="field-label">RC<input value={rc} onChange={(event) => setRc(event.target.value)} placeholder="Registre commerce" /></label>
                   <label className="field-label">N° article<input value={taxArticle} onChange={(event) => setTaxArticle(event.target.value)} placeholder="Article fiscal" /></label>
                   <label className="field-label quick-party-rib-field">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} placeholder="Relevé d’identité bancaire" /></label>
-                  <label className="field-label quick-party-bank-field">Banque<input value={bank} onChange={(event) => setBank(event.target.value)} placeholder="Banque / agence" /></label>
+                  <label className="field-label quick-party-bank-field">Banque<BankSelect value={bank} onChange={setBank} /></label>
                 </div>
                 <label className="field-label">Note<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder={`Informations internes sur ce ${label}…`} /></label>
               </div>
@@ -2364,8 +2417,8 @@ function FinanceWorkspacePage({
   const activeEmployees = employees.filter((employee) => employee.status === "Actif");
   const monthlyPayroll = activeEmployees.reduce((sum, employee) => sum + employee.base_salary, 0);
   const paidThisMonth = salaryPayments.filter((payment) => payment.payroll_month === currentMonth).reduce((sum, payment) => sum + payment.amount, 0);
-  const salesRevenue = sales.filter((document) => document.type === "Facture").reduce((sum, document) => sum + Math.abs(document.total || numberFromDa(document.amount)), 0);
-  const purchasesCost = purchases.filter((document) => document.type === "Facture").reduce((sum, document) => sum + Math.abs(document.total || numberFromDa(document.amount)), 0);
+  const salesRevenue = sales.filter((document) => document.type === "Facture" || document.type === "Bon de livraison").reduce((sum, document) => sum + Math.abs(document.total || numberFromDa(document.amount)), 0);
+  const purchasesCost = purchases.filter((document) => document.type === "Facture" || document.type === "Bon d’achat").reduce((sum, document) => sum + Math.abs(document.total || numberFromDa(document.amount)), 0);
   const profit = salesRevenue - purchasesCost - expenses - charges;
   const presentToday = attendance.filter((entry) => entry.work_date === today && entry.status === "Présent").length;
   const filteredEmployees = employees.filter((employee) =>
@@ -2425,10 +2478,10 @@ function FinanceWorkspacePage({
               <span className="finance-card-footer">Ouvrir le journal <ArrowRight size={17} /></span>
             </button>
           </div>
-          <div className="finance-hub-footnote">
-            <span><i className="finance-dot finance-dot-in" /> Entrées {formatDa(incoming)}</span>
-            <span><i className="finance-dot finance-dot-out" /> Sorties {formatDa(outgoing)}</span>
-            <span><i className="finance-dot finance-dot-paid" /> Bénéfice {formatDa(profit)}</span>
+          <div className="finance-hub-footnote" aria-label="Résumé de trésorerie">
+            <span className="finance-hub-stat finance-hub-stat-in"><i className="finance-dot finance-dot-in" /><small>Entrées</small><strong>{formatDa(incoming)}</strong></span>
+            <span className="finance-hub-stat finance-hub-stat-out"><i className="finance-dot finance-dot-out" /><small>Sorties</small><strong>{formatDa(outgoing)}</strong></span>
+            <span className="finance-hub-stat finance-hub-stat-profit"><i className="finance-dot finance-dot-paid" /><small>Bénéfice</small><strong className={profit >= 0 ? "positive-number" : "negative-number"}>{formatDa(profit)}</strong></span>
           </div>
         </div>
       )}
@@ -3715,7 +3768,11 @@ function Dashboard({
   const productDonutBackground = productDonutSegments.length
     ? `conic-gradient(${productDonutSegments.join(", ")})`
     : "conic-gradient(#eef2ff 0 100%)";
-  const partyDocuments = partyDirection === "clients" ? filteredSales : filteredPurchases;
+  const partyDocuments = (partyDirection === "clients" ? filteredSales : filteredPurchases).filter((row) =>
+    partyDirection === "clients"
+      ? row.type === "Facture" || row.type === "Bon de livraison"
+      : row.type === "Facture" || row.type === "Bon d’achat",
+  );
   const partyTotals = new Map<string, number>();
   partyDocuments.forEach((row) => {
     partyTotals.set(row.party, (partyTotals.get(row.party) ?? 0) + amountOf(row));
@@ -3724,16 +3781,16 @@ function Dashboard({
     .sort((first, second) => second.value - first.value)
     .slice(0, 5);
   const maximumPartyAmount = Math.max(...partyRanking.map(({ value }) => value), 1);
-  const invoicedSales = filteredSales.filter((row) => row.type === "Facture");
+  const invoicedSales = filteredSales.filter((row) => row.type === "Facture" || row.type === "Bon de livraison");
   const recordedPurchases = filteredPurchases.filter((row) => row.type === "Facture" || row.type === "Bon d’achat");
   const activeClients = new Set(filteredSales.map((row) => row.party)).size;
   const activeSuppliers = new Set(filteredPurchases.map((row) => row.party)).size;
   const dashboardKpis: { value: string; label: string; trend: string; tone: string; icon: LucideIcon; direction: "up" | "down" }[] = [
-    { value: formatDa(invoicedSales.reduce((sum, row) => sum + Math.abs(row.total ?? amountOf(row)), 0)), label: "Chiffre d'Affaires", trend: `${invoicedSales.length} facture${invoicedSales.length === 1 ? "" : "s"}`, tone: "primary", icon: WalletCards, direction: "up" },
+    { value: formatDa(invoicedSales.reduce((sum, row) => sum + Math.abs(row.total ?? amountOf(row)), 0)), label: "Chiffre d'Affaires", trend: `${invoicedSales.length} document${invoicedSales.length === 1 ? "" : "s"}`, tone: "primary", icon: WalletCards, direction: "up" },
+    { value: formatDa(recordedPurchases.reduce((sum, row) => sum + Math.abs(row.total ?? amountOf(row)), 0)), label: "Achats enregistrés", trend: `${recordedPurchases.length} document${recordedPurchases.length === 1 ? "" : "s"}`, tone: "danger", icon: BarChart3, direction: "up" },
     { value: String(filteredSales.length), label: "Ventes", trend: `${filteredSales.length} vente${filteredSales.length === 1 ? "" : "s"} sur la période`, tone: "success", icon: ShoppingBasket, direction: "up" },
     { value: String(clients.length), label: "Clients", trend: `${activeClients} actif${activeClients === 1 ? "" : "s"}`, tone: "warning", icon: Users, direction: "up" },
     { value: String(suppliers.length), label: "Fournisseurs", trend: `${activeSuppliers} actif${activeSuppliers === 1 ? "" : "s"}`, tone: "info", icon: Truck, direction: "up" },
-    { value: formatDa(recordedPurchases.reduce((sum, row) => sum + Math.abs(row.total ?? amountOf(row)), 0)), label: "Achats enregistrés", trend: `${recordedPurchases.length} document${recordedPurchases.length === 1 ? "" : "s"}`, tone: "danger", icon: BarChart3, direction: "up" },
   ];
   return (
     <div className="dashboard">
@@ -5258,7 +5315,7 @@ function CreateModal({
                     <span className="input-with-icon"><ContactRound size={15} /><input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Nom et prénom" /></span>
                   </label>
                   <label className="field-label">Téléphone du contact<input inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} placeholder="0550 00 00 00" /></label>
-                  <label className="field-label">Fonction<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label>
+                  <label className="field-label">Statut<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label>
                 </div>
                 <div className="party-create-organization-grid client-organization-grid">
                   <label className="field-label">Adresse
@@ -5283,7 +5340,7 @@ function CreateModal({
                   <label className="field-label quick-party-rib-field">RIB
                     <input value={rib} onChange={(event) => setRib(event.target.value)} placeholder="Relevé d’identité bancaire" />
                   </label>
-                  <label className="field-label quick-party-bank-field">Banque<input value={bank} onChange={(event) => setBank(event.target.value)} placeholder="Banque / agence" /></label>
+                  <label className="field-label quick-party-bank-field">Banque<BankSelect value={bank} onChange={setBank} /></label>
                 </div>
                 <label className="field-label">Note<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Informations internes sur ce client…" /></label>
               </div>
@@ -5304,7 +5361,7 @@ function CreateModal({
                     <span className="input-with-icon"><ContactRound size={15} /><input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Nom et prénom" /></span>
                   </label>
                   <label className="field-label">Téléphone du contact<input inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} placeholder="0550 00 00 00" /></label>
-                  <label className="field-label">Fonction<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label>
+                  <label className="field-label">Statut<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label>
                 </div>
                 <div className="party-create-organization-grid">
                   <label className="field-label party-create-address-field">Adresse
@@ -5320,7 +5377,7 @@ function CreateModal({
                   <label className="field-label">RC<input value={rc} onChange={(event) => setRc(event.target.value)} placeholder="Registre commerce" /></label>
                   <label className="field-label">N° article<input value={taxArticle} onChange={(event) => setTaxArticle(event.target.value)} placeholder="Article fiscal" /></label>
                   <label className="field-label quick-party-rib-field">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} placeholder="Relevé d’identité bancaire" /></label>
-                  <label className="field-label quick-party-bank-field">Banque<input value={bank} onChange={(event) => setBank(event.target.value)} placeholder="Banque / agence" /></label>
+                  <label className="field-label quick-party-bank-field">Banque<BankSelect value={bank} onChange={setBank} /></label>
                 </div>
                 <label className="field-label">Note<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Informations internes sur ce fournisseur…" /></label>
               </div>
@@ -5386,7 +5443,7 @@ function ArticleFormModal({
     return [{ key: "default", clientCategory: "Tarif général", salePrice: article ? editableArticleNumber(article.sale_price) : "", marginPercent: editableArticleNumber(marginPercent), mode: "price" as const }];
   });
   const [stock, setStock] = useState(article?.stock ?? 0);
-  const [detailsOpen, setDetailsOpen] = useState(Boolean(article));
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const articlePhotoInput = useRef<HTMLInputElement | null>(null);
