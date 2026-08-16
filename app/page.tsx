@@ -1629,10 +1629,6 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
     const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
     const pdf = await PDFDocument.load(await response.arrayBuffer());
     const page = pdf.getPages()[0];
-    // Le modèle historique est en A5. Son contenu est agrandi proprement sur une page A4.
-    const a4Scale = Math.SQRT2;
-    page.setSize(595.28, 841.89);
-    page.scaleContent(a4Scale, a4Scale);
     const regular = await pdf.embedFont(StandardFonts.Helvetica);
     const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
     const white = rgb(1, 1, 1);
@@ -1663,7 +1659,7 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
     const partyCode = record.partyId
       ? `${direction === "purchases" ? "FR" : "CL"}${String(record.partyId).padStart(4, "0")}`
       : "—";
-    const lineHeight = 16;
+    const lineHeight = 18.3;
     const tableTop = 338;
     const rowCount = Math.max(1, printableLines.length);
     const tableBottom = tableTop - rowCount * lineHeight;
@@ -1675,15 +1671,14 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
       .replace(/[\u00a0\u202f]/g, " ")
       .replace(/\u0153/g, "oe")
       .replace(/\u0152/g, "OE");
-    const point = (value: number) => value * a4Scale;
     const fit = (value: string, x: number, y: number, maxWidth: number, size: number, font = regular, align: "left" | "right" = "left") => {
       const valueToDraw = text(value || "-");
-      let fontSize = size * 0.8;
-      while (fontSize > 4.5 && font.widthOfTextAtSize(valueToDraw, fontSize) > point(maxWidth)) fontSize -= 0.25;
+      let fontSize = size;
+      while (fontSize > 5.5 && font.widthOfTextAtSize(valueToDraw, fontSize) > maxWidth) fontSize -= 0.25;
       const width = font.widthOfTextAtSize(valueToDraw, fontSize);
-      page.drawText(valueToDraw, { x: align === "right" ? point(x) - width : point(x), y: point(y), size: fontSize, font, color: ink });
+      page.drawText(valueToDraw, { x: align === "right" ? x - width : x, y, size: fontSize, font, color: ink });
     };
-    const clear = (x: number, y: number, width: number, height: number) => page.drawRectangle({ x: point(x), y: point(y), width: point(width), height: point(height), color: white });
+    const clear = (x: number, y: number, width: number, height: number) => page.drawRectangle({ x, y, width, height, color: white });
 
     // The customer provided PDF remains the visual template. Only dynamic fields are masked and redrawn.
     clear(234, 388, 147, 54);
@@ -1691,36 +1686,36 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
     fit(record.party, 237, 415, 137, 9.5, regular);
     fit(partyAddress, 237, 396, 137, 9.2, regular);
     clear(10, 357, 135, 13);
-    fit(reference, 11, 360, 130, 8.2, bold);
-    clear(10, 388, 145, 25);
-    fit("BON DE LIVRAISON", 12, 400, 138, 10.4, bold);
+    fit(reference, 11, 360, 130, 7.8, bold);
+    clear(10, 400, 130, 30);
+    fit("BON DE LIVRAISON", 12, 414, 138, 9.8, bold);
     clear(9, contentBottom, 402, tableTop - contentBottom);
 
     const columns = [9, 61, 182, 265, 330, 411];
-    page.drawRectangle({ x: point(9), y: point(tableBottom), width: point(402), height: point(tableTop - tableBottom), color: white, borderColor: grid, borderWidth: 0.45 * a4Scale });
+    page.drawRectangle({ x: 9, y: tableBottom, width: 402, height: tableTop - tableBottom, color: white, borderColor: grid, borderWidth: 0.45 });
     for (let index = 1; index < columns.length - 1; index += 1) {
-      page.drawLine({ start: { x: point(columns[index]), y: point(tableBottom) }, end: { x: point(columns[index]), y: point(tableTop) }, thickness: 0.35 * a4Scale, color: grid });
+      page.drawLine({ start: { x: columns[index], y: tableBottom }, end: { x: columns[index], y: tableTop }, thickness: 0.35, color: grid });
     }
     for (let row = 1; row < rowCount; row += 1) {
       const y = tableTop - row * lineHeight;
-      page.drawLine({ start: { x: point(9), y: point(y) }, end: { x: point(411), y: point(y) }, thickness: 0.35 * a4Scale, color: grid });
+      page.drawLine({ start: { x: 9, y }, end: { x: 411, y }, thickness: 0.35, color: grid });
     }
     printableLines.forEach((line, index) => {
-      const baseline = tableTop - index * lineHeight - 10.7;
+      const baseline = tableTop - index * lineHeight - 12.2;
       const lineSubtotal = line.quantity * line.unit_price * (1 - line.discount_percent / 100);
-      fit(line.article_sku || `ART${String(line.article_id || index + 1).padStart(4, "0")}`, 12, baseline, 46, 7.2, regular);
-      fit(line.designation, 64, baseline, 114, 7.4, regular);
-      fit(String(line.quantity), 260, baseline, 75, 7.4, bold, "right");
-      fit(amount.format(line.unit_price), 326, baseline, 58, 7.4, bold, "right");
-      fit(amount.format(lineSubtotal), 407, baseline, 74, 7.4, bold, "right");
+      fit(line.article_sku || `ART${String(line.article_id || index + 1).padStart(4, "0")}`, 12, baseline, 46, 7.8, regular);
+      fit(line.designation, 64, baseline, 114, 8.3, regular);
+      fit(String(line.quantity), 260, baseline, 75, 8.3, bold, "right");
+      fit(amount.format(line.unit_price), 326, baseline, 58, 8.3, bold, "right");
+      fit(amount.format(lineSubtotal), 407, baseline, 74, 8.3, bold, "right");
     });
 
-    const totalY = tableBottom - 18;
-    clear(9, tableBottom - 72, 402, 72);
-    fit("Total Net à payer", 252, totalY, 88, 8.3, bold);
-    fit(`${amount.format(total)} DA`, 402, totalY, 84, 8.3, bold, "right");
-    fit("Le Gérant :", 224, totalY - 38, 70, 8, bold);
-    fit("Bejaia le ................", 302, totalY - 38, 105, 8, regular);
+    const totalY = tableBottom - 20;
+    fit("Total Net à payer", 252, totalY - 1, 88, 8.1, regular);
+    fit(`${amount.format(total)} DA`, 402, totalY - 1, 84, 8.1, regular, "right");
+    const signatureY = totalY - 42;
+    fit("Le Gérant :", 224, signatureY, 70, 8, bold);
+    fit("Bejaia le ................", 302, signatureY, 105, 8, regular);
 
     const bytes = await pdf.save();
     const pdfBytes = new Uint8Array(bytes.byteLength);
@@ -1764,7 +1759,7 @@ function PrintableDocument({
     ? `${direction === "purchases" ? "FR" : "CL"}${String(record.partyId).padStart(4, "0")}`
     : "—";
   const printableType = record.type === "Bon de livraison"
-    ? "BON DE LIVRAISON"
+    ? "Bon De Livraison"
     : record.type === "Bon d’achat"
       ? "Bon De Réception"
       : record.type === "Bon de commande"
