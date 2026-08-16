@@ -5,7 +5,10 @@ const nextConfig: NextConfig = {
     cpus: 1,
     optimizePackageImports: ["lucide-react"],
     webpackBuildWorker: false,
-    workerThreads: true,
+    // cPanel Passenger imposes a strict worker-thread quota. Using child
+    // processes for the static worker avoids ERR_WORKER_INIT_FAILED while
+    // keeping the build sequential (cpus=1 and webpack parallelism=1).
+    workerThreads: false,
   },
   webpack(config) {
     // Shared cPanel hosting enforces a very small process/thread quota.

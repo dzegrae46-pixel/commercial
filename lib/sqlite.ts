@@ -517,6 +517,13 @@ function normalizeLookup(value: unknown): string {
   // UTF-8 characters displayed as mojibake.  Normalising them here keeps both
   // those rows and normal browser input accepted by the document API.
   const text = cleanText(value)
+    // Accept both normal browser punctuation and labels saved by the older
+    // Windows build, where a curly apostrophe was sometimes stored as the
+    // mojibake sequence ``â€™``.
+    .replaceAll("â€™", "'")
+    .replaceAll("â€˜", "'")
+    .replaceAll("’", "'")
+    .replaceAll("‘", "'")
     .replaceAll("Ã©", "é")
     .replaceAll("Ã¨", "è")
     .replaceAll("Ãª", "ê")
@@ -547,13 +554,19 @@ function normalizeDocumentType(value: unknown): DocumentType {
   }
   const aliases: Record<string, DocumentType> = {
     devis: "quote",
+    "bon devis": "quote",
+    "bon de devis": "quote",
     quote: "quote",
     quotation: "quote",
+    "dev-v": "quote",
+    "dev-a": "quote",
     commande: "order",
     commandes: "order",
     order: "order",
     "bon de commande": "order",
     "bon de commandes": "order",
+    "bc-v": "order",
+    "bc-a": "order",
     livraison: "delivery",
     delivery: "delivery",
     "bon de livraison": "delivery",
@@ -561,9 +574,13 @@ function normalizeDocumentType(value: unknown): DocumentType {
     "bon de reception": "delivery",
     "bon d'achat": "delivery",
     "bon achat": "delivery",
+    ba: "delivery",
+    bl: "delivery",
     facture: "invoice",
     factures: "invoice",
     invoice: "invoice",
+    "fac-v": "invoice",
+    "fac-a": "invoice",
     retour: "return",
     retours: "return",
     return: "return",
