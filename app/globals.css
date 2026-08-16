@@ -8911,6 +8911,56 @@ td strong {
 .clients-table th:nth-child(8) { width: 150px; }
 .clients-table .identity-cell { align-items: flex-start; }
 
+/* Carte client inspirée du modèle KokonutUI card-09, reliée aux données locales. */
+.client-profile-grid {
+  display: grid;
+  gap: 22px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 320px));
+  justify-content: center;
+  padding: 28px 18px;
+}
+.client-profile-card {
+  background: #fff;
+  border-radius: 32px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .08);
+  min-width: 0;
+  padding: 8px;
+  position: relative;
+  transition: box-shadow .2s ease, transform .2s ease;
+}
+.client-profile-card:hover { box-shadow: 0 16px 30px rgba(15, 23, 42, .14); transform: translateY(-2px); }
+.client-profile-card-photo {
+  aspect-ratio: 1;
+  border: 2px solid #e5e7eb;
+  border-radius: 28px;
+  overflow: hidden;
+  width: 100%;
+}
+.client-profile-card-photo .entity-logo {
+  border-radius: 26px;
+  font-size: 42px;
+  height: 100%;
+  width: 100%;
+}
+.client-profile-card-photo .entity-logo svg { height: 54px; width: 54px; }
+.client-profile-card-photo .entity-photo { object-fit: cover; }
+.client-profile-card-content { margin: 23px auto 18px; width: 83.333%; }
+.client-profile-card-name { align-items: center; display: flex; gap: 8px; min-width: 0; }
+.client-profile-card-name h2 { color: #111827; font-size: 23px; font-weight: 650; letter-spacing: -.05em; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.client-profile-card-name svg { color: #10b981; flex: 0 0 auto; }
+.client-profile-card-content > p { color: #6b7280; font-size: 13px; line-height: 1.45; margin: 8px 0 0; min-height: 38px; overflow: hidden; }
+.client-profile-card-actions { align-items: center; display: flex; gap: 12px; margin-top: 22px; }
+.client-profile-card-actions > span { align-items: center; color: #9ca3af; display: inline-flex; gap: 7px; min-width: 0; }
+.client-profile-card-actions > span strong { color: #111827; font-size: 13px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.client-profile-card-actions > button { align-items: center; background: #f3f4f6; border: 0; border-radius: 999px; color: #111827; cursor: pointer; display: inline-flex; font-size: 14px; font-weight: 650; gap: 7px; justify-content: center; margin-left: auto; min-height: 43px; padding: 0 17px; transition: background .18s ease; }
+.client-profile-card-actions > button:hover { background: #e5e7eb; }
+.client-profile-card-menu { position: absolute; right: 16px; top: 16px; }
+.client-profile-card-menu .row-more { background: rgba(255,255,255,.88); box-shadow: 0 1px 5px rgba(15,23,42,.16); }
+.client-profile-empty { color: var(--muted); grid-column: 1 / -1; margin: 26px 0; text-align: center; }
+@media (max-width: 540px) {
+  .client-profile-grid { grid-template-columns: minmax(0, 320px); padding: 16px 8px; }
+}
+
 /* Fournisseurs reste entièrement visible, sans défilement horizontal. */
 .table-scroll:has(.suppliers-table) { overflow-x: hidden; }
 .suppliers-table { min-width: 0; }

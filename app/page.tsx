@@ -5,6 +5,7 @@ import {
   ArrowDownRight,
   ArrowRight,
   BarChart3,
+  BadgeCheck,
   Banknote,
   Ban,
   Bell,
@@ -1416,6 +1417,38 @@ function EmptyRow({ columns }: { columns: number }) {
   return <tr><td className="empty-row" colSpan={columns}>Aucun résultat pour ces critères.</td></tr>;
 }
 
+function ClientProfileCard({
+  client,
+  notify,
+  onOpen,
+  onEdit,
+  onBlock,
+  onSettle,
+  onDelete,
+}: {
+  client: ClientRecord;
+  notify: (message: string) => void;
+  onOpen: (client: ClientRecord) => void;
+  onEdit: (client: ClientRecord) => void;
+  onBlock: (client: ClientRecord) => void;
+  onSettle: (client: ClientRecord) => void;
+  onDelete: (name: string) => void;
+}) {
+  return <article className="client-profile-card">
+    <div className="client-profile-card-photo"><EntityLogo name={client.name} tone={client.color} kind="client" imageUrl={client.imageUrl} /></div>
+    <div className="client-profile-card-content">
+      <div className="client-profile-card-name"><h2>{client.name}</h2><BadgeCheck size={20} aria-label="Client vérifié" /></div>
+      <p>{client.clientCategory || client.email || "Client enregistré"}</p>
+      <div className="client-profile-card-actions">
+        <span><Users size={19} /><strong>{client.billed}</strong></span>
+        <span><WalletCards size={19} /><strong>{client.balance}</strong></span>
+        <button type="button" onClick={() => onOpen(client)} aria-label={`Ouvrir ${client.name}`}>Ouvrir <Eye size={18} /></button>
+      </div>
+    </div>
+    <div className="client-profile-card-menu"><RowActions label={client.name} notify={notify} onOpen={() => onOpen(client)} onEdit={() => onEdit(client)} extraActions={[{ label: client.balance === "0 DA" ? "Enregistrer une avance" : "Encaisser", icon: Banknote, onClick: () => onSettle(client) }, { label: client.isBlocked ? "Débloquer le client" : "Bloquer le client", icon: Ban, onClick: () => onBlock(client) }]} onDelete={() => onDelete(client.name)} /></div>
+  </article>;
+}
+
 function ClientsTable({
   rows,
   search,
@@ -1452,7 +1485,7 @@ function ClientsTable({
 
   return (
     <TableCard title="Tous les clients" count={`${filtered.length} clients`} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode}>
-      <table className="parties-table clients-table">
+      {viewMode === "grid" ? <div className="client-profile-grid">{filtered.map((client) => <ClientProfileCard key={client.name} client={client} notify={notify} onOpen={onOpen} onEdit={onEdit} onBlock={onBlock} onSettle={onSettle} onDelete={onDelete} />)}{!filtered.length && <p className="client-profile-empty">Aucun résultat pour ces critères.</p>}</div> : <table className="parties-table clients-table">
         <thead><tr><th>Client</th><th>Contact</th><th>Statut du contact</th><th>Total facturé</th><th>Solde</th><th>Compte</th><th>Dernière activité</th><th /></tr></thead>
         <tbody>
           {filtered.map((client) => (
@@ -1481,7 +1514,7 @@ function ClientsTable({
           ))}
           {!filtered.length && <EmptyRow columns={8} />}
         </tbody>
-      </table>
+      </table>}
     </TableCard>
   );
 }
@@ -1591,13 +1624,16 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
     const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
     const pdf = await PDFDocument.load(await response.arrayBuffer());
     const page = pdf.getPages()[0];
+    // Le modèle historique est en A5. Son contenu est agrandi proprement sur une page A4.
+    const a4Scale = Math.SQRT2;
+    page.setSize(595.28, 841.89);
+    page.scaleContent(a4Scale, a4Scale);
     const regular = await pdf.embedFont(StandardFonts.Helvetica);
     const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
     const white = rgb(1, 1, 1);
     const ink = rgb(0.1, 0.1, 0.1);
     const grid = rgb(0.74, 0.74, 0.74);
-    const orange = rgb(0.9, 0.31, 0);
-    const { document: record, direction, partyAddress = "", partyBalance = "0 DA" } = context;
+    const { document: record, direction, partyAddress = "" } = context;
     const lines = documentLinesFor(record);
     const printableLines = lines.length ? lines : [{
       article_id: 0,
@@ -1622,10 +1658,9 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
     const partyCode = record.partyId
       ? `${direction === "purchases" ? "FR" : "CL"}${String(record.partyId).padStart(4, "0")}`
       : "—";
-    const displayedDate = record.rawDate ? formatPrintDate(record.rawDate) : record.date;
-    const lineHeight = 18.3;
+    const lineHeight = 16;
     const tableTop = 338;
-    const rowCount = Math.max(2, printableLines.length);
+    const rowCount = Math.max(1, printableLines.length);
     const tableBottom = tableTop - rowCount * lineHeight;
     const contentBottom = Math.max(34, tableBottom - 90);
     const text = (value: string) => value
@@ -1635,14 +1670,15 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
       .replace(/[\u00a0\u202f]/g, " ")
       .replace(/\u0153/g, "oe")
       .replace(/\u0152/g, "OE");
+    const point = (value: number) => value * a4Scale;
     const fit = (value: string, x: number, y: number, maxWidth: number, size: number, font = regular, align: "left" | "right" = "left") => {
       const valueToDraw = text(value || "-");
-      let fontSize = size;
-      while (fontSize > 5.5 && font.widthOfTextAtSize(valueToDraw, fontSize) > maxWidth) fontSize -= 0.25;
+      let fontSize = size * 0.8;
+      while (fontSize > 4.5 && font.widthOfTextAtSize(valueToDraw, fontSize) > point(maxWidth)) fontSize -= 0.25;
       const width = font.widthOfTextAtSize(valueToDraw, fontSize);
-      page.drawText(valueToDraw, { x: align === "right" ? x - width : x, y, size: fontSize, font, color: ink });
+      page.drawText(valueToDraw, { x: align === "right" ? point(x) - width : point(x), y: point(y), size: fontSize, font, color: ink });
     };
-    const clear = (x: number, y: number, width: number, height: number) => page.drawRectangle({ x, y, width, height, color: white });
+    const clear = (x: number, y: number, width: number, height: number) => page.drawRectangle({ x: point(x), y: point(y), width: point(width), height: point(height), color: white });
 
     // The customer provided PDF remains the visual template. Only dynamic fields are masked and redrawn.
     clear(234, 388, 147, 54);
@@ -1650,44 +1686,36 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
     fit(record.party, 237, 415, 137, 9.5, regular);
     fit(partyAddress, 237, 396, 137, 9.2, regular);
     clear(10, 357, 135, 13);
-    fit(reference, 11, 360, 130, 9.7, bold);
+    fit(reference, 11, 360, 130, 8.2, bold);
+    clear(10, 388, 145, 25);
+    fit("BON DE LIVRAISON", 12, 400, 138, 10.4, bold);
     clear(9, contentBottom, 402, tableTop - contentBottom);
 
     const columns = [9, 61, 182, 265, 330, 411];
-    page.drawRectangle({ x: 9, y: tableBottom, width: 402, height: tableTop - tableBottom, color: white, borderColor: grid, borderWidth: 0.45 });
+    page.drawRectangle({ x: point(9), y: point(tableBottom), width: point(402), height: point(tableTop - tableBottom), color: white, borderColor: grid, borderWidth: 0.45 * a4Scale });
     for (let index = 1; index < columns.length - 1; index += 1) {
-      page.drawLine({ start: { x: columns[index], y: tableBottom }, end: { x: columns[index], y: tableTop }, thickness: 0.35, color: grid });
+      page.drawLine({ start: { x: point(columns[index]), y: point(tableBottom) }, end: { x: point(columns[index]), y: point(tableTop) }, thickness: 0.35 * a4Scale, color: grid });
     }
     for (let row = 1; row < rowCount; row += 1) {
       const y = tableTop - row * lineHeight;
-      page.drawLine({ start: { x: 9, y }, end: { x: 411, y }, thickness: 0.35, color: grid });
+      page.drawLine({ start: { x: point(9), y: point(y) }, end: { x: point(411), y: point(y) }, thickness: 0.35 * a4Scale, color: grid });
     }
     printableLines.forEach((line, index) => {
-      const baseline = tableTop - index * lineHeight - 12.2;
+      const baseline = tableTop - index * lineHeight - 10.7;
       const lineSubtotal = line.quantity * line.unit_price * (1 - line.discount_percent / 100);
-      fit(line.article_sku || `ART${String(line.article_id || index + 1).padStart(4, "0")}`, 12, baseline, 46, 8.3, regular);
-      fit(line.designation, 64, baseline, 114, 8.3, regular);
-      fit(String(line.quantity), 260, baseline, 75, 8.3, bold, "right");
-      fit(amount.format(line.unit_price), 326, baseline, 58, 8.3, bold, "right");
-      fit(amount.format(lineSubtotal), 407, baseline, 74, 8.3, bold, "right");
+      fit(line.article_sku || `ART${String(line.article_id || index + 1).padStart(4, "0")}`, 12, baseline, 46, 7.2, regular);
+      fit(line.designation, 64, baseline, 114, 7.4, regular);
+      fit(String(line.quantity), 260, baseline, 75, 7.4, bold, "right");
+      fit(amount.format(line.unit_price), 326, baseline, 58, 7.4, bold, "right");
+      fit(amount.format(lineSubtotal), 407, baseline, 74, 7.4, bold, "right");
     });
 
-    const noteY = tableBottom - 20;
-    const signatureY = noteY - 42;
-    fit("Le présent Commande Vente est arrêtée à la somme de :", 15, noteY, 220, 7.7, regular);
-    fit("Total Net a payé", 252, noteY - 1, 88, 8.1, regular);
-    fit(`${amount.format(total)} DA`, 402, noteY - 1, 84, 8.1, regular, "right");
-    fit(amountInFrenchWords(total), 18, noteY - 20, 210, 7.5, regular);
-    fit("En date du   :", 252, signatureY, 70, 8, bold);
-    fit(displayedDate, 322, signatureY, 75, 8, regular);
-    fit("Le Gérant   :", 252, signatureY - 17, 70, 8, bold);
-
-    clear(9, 6, 402, 18);
-    page.drawRectangle({ x: 9, y: 6, width: 402, height: 18, color: orange });
-    fit("Nombre d’articles :", 12, 12, 87, 8.5, regular);
-    fit(String(printableLines.length), 100, 12, 20, 8.5, bold);
-    fit("Solde Client", 219, 12, 76, 9.5, regular);
-    fit(`${amount.format(numberFromDa(partyBalance))} DA`, 377, 12, 98, 9.5, regular, "right");
+    const totalY = tableBottom - 18;
+    clear(9, tableBottom - 72, 402, 72);
+    fit("Total Net à payer", 252, totalY, 88, 8.3, bold);
+    fit(`${amount.format(total)} DA`, 402, totalY, 84, 8.3, bold, "right");
+    fit("Le Gérant :", 224, totalY - 38, 70, 8, bold);
+    fit("Bejaia le ................", 302, totalY - 38, 105, 8, regular);
 
     const bytes = await pdf.save();
     const pdfBytes = new Uint8Array(bytes.byteLength);
@@ -1731,7 +1759,7 @@ function PrintableDocument({
     ? `${direction === "purchases" ? "FR" : "CL"}${String(record.partyId).padStart(4, "0")}`
     : "—";
   const printableType = record.type === "Bon de livraison"
-    ? "Bon De Livraison"
+    ? "BON DE LIVRAISON"
     : record.type === "Bon d’achat"
       ? "Bon De Réception"
       : record.type === "Bon de commande"
@@ -3121,7 +3149,7 @@ function CategoryManagerModal({
   const availableNewSubcategories = selectedNewCategory?.subcategories ?? [];
   const selectedNewSubcategory = availableNewSubcategories.find((item) => item.name === newSubcategory);
   const availableNewThirdLevels = selectedNewSubcategory?.subcategories ?? [];
-  const categoryLabels = ["", "Catégorie", "Sous-catégorie", "Sous-sous-catégorie", "Sous-sous-sous-catégorie"];
+  const categoryLabels = ["", "Famille", "Sous-famille", "Catégorie", "Sous-catégorie"];
   const counts = [
     tree.length,
     tree.reduce((total, category) => total + category.subcategories.length, 0),
@@ -3271,14 +3299,14 @@ function CategoryManagerModal({
       <div className="category-manager-summary">{counts.map((count, index) => <div key={categoryLabels[index + 1]}><small>{categoryLabels[index + 1]}</small><strong>{count}</strong><span>{index === 0 ? "catégories" : "éléments"}</span></div>)}</div>
       {error && <p className="form-error" role="alert">{error}</p>}
       <form className="category-create-form" onSubmit={create}>
-        <div className="category-create-copy"><Plus size={16} /><span><strong>Ajouter</strong><small>Créez une catégorie ou une sous-catégorie vide.</small></span></div>
-        <label><span>Type</span><select value={newDepth} onChange={(event) => { setNewDepth(Number(event.target.value) as 1 | 2 | 3 | 4); setNewCategory(""); setNewSubcategory(""); setNewSubsubcategory(""); }}><option value={1}>Catégorie</option><option value={2}>Sous-catégorie</option><option value={3}>Sous-sous-catégorie</option><option value={4}>Sous-sous-sous-catégorie</option></select></label>
-        {newDepth >= 2 && <label><span>Catégorie parente</span><select value={newCategory} onChange={(event) => { setNewCategory(event.target.value); setNewSubcategory(""); setNewSubsubcategory(""); }} required><option value="">Choisir…</option>{tree.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>}
-        {newDepth >= 3 && <label><span>Sous-catégorie parente</span><select value={newSubcategory} onChange={(event) => { setNewSubcategory(event.target.value); setNewSubsubcategory(""); }} required><option value="">Choisir…</option>{availableNewSubcategories.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>}
-        {newDepth === 4 && <label><span>Sous-sous-catégorie parente</span><select value={newSubsubcategory} onChange={(event) => setNewSubsubcategory(event.target.value)} required><option value="">Choisir…</option>{availableNewThirdLevels.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>}
-        <label className="category-create-name"><span>Nom</span><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Nouvelle catégorie" required /></label><button type="submit" className="primary-button" disabled={Boolean(busyKey)}><Plus size={15} />Ajouter</button>
+        <div className="category-create-copy"><Plus size={16} /><span><strong>Ajouter</strong><small>Créez une famille ou une sous-famille vide.</small></span></div>
+        <label><span>Type</span><select value={newDepth} onChange={(event) => { setNewDepth(Number(event.target.value) as 1 | 2 | 3 | 4); setNewCategory(""); setNewSubcategory(""); setNewSubsubcategory(""); }}><option value={1}>Famille</option><option value={2}>Sous-famille</option><option value={3}>Catégorie</option><option value={4}>Sous-catégorie</option></select></label>
+        {newDepth >= 2 && <label><span>Famille parente</span><select value={newCategory} onChange={(event) => { setNewCategory(event.target.value); setNewSubcategory(""); setNewSubsubcategory(""); }} required><option value="">Choisir…</option>{tree.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>}
+        {newDepth >= 3 && <label><span>Sous-famille parente</span><select value={newSubcategory} onChange={(event) => { setNewSubcategory(event.target.value); setNewSubsubcategory(""); }} required><option value="">Choisir…</option>{availableNewSubcategories.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>}
+        {newDepth === 4 && <label><span>Catégorie parente</span><select value={newSubsubcategory} onChange={(event) => setNewSubsubcategory(event.target.value)} required><option value="">Choisir…</option>{availableNewThirdLevels.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>}
+        <label className="category-create-name"><span>Nom</span><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Nouvelle famille" required /></label><button type="submit" className="primary-button" disabled={Boolean(busyKey)}><Plus size={15} />Ajouter</button>
       </form>
-      <div className="category-tree-toolbar"><div><strong>Arborescence du catalogue</strong><span>Catégorie → Sous-catégorie → Sous-sous-catégorie → Sous-sous-sous-catégorie</span></div><label className="search-control"><Search size={14} /><input value={categorySearch} onChange={(event) => setCategorySearch(event.target.value)} placeholder="Rechercher une catégorie…" aria-label="Rechercher une catégorie" /></label><div><button type="button" onClick={() => setCollapsedBranches(new Set())}>Tout déplier</button><button type="button" onClick={() => setCollapsedBranches(new Set(branchKeys))}>Tout replier</button></div></div>
+      <div className="category-tree-toolbar"><div><strong>Arborescence du catalogue</strong><span>Famille → Sous-famille → Catégorie → Sous-catégorie</span></div><label className="search-control"><Search size={14} /><input value={categorySearch} onChange={(event) => setCategorySearch(event.target.value)} placeholder="Rechercher une famille…" aria-label="Rechercher une famille" /></label><div><button type="button" onClick={() => setCollapsedBranches(new Set())}>Tout déplier</button><button type="button" onClick={() => setCollapsedBranches(new Set(branchKeys))}>Tout replier</button></div></div>
       <div className="category-manager-tree" role="tree" aria-label="Arborescence des catégories">{visibleTree.map(renderCategory)}{!visibleTree.length && <div className="category-manager-empty"><Folder size={22} /><span>{categorySearch ? "Aucune catégorie trouvée." : "Aucune catégorie disponible."}</span></div>}</div>
       <div className="modal-actions"><button type="button" className="primary-button" onClick={onClose}>Terminé</button></div>
     </div>
