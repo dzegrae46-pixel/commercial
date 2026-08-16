@@ -1,5 +1,10 @@
 "use client";
 
+// The workspace is session-backed and must never be prerendered. Keeping the
+// route dynamic also avoids spawning a static-page worker on constrained
+// Passenger accounts.
+export const dynamic = "force-dynamic";
+
 import {
   ArrowLeft,
   ArrowDownRight,
