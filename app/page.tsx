@@ -1711,10 +1711,13 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
     });
 
     const totalY = tableBottom - 20;
-    fit("Total Net à payer", 252, totalY - 1, 88, 8.1, regular);
+    // Efface la signature imprimée du gabarit historique avant de redessiner
+    // la ligne dynamique, notamment quand le document ne contient qu'une ligne.
+    clear(220, 210, 190, 55);
+    fit("Total Net à payer", 252, totalY - 1, 88, 8.1, bold);
     fit(`${amount.format(total)} DA`, 402, totalY - 1, 84, 8.1, regular, "right");
     const signatureY = totalY - 42;
-    fit("Le Gérant :", 224, signatureY, 70, 8, bold);
+    fit("Le Gérant :", 210, signatureY, 70, 8, bold);
     fit("Bejaia le ................", 302, signatureY, 105, 8, regular);
 
     const bytes = await pdf.save();
