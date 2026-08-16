@@ -40,6 +40,7 @@ import {
   MessageSquareText,
   MoreHorizontal,
   Package,
+  Phone,
   Pencil,
   Plus,
   Printer,
@@ -66,6 +67,7 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { createTimeline } from "animejs";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 
@@ -1422,7 +1424,7 @@ function EmptyRow({ columns }: { columns: number }) {
   return <tr><td className="empty-row" colSpan={columns}>Aucun résultat pour ces critères.</td></tr>;
 }
 
-function ClientProfileCard({
+function LegacyClientProfileCard({
   client,
   notify,
   onOpen,
@@ -1451,6 +1453,55 @@ function ClientProfileCard({
       </div>
     </div>
     <div className="client-profile-card-menu"><RowActions label={client.name} notify={notify} onOpen={() => onOpen(client)} onEdit={() => onEdit(client)} extraActions={[{ label: client.balance === "0 DA" ? "Enregistrer une avance" : "Encaisser", icon: Banknote, onClick: () => onSettle(client) }, { label: client.isBlocked ? "Débloquer le client" : "Bloquer le client", icon: Ban, onClick: () => onBlock(client) }]} onDelete={() => onDelete(client.name)} /></div>
+  </article>;
+}
+
+function ClientProfileCard({
+  client,
+  notify,
+  onOpen,
+  onEdit,
+  onBlock,
+  onSettle,
+  onDelete,
+}: {
+  client: ClientRecord;
+  notify: (message: string) => void;
+  onOpen: (client: ClientRecord) => void;
+  onEdit: (client: ClientRecord) => void;
+  onBlock: (client: ClientRecord) => void;
+  onSettle: (client: ClientRecord) => void;
+  onDelete: (name: string) => void;
+}) {
+  const contact = client.contactName || client.contact || "Non renseigne";
+  const address = client.address || client.city || client.headOffice || "Adresse non renseignee";
+  const category = client.clientCategory || client.category || "Sans categorie";
+  const bank = client.bank || "Banque non renseignee";
+  return <article className="client-profile-card">
+    <div className="client-profile-card-menu"><RowActions label={client.name} notify={notify} onOpen={() => onOpen(client)} onEdit={() => onEdit(client)} extraActions={[{ label: client.balance === "0 DA" ? "Enregistrer une avance" : "Encaisser", icon: Banknote, onClick: () => onSettle(client) }, { label: client.isBlocked ? "Debloquer le client" : "Bloquer le client", icon: Ban, onClick: () => onBlock(client) }]} onDelete={() => onDelete(client.name)} /></div>
+    <div className="client-profile-card-header">
+      <div className="client-profile-card-photo"><EntityLogo name={client.name} tone={client.color} kind="client" imageUrl={client.imageUrl} /></div>
+      <div className="client-profile-card-identity">
+        <span className="client-profile-card-eyebrow">Client</span>
+        <div className="client-profile-card-name"><h2>{client.name}</h2><BadgeCheck size={17} aria-label="Client verifie" /></div>
+        <span className={`client-profile-card-status ${client.isBlocked ? "blocked" : ""}`}>{client.isBlocked ? "Bloque" : client.status || "Actif"}</span>
+      </div>
+    </div>
+    <div className="client-profile-card-summary" aria-label={`Montants de ${client.name}`}>
+      <div><small>Total facture</small><strong>{client.billed}</strong></div>
+      <div><small>Regle</small><strong>{client.paid}</strong></div>
+      <div><small>Credit</small><strong>{client.credit}</strong></div>
+      <div className="client-profile-card-balance"><small>Solde</small><strong>{client.balance}</strong></div>
+    </div>
+    <div className="client-profile-card-details">
+      <div><Phone size={14} /><span><small>Telephone</small><strong>{client.phone || "Non renseigne"}</strong></span></div>
+      <div><ContactRound size={14} /><span><small>Contact</small><strong>{contact}</strong></span></div>
+      <div><Mail size={14} /><span><small>E-mail</small><strong>{client.email || "Non renseigne"}</strong></span></div>
+      <div><MapPin size={14} /><span><small>Adresse</small><strong>{address}</strong></span></div>
+      <div><Building2 size={14} /><span><small>Categorie</small><strong>{category}</strong></span></div>
+      <div><WalletCards size={14} /><span><small>Banque</small><strong>{bank}</strong></span></div>
+    </div>
+    <div className="client-profile-card-footer"><span>{client.activity || "Aucune activite recente"}</span><button type="button" onClick={() => onOpen(client)} aria-label={`Ouvrir ${client.name}`}>Ouvrir <Eye size={16} /></button></div>
   </article>;
 }
 
@@ -2450,6 +2501,7 @@ function FinanceWorkspacePage({
   onEditSalaryPayment: (employee: EmployeeRecord, payment: SalaryPaymentRecord) => void;
 }) {
   const [section, setSection] = useState<"overview" | "charges" | "settlements" | "treasury" | "employees">("overview");
+  const workspaceRef = useRef<HTMLElement | null>(null);
   const filtered = entries.filter((entry) => `${entry.label} ${entry.category} ${entry.kind} ${entry.note}`.toLowerCase().includes(search.toLowerCase()));
   const expenses = entries.filter((entry) => entry.kind === "expense").reduce((total, entry) => total + entry.amount, 0);
   const charges = entries.filter((entry) => entry.kind === "charge").reduce((total, entry) => total + entry.amount, 0);
@@ -2485,8 +2537,21 @@ function FinanceWorkspacePage({
         ? "Trésorerie"
         : "Vue d’ensemble";
 
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    if (section !== "overview" || !workspace || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const timeline = createTimeline({ defaults: { duration: 620, ease: "outExpo" } });
+    timeline.label("start")
+      .add(workspace.querySelectorAll("[data-finance-heading]"), { opacity: [0, 1], y: [12, 0] }, "start")
+      .add(workspace.querySelectorAll("[data-finance-card]"), { opacity: [0, 1], y: [20, 0], delay: (_, index) => index * 70 }, "start+=90")
+      .add(workspace.querySelectorAll("[data-finance-stat]"), { opacity: [0, 1], y: [10, 0], delay: (_, index) => index * 70 }, "start+=260");
+
+    return () => timeline.revert();
+  }, [section]);
+
   return (
-    <section className={`table-card finance-workspace ${section === "overview" ? "finance-overview" : "finance-detail"}`}>
+    <section ref={workspaceRef} className={`table-card finance-workspace ${section === "overview" ? "finance-overview" : "finance-detail"}`}>
       <div className="table-header">
         <div className="table-title"><h1>Finance</h1><span>{section === "overview" ? "Vos chiffres essentiels en un coup d’œil" : sectionLabel}</span></div>
         <div className="table-actions">
@@ -2498,37 +2563,37 @@ function FinanceWorkspacePage({
 
       {section === "overview" && (
         <div className="finance-hub">
-          <div className="finance-hub-heading">
+          <div className="finance-hub-heading" data-finance-heading>
             <span>Centre financier</span>
             <h2>Où souhaitez-vous aller&nbsp;?</h2>
             <p>Chaque carte affiche l’indicateur le plus important. Cliquez dessus pour ouvrir son tableau détaillé et ses statistiques.</p>
           </div>
           <div className="finance-hub-grid">
-            <button type="button" className="finance-hub-card finance-card-charges" onClick={() => openSection("charges")}>
+            <button type="button" className="finance-hub-card finance-card-charges" data-finance-card onClick={() => openSection("charges")}>
               <span className="finance-card-top"><span className="finance-card-icon"><ReceiptText size={24} /></span><span className="finance-card-count">{entries.length} opération{entries.length === 1 ? "" : "s"}</span></span>
               <span className="finance-card-copy"><small>Charges &amp; dépenses</small><strong>{formatDa(expenses + charges)}</strong><span>Total engagé</span></span>
               <span className="finance-card-footer">Ouvrir le tableau <ArrowRight size={17} /></span>
             </button>
-            <button type="button" className="finance-hub-card finance-card-employees" onClick={() => openSection("employees")}>
+            <button type="button" className="finance-hub-card finance-card-employees" data-finance-card onClick={() => openSection("employees")}>
               <span className="finance-card-top"><span className="finance-card-icon"><Users size={24} /></span><span className="finance-card-count">{activeEmployees.length} actif{activeEmployees.length === 1 ? "" : "s"}</span></span>
               <span className="finance-card-copy"><small>Employés &amp; paie</small><strong>{formatDa(paidThisMonth)}</strong><span>Total payé ce mois</span></span>
               <span className="finance-card-footer">Gérer l’équipe <ArrowRight size={17} /></span>
             </button>
-            <button type="button" className="finance-hub-card finance-card-settlements" onClick={() => openSection("settlements")}>
+            <button type="button" className="finance-hub-card finance-card-settlements" data-finance-card onClick={() => openSection("settlements")}>
               <span className="finance-card-top"><span className="finance-card-icon"><Banknote size={24} /></span><span className="finance-card-count">{settlementRows.length} compte{settlementRows.length === 1 ? "" : "s"}</span></span>
               <span className="finance-card-copy"><small>Règlements</small><strong>{formatDa(settlementDue)}</strong><span>Reste à régler</span></span>
               <span className="finance-card-footer">Voir les états <ArrowRight size={17} /></span>
             </button>
-            <button type="button" className="finance-hub-card finance-card-treasury" onClick={() => openSection("treasury")}>
+            <button type="button" className="finance-hub-card finance-card-treasury" data-finance-card onClick={() => openSection("treasury")}>
               <span className="finance-card-top"><span className="finance-card-icon"><WalletCards size={24} /></span><span className="finance-card-count">{treasuryLedger.length} mouvement{treasuryLedger.length === 1 ? "" : "s"}</span></span>
               <span className="finance-card-copy"><small>Trésorerie</small><strong>{formatDa(incoming - outgoing)}</strong><span>Solde disponible</span></span>
               <span className="finance-card-footer">Ouvrir le journal <ArrowRight size={17} /></span>
             </button>
           </div>
           <div className="finance-hub-footnote" aria-label="Résumé de trésorerie">
-            <span className="finance-hub-stat finance-hub-stat-in"><i className="finance-dot finance-dot-in" /><small>Entrées</small><strong>{formatDa(incoming)}</strong></span>
-            <span className="finance-hub-stat finance-hub-stat-out"><i className="finance-dot finance-dot-out" /><small>Sorties</small><strong>{formatDa(outgoing)}</strong></span>
-            <span className="finance-hub-stat finance-hub-stat-profit"><i className="finance-dot finance-dot-paid" /><small>Bénéfice</small><strong className={profit >= 0 ? "positive-number" : "negative-number"}>{formatDa(profit)}</strong></span>
+            <span className="finance-hub-stat finance-hub-stat-in" data-finance-stat><i className="finance-dot finance-dot-in" /><small>Entrées</small><strong>{formatDa(incoming)}</strong></span>
+            <span className="finance-hub-stat finance-hub-stat-out" data-finance-stat><i className="finance-dot finance-dot-out" /><small>Sorties</small><strong>{formatDa(outgoing)}</strong></span>
+            <span className="finance-hub-stat finance-hub-stat-profit" data-finance-stat><i className="finance-dot finance-dot-paid" /><small>Bénéfice</small><strong className={profit >= 0 ? "positive-number" : "negative-number"}>{formatDa(profit)}</strong></span>
           </div>
         </div>
       )}
