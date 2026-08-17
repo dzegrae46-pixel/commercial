@@ -1733,16 +1733,20 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
 
     // The customer provided PDF remains the visual template. Only dynamic fields are masked and redrawn.
     clear(234, 388, 147, 54);
-    fit(partyCode, 237, 434, 137, 9.5, regular);
-    fit(record.party, 237, 415, 137, 9.5, regular);
-    fit(partyAddress, 237, 396, 137, 9.2, regular);
+    // The template labels sit a few points lower than their original dynamic
+    // values. Keep the values smaller and on the same baselines as the labels.
+    fit(partyCode, 237, 432, 137, 8.4, regular);
+    fit(record.party, 237, 413, 137, 8.4, regular);
+    fit(partyAddress, 237, 394, 137, 7.4, regular);
     clear(10, 357, 135, 13);
     fit(reference, 11, 360, 130, 7.8, bold);
     clear(10, 400, 130, 30);
     fit("BON DE LIVRAISON", 12, 414, 138, 9.8, bold);
     clear(9, contentBottom, 402, tableTop - contentBottom);
 
-    const columns = [9, 61, 182, 265, 330, 411];
+    // These are the exact separators of the supplied BL template. The second
+    // separator must stay at 217 so the body cells align with the header.
+    const columns = [9, 61, 217, 265, 330, 411];
     page.drawRectangle({ x: 9, y: tableBottom, width: 402, height: tableTop - tableBottom, color: white, borderColor: grid, borderWidth: 0.45 });
     for (let index = 1; index < columns.length - 1; index += 1) {
       page.drawLine({ start: { x: columns[index], y: tableBottom }, end: { x: columns[index], y: tableTop }, thickness: 0.35, color: grid });
@@ -1755,7 +1759,7 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
       const baseline = tableTop - index * lineHeight - 12.2;
       const lineSubtotal = line.quantity * line.unit_price * (1 - line.discount_percent / 100);
       fit(line.article_sku || `ART${String(line.article_id || index + 1).padStart(4, "0")}`, 12, baseline, 46, 7.8, regular);
-      fit(line.designation, 64, baseline, 114, 8.3, regular);
+      fit(line.designation, 64, baseline, 150, 8.3, regular);
       fit(String(line.quantity), 260, baseline, 75, 8.3, bold, "right");
       fit(amount.format(line.unit_price), 326, baseline, 58, 8.3, bold, "right");
       fit(amount.format(lineSubtotal), 407, baseline, 74, 8.3, bold, "right");
@@ -1768,8 +1772,8 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
     fit("Total Net à payer", 252, totalY - 1, 88, 8.1, bold);
     fit(`${amount.format(total)} DA`, 402, totalY - 1, 84, 8.1, regular, "right");
     const signatureY = totalY - 42;
-    fit("Le Gérant :", 115, signatureY, 70, 8, bold);
-    fit("Bejaia le ................", 302, signatureY, 105, 8, regular);
+    fit("Tizi Ouzou le : ................", 302, signatureY, 105, 7.7, regular);
+    fit("Le Gérant :", 302, signatureY - 18, 70, 8, bold);
 
     const bytes = await pdf.save();
     const pdfBytes = new Uint8Array(bytes.byteLength);
