@@ -8453,7 +8453,7 @@ td strong {
 
 .print-preview-backdrop .print-manager-signature > div {
   display: grid;
-  grid-template-columns: 20mm minmax(0, 1fr);
+  grid-template-columns: 28mm minmax(0, 1fr);
 }
 
 .print-preview-backdrop .print-manager-signature strong { font-weight: 500; }

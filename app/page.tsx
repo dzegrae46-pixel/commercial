@@ -1575,6 +1575,55 @@ function ClientsTable({
   );
 }
 
+function SupplierProfileCard({
+  supplier,
+  notify,
+  onOpen,
+  onEdit,
+  onBlock,
+  onSettle,
+  onDelete,
+}: {
+  supplier: SupplierRecord;
+  notify: (message: string) => void;
+  onOpen: (supplier: SupplierRecord) => void;
+  onEdit: (supplier: SupplierRecord) => void;
+  onBlock: (supplier: SupplierRecord) => void;
+  onSettle: (supplier: SupplierRecord) => void;
+  onDelete: (name: string) => void;
+}) {
+  const contact = supplier.contactName || supplier.contact || "Non renseigné";
+  const address = supplier.address || supplier.city || supplier.headOffice || "Adresse non renseignée";
+  const category = supplier.category || "Sans catégorie";
+  const bank = supplier.bank || "Banque non renseignée";
+  return <article className="client-profile-card">
+    <div className="client-profile-card-menu"><RowActions label={supplier.name} notify={notify} onOpen={() => onOpen(supplier)} onEdit={() => onEdit(supplier)} extraActions={[{ label: supplier.balance === "0 DA" ? "Enregistrer une avance" : "Payer", icon: Banknote, onClick: () => onSettle(supplier) }, { label: supplier.isBlocked ? "Débloquer le fournisseur" : "Bloquer le fournisseur", icon: Ban, onClick: () => onBlock(supplier) }]} onDelete={() => onDelete(supplier.name)} /></div>
+    <div className="client-profile-card-header">
+      <div className="client-profile-card-photo"><EntityLogo name={supplier.name} tone={supplier.color} kind="supplier" imageUrl={supplier.imageUrl} /></div>
+      <div className="client-profile-card-identity">
+        <span className="client-profile-card-eyebrow">Fournisseur</span>
+        <div className="client-profile-card-name"><h2>{supplier.name}</h2><BadgeCheck size={17} aria-label="Fournisseur vérifié" /></div>
+        <span className={`client-profile-card-status ${supplier.isBlocked ? "blocked" : ""}`}>{supplier.isBlocked ? "Bloqué" : supplier.status || "Actif"}</span>
+      </div>
+    </div>
+    <div className="client-profile-card-summary" aria-label={`Montants de ${supplier.name}`}>
+      <div><small>Total achats</small><strong>{supplier.purchases}</strong></div>
+      <div><small>Réglé</small><strong>{supplier.paid}</strong></div>
+      <div><small>Crédit</small><strong>{supplier.credit}</strong></div>
+      <div className="client-profile-card-balance"><small>Solde</small><strong>{supplier.balance}</strong></div>
+    </div>
+    <div className="client-profile-card-details">
+      <div><Phone size={14} /><span><small>Téléphone</small><strong>{supplier.phone || "Non renseigné"}</strong></span></div>
+      <div><ContactRound size={14} /><span><small>Contact</small><strong>{contact}</strong></span></div>
+      <div><Mail size={14} /><span><small>E-mail</small><strong>{supplier.email || "Non renseigné"}</strong></span></div>
+      <div><MapPin size={14} /><span><small>Adresse</small><strong>{address}</strong></span></div>
+      <div><Building2 size={14} /><span><small>Catégorie</small><strong>{category}</strong></span></div>
+      <div><WalletCards size={14} /><span><small>Banque</small><strong>{bank}</strong></span></div>
+    </div>
+    <div className="client-profile-card-footer"><span>{supplier.category ? `Catégorie : ${supplier.category}` : "Aucune activité récente"}</span><button type="button" onClick={() => onOpen(supplier)} aria-label={`Ouvrir ${supplier.name}`}>Ouvrir <Eye size={16} /></button></div>
+  </article>;
+}
+
 function SuppliersTable({
   rows,
   search,
@@ -1611,7 +1660,7 @@ function SuppliersTable({
 
   return (
     <TableCard title="Tous les fournisseurs" count={`${filtered.length} fournisseurs`} search={search} setSearch={setSearch} filterActive={filterActive} setFilterActive={setFilterActive} viewMode={viewMode} setViewMode={setViewMode}>
-      <table className="parties-table suppliers-table">
+      {viewMode === "grid" ? <div className="client-profile-grid">{filtered.map((supplier) => <SupplierProfileCard key={supplier.name} supplier={supplier} notify={notify} onOpen={onOpen} onEdit={onEdit} onBlock={onBlock} onSettle={onSettle} onDelete={onDelete} />)}{!filtered.length && <p className="client-profile-empty">Aucun résultat pour ces critères.</p>}</div> : <table className="parties-table suppliers-table">
         <thead><tr><th>Fournisseur</th><th>Contact</th><th>Statut du contact</th><th>Catégorie</th><th>Total achats</th><th>Solde</th><th>Compte</th><th /></tr></thead>
         <tbody>
           {filtered.map((supplier) => (
@@ -1640,7 +1689,7 @@ function SuppliersTable({
           ))}
           {!filtered.length && <EmptyRow columns={8} />}
         </tbody>
-      </table>
+      </table>}
     </TableCard>
   );
 }
@@ -1685,7 +1734,7 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
     const white = rgb(1, 1, 1);
     const ink = rgb(0.1, 0.1, 0.1);
     const grid = rgb(0.74, 0.74, 0.74);
-    const { document: record, direction, partyAddress = "" } = context;
+    const { document: record, direction, partyAddress = "", partyBalance = "" } = context;
     const lines = documentLinesFor(record);
     const printableLines = lines.length ? lines : [{
       article_id: 0,
@@ -1705,6 +1754,7 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
       return sum + net * line.tax_rate / 100;
     }, 0);
     const total = record.total ?? subtotal - discountAmount + taxAmount;
+    const displayedDate = record.rawDate ? formatPrintDate(record.rawDate) : record.date;
     const amount = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const reference = record.number;
     const partyCode = record.partyId
@@ -1722,12 +1772,12 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
       .replace(/[\u00a0\u202f]/g, " ")
       .replace(/\u0153/g, "oe")
       .replace(/\u0152/g, "OE");
-    const fit = (value: string, x: number, y: number, maxWidth: number, size: number, font = regular, align: "left" | "right" = "left") => {
+    const fit = (value: string, x: number, y: number, maxWidth: number, size: number, font = regular, align: "left" | "right" = "left", color = ink) => {
       const valueToDraw = text(value || "-");
       let fontSize = size;
       while (fontSize > 5.5 && font.widthOfTextAtSize(valueToDraw, fontSize) > maxWidth) fontSize -= 0.25;
       const width = font.widthOfTextAtSize(valueToDraw, fontSize);
-      page.drawText(valueToDraw, { x: align === "right" ? x - width : x, y, size: fontSize, font, color: ink });
+      page.drawText(valueToDraw, { x: align === "right" ? x - width : x, y, size: fontSize, font, color });
     };
     const clear = (x: number, y: number, width: number, height: number) => page.drawRectangle({ x, y, width, height, color: white });
 
@@ -1744,9 +1794,8 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
     fit("BON DE LIVRAISON", 12, 414, 138, 9.8, bold);
     clear(9, contentBottom, 402, tableTop - contentBottom);
 
-    // These are the exact separators of the supplied BL template. The second
-    // separator must stay at 217 so the body cells align with the header.
-    const columns = [9, 61, 217, 265, 330, 411];
+    // These are the exact separators of the supplied BL template.
+    const columns = [9, 68, 217, 265, 330, 411];
     page.drawRectangle({ x: 9, y: tableBottom, width: 402, height: tableTop - tableBottom, color: white, borderColor: grid, borderWidth: 0.45 });
     for (let index = 1; index < columns.length - 1; index += 1) {
       page.drawLine({ start: { x: columns[index], y: tableBottom }, end: { x: columns[index], y: tableTop }, thickness: 0.35, color: grid });
@@ -1758,8 +1807,8 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
     printableLines.forEach((line, index) => {
       const baseline = tableTop - index * lineHeight - 12.2;
       const lineSubtotal = line.quantity * line.unit_price * (1 - line.discount_percent / 100);
-      fit(line.article_sku || `ART${String(line.article_id || index + 1).padStart(4, "0")}`, 12, baseline, 46, 7.8, regular);
-      fit(line.designation, 64, baseline, 150, 8.3, regular);
+       fit(line.article_sku || `ART${String(line.article_id || index + 1).padStart(4, "0")}`, 12, baseline, 52, 7.8, regular);
+       fit(line.designation, 71, baseline, 142, 8.3, regular);
       fit(String(line.quantity), 260, baseline, 75, 8.3, bold, "right");
       fit(amount.format(line.unit_price), 326, baseline, 58, 8.3, bold, "right");
       fit(amount.format(lineSubtotal), 407, baseline, 74, 8.3, bold, "right");
@@ -1772,8 +1821,22 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
     fit("Total Net à payer", 252, totalY - 1, 88, 8.1, bold);
     fit(`${amount.format(total)} DA`, 402, totalY - 1, 84, 8.1, regular, "right");
     const signatureY = totalY - 42;
-    fit("Tizi Ouzou le : ................", 302, signatureY, 105, 7.7, regular);
-    fit("Le Gérant :", 302, signatureY - 18, 70, 8, bold);
+    fit("Tizi Ouzou le :", 252, signatureY, 57, 7.7, bold);
+    fit(displayedDate, 407, signatureY, 82, 7.7, regular, "right");
+    fit("Le Gérant", 252, signatureY - 18, 57, 8, bold);
+
+    // Extend and refresh the orange footer so it reaches both page edges while
+    // keeping the article count and client balance at the same visual size.
+    const { width: pageWidth } = page.getSize();
+    const footerOrange = rgb(215 / 255, 79 / 255, 0);
+    const footerY = 6;
+    const footerHeight = 19;
+    page.drawRectangle({ x: 0, y: footerY, width: pageWidth, height: footerHeight, color: footerOrange });
+    const footerTextSize = 8.3;
+    fit("Nombre d'articles :", 12, 12, 82, footerTextSize, bold, "left", white);
+    fit(String(printableLines.length), 101, 12, 18, footerTextSize, bold, "left", white);
+    fit(direction === "purchases" ? "Solde Fournisseur" : "Solde Client", 219, 12, 82, footerTextSize, bold, "left", white);
+    fit(partyBalance ? `${amount.format(numberFromDa(partyBalance))} DA` : "-", 407, 12, 94, footerTextSize, bold, "right", white);
 
     const bytes = await pdf.save();
     const pdfBytes = new Uint8Array(bytes.byteLength);
@@ -1816,8 +1879,8 @@ function PrintableDocument({
   const partyCode = record.partyId
     ? `${direction === "purchases" ? "FR" : "CL"}${String(record.partyId).padStart(4, "0")}`
     : "—";
-  const printableType = record.type === "Bon de livraison"
-    ? "Bon De Livraison"
+   const printableType = record.type === "Bon de livraison"
+     ? "BON DE LIVRAISON"
     : record.type === "Bon d’achat"
       ? "Bon De Réception"
       : record.type === "Bon de commande"
@@ -1947,8 +2010,8 @@ function PrintableDocument({
       </section>
 
       <section className="print-manager-signature">
-        <div><span>Imprimé à {company.city} le :</span><strong>{displayedDate}</strong></div>
-        <div><span>Le Gérant :</span><i /></div>
+        <div><span>Tizi Ouzou le :</span><strong>{displayedDate}</strong></div>
+        <div><span>Le Gérant</span><i /></div>
       </section>
       </article>
     </div>,
@@ -2267,19 +2330,22 @@ function PartyEditorModal({ party, kind, clientCategories = [], onClose, onSaved
     </div>}</section>
     {error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div>
   </form></div>;
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card expanded-modal party-editor-modal compact-field-modal" role="dialog" aria-modal="true" aria-labelledby="party-edit-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
-    <div className="modal-header"><div><h2 id="party-edit-title">Modifier {kind === "client" ? "le client" : "le fournisseur"}</h2><p>Coordonnées et informations fiscales complètes.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
-    <div className="party-editor-sections">
-      <section>
-        <div className="form-section-label"><ContactRound size={15} /><span>Identité et contact</span></div>
-        <div className="entity-photo-upload"><EntityLogo name={name || party.name} tone={party.color} kind={kind} imageUrl={imageUrl} /><div><strong>Photo du {kind === "client" ? "client" : "fournisseur"}</strong><small>PNG, JPG ou WebP · 1,5 Mo maximum</small><span><button type="button" className="secondary-button" onClick={() => photoInput.current?.click()}><Upload size={15} /> Importer</button>{imageUrl && <button type="button" className="text-button danger-text" onClick={() => setImageUrl("")}>Supprimer</button>}</span></div><input ref={photoInput} className="hidden-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void readUploadedImage(file).then(setImageUrl).catch((reason: Error) => setError(reason.message)); }} /></div>
-        <div className="form-grid"><label className="field-label">Nom<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label className="field-label">Téléphone<input inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} /></label><label className="field-label">E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label></div>
-        <div className="form-section-label contact-subsection"><ContactRound size={15} /><span>Contact principal</span></div>
-        <div className="form-grid form-grid-three"><label className="field-label">Nom du contact<input value={contactName} onChange={(event) => setContactName(event.target.value)} /></label><label className="field-label">Téléphone du contact<input inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} /></label><label className="field-label">Statut<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label></div>
-      </section>
-      <section><div className="form-section-label"><MapPin size={15} /><span>Adresse et organisation</span></div><div className="form-grid"><label className="field-label form-field-wide">Adresse<input value={address} onChange={(event) => setAddress(event.target.value)} /></label>{kind === "supplier" && <label className="field-label">Siège social<input value={headOffice} onChange={(event) => setHeadOffice(event.target.value)} /></label>}{kind === "client" ? <label className="field-label">Catégorie client<select value={clientCategory} onChange={(event) => setClientCategory(event.target.value)}><option value="">Sans catégorie</option>{availableClientCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label> : <label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} /></label>}</div></section>
-      <section><div className="form-section-label"><ReceiptText size={15} /><span>Informations fiscales et bancaires</span></div><div className="form-grid"><label className="field-label">NIF<input value={nif} onChange={(event) => setNif(event.target.value)} /></label><label className="field-label">NIS<input value={nis} onChange={(event) => setNis(event.target.value)} /></label><label className="field-label">RC<input value={rc} onChange={(event) => setRc(event.target.value)} /></label><label className="field-label">N° article<input value={taxArticle} onChange={(event) => setTaxArticle(event.target.value)} /></label><label className="field-label form-field-wide">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} /></label><label className="field-label">Banque<BankSelect value={bank} onChange={setBank} /></label></div><label className="field-label party-note-field">Note<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Informations internes sur ce tiers…" /></label></section>
-    </div>
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className={`modal-card compact-field-modal party-create-modal ${detailsOpen ? "expanded-modal" : ""}`} autoComplete="off" role="dialog" aria-modal="true" aria-labelledby="party-edit-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
+    <div className="modal-header"><div><h2 id="party-edit-title">Modifier le fournisseur</h2><p>Modifiez sa fiche sans quitter votre espace.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
+    <label className="field-label">Nom<input autoFocus value={name} onChange={(event) => setName(event.target.value)} required placeholder="Nom complet" /></label>
+    <div className="entity-photo-upload create-photo-upload"><EntityLogo name={name || party.name} tone={party.color} kind="supplier" imageUrl={imageUrl} /><div><strong>Photo du fournisseur</strong><small>PNG, JPG ou WebP · 1,5 Mo maximum</small><span><button type="button" className="secondary-button" onClick={() => photoInput.current?.click()}><Upload size={15} /> Importer</button>{imageUrl && <button type="button" className="text-button danger-text" onClick={() => setImageUrl("")}>Supprimer</button>}</span></div><input ref={photoInput} className="hidden-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void readUploadedImage(file).then(setImageUrl).catch((reason: Error) => setError(reason.message)); }} /></div>
+    <div className="form-grid"><label className="field-label">Téléphone<input inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="0550 00 00 00" /></label><label className="field-label">E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="contact@entreprise.dz" /></label></div>
+    <section className={`expandable-form-section ${detailsOpen ? "open" : ""}`}>
+      <button type="button" className="expand-form-button" aria-expanded={detailsOpen} onClick={() => setDetailsOpen((value) => !value)}><span><ContactRound size={16} /> Contact, adresse et siège</span><ChevronDown size={16} /></button>
+      {detailsOpen && <div className="expanded-fields party-expanded-fields">
+        <div className="form-section-label"><ContactRound size={15} /><span>Contact fournisseur</span></div>
+        <div className="party-create-contact-grid"><label className="field-label">Nom du contact<span className="input-with-icon"><ContactRound size={15} /><input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Nom et prénom" /></span></label><label className="field-label">Téléphone du contact<input inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} placeholder="0550 00 00 00" /></label><label className="field-label">Statut<select value={contactStatus} onChange={(event) => setContactStatus(event.target.value)}><option>Directeur</option><option>Administration</option><option>Divers</option></select></label></div>
+        <div className="party-create-organization-grid"><label className="field-label party-create-address-field">Adresse<span className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Rue, zone, bâtiment" /></span></label><label className="field-label">Siège social<span className="input-with-icon"><Building2 size={15} /><input value={headOffice} onChange={(event) => setHeadOffice(event.target.value)} placeholder="Adresse du siège" /></span></label><label className="field-label">Catégorie<input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Informatique, transport…" /></label></div>
+        <div className="form-section-label fiscal-label"><ReceiptText size={15} /><span>Informations fiscales</span><small>Facultatif</small></div>
+        <div className="form-grid quick-party-fiscal-grid"><label className="field-label">NIF<input value={nif} onChange={(event) => setNif(event.target.value)} placeholder="N° fiscal" /></label><label className="field-label">NIS<input value={nis} onChange={(event) => setNis(event.target.value)} placeholder="N° statistique" /></label><label className="field-label">RC<input value={rc} onChange={(event) => setRc(event.target.value)} placeholder="Registre commerce" /></label><label className="field-label">N° article<input value={taxArticle} onChange={(event) => setTaxArticle(event.target.value)} placeholder="Article fiscal" /></label><label className="field-label quick-party-rib-field">RIB<input value={rib} onChange={(event) => setRib(event.target.value)} placeholder="Relevé d’identité bancaire" /></label><label className="field-label quick-party-bank-field">Banque<BankSelect value={bank} onChange={setBank} /></label></div>
+        <label className="field-label">Note<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Informations internes sur ce fournisseur…" /></label>
+      </div>}
+    </section>
     {error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={saving}><Save size={16} />{saving ? "Enregistrement…" : "Enregistrer"}</button></div>
   </form></div>;
 }
@@ -3480,7 +3546,7 @@ function ArticlesTable({
   return (
     <section className={`table-card articles-catalog view-${viewMode}`}>
       <div className="table-header">
-        <div className="table-title"><h1>Catalogue articles</h1><span>{loading ? "Connexion à SQLite…" : `${filtered.length} articles`}</span></div>
+        <div className="table-title"><span>{loading ? "Connexion à SQLite…" : `${filtered.length} articles`}</span></div>
         <div className="table-actions">
           <label className="search-control"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nom, référence, famille, catégorie…" aria-label="Rechercher dans le catalogue et les catégories" />{search && <button type="button" aria-label="Effacer la recherche" onClick={() => setSearch("")}><X size={14} /></button>}</label>
           <div className="article-hierarchy-filters" aria-label="Filtres de l’arborescence du catalogue">
