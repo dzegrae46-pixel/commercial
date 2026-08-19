@@ -2617,7 +2617,9 @@ function FinanceWorkspacePage({
       .add(workspace.querySelectorAll("[data-finance-card]"), { opacity: [0, 1], y: [20, 0], delay: (_, index) => index * 70 }, "start+=90")
       .add(workspace.querySelectorAll("[data-finance-stat]"), { opacity: [0, 1], y: [10, 0], delay: (_, index) => index * 70 }, "start+=260");
 
-    return () => timeline.revert();
+    return () => {
+      timeline.revert();
+    };
   }, [section]);
 
   return (
