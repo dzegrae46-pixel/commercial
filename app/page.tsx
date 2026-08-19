@@ -1779,6 +1779,13 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
       const width = font.widthOfTextAtSize(valueToDraw, fontSize);
       page.drawText(valueToDraw, { x: align === "right" ? x - width : x, y, size: fontSize, font, color });
     };
+    const fitCenter = (value: string, x: number, y: number, cellWidth: number, size: number, font = bold, color = ink) => {
+      const valueToDraw = text(value || "-");
+      let fontSize = size;
+      while (fontSize > 5.5 && font.widthOfTextAtSize(valueToDraw, fontSize) > cellWidth - 6) fontSize -= 0.25;
+      const width = font.widthOfTextAtSize(valueToDraw, fontSize);
+      page.drawText(valueToDraw, { x: x + (cellWidth - width) / 2, y, size: fontSize, font, color });
+    };
     const clear = (x: number, y: number, width: number, height: number) => page.drawRectangle({ x, y, width, height, color: white });
 
     // The customer provided PDF remains the visual template. Only dynamic fields are masked and redrawn.
@@ -1787,7 +1794,7 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
     // values. Keep the values smaller and on the same baselines as the labels.
     fit(partyCode, 237, 432, 137, 8.4, regular);
     fit(record.party, 237, 413, 137, 8.4, regular);
-    fit(partyAddress, 237, 394, 137, 8.4, regular);
+    fit(partyAddress, 237, 394, 144, 8.4, regular);
     clear(10, 357, 135, 13);
     fit(reference, 11, 360, 130, 7.8, bold);
     clear(10, 400, 130, 30);
@@ -1796,6 +1803,18 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
 
     // These are the exact separators of the supplied BL template.
     const columns = [9, 68, 217, 265, 330, 411];
+    const headerBottom = tableTop;
+    const headerTop = tableTop + 18;
+    const headerFill = rgb(0.86, 0.86, 0.86);
+    page.drawRectangle({ x: 9, y: headerBottom, width: 402, height: headerTop - headerBottom, color: headerFill, borderColor: grid, borderWidth: 0.45 });
+    for (let index = 1; index < columns.length - 1; index += 1) {
+      page.drawLine({ start: { x: columns[index], y: headerBottom }, end: { x: columns[index], y: headerTop }, thickness: 0.35, color: grid });
+    }
+    fitCenter("Réf Article", columns[0], headerBottom + 6, columns[1] - columns[0], 7.1);
+    fitCenter("Libellé Article", columns[1], headerBottom + 6, columns[2] - columns[1], 7.1);
+    fitCenter("Qté", columns[2], headerBottom + 6, columns[3] - columns[2], 7.1);
+    fitCenter("Prix_HT", columns[3], headerBottom + 6, columns[4] - columns[3], 7.1);
+    fitCenter("Sous_Total", columns[4], headerBottom + 6, columns[5] - columns[4], 7.1);
     page.drawRectangle({ x: 9, y: tableBottom, width: 402, height: tableTop - tableBottom, color: white, borderColor: grid, borderWidth: 0.45 });
     for (let index = 1; index < columns.length - 1; index += 1) {
       page.drawLine({ start: { x: columns[index], y: tableBottom }, end: { x: columns[index], y: tableTop }, thickness: 0.35, color: grid });
@@ -1813,6 +1832,10 @@ const openDeliveryNotePdf = async (company: CompanySettings, context: DocumentCo
       fit(amount.format(line.unit_price), 326, baseline, 58, 8.3, bold, "right");
       fit(amount.format(lineSubtotal), 407, baseline, 74, 8.3, bold, "right");
     });
+
+    // Hide the template's old vertical edge remnants below the article table.
+    clear(6, contentBottom, 8, tableBottom - contentBottom);
+    clear(408, contentBottom, 8, tableBottom - contentBottom);
 
     const totalY = tableBottom - 20;
     // Efface la signature imprimée du gabarit historique avant de redessiner
@@ -2475,7 +2498,8 @@ function QuickPartyCreateModal({
 }
 
 function SettlementModal({ party, kind, originDocument, onClose, onSaved }: { party: PartyRow; kind: "client" | "supplier"; originDocument?: DocumentRecord; onClose: () => void; onSaved: (payment: PaymentRecord) => void }) {
-  const remaining = numberFromDa(party.balance);
+  const openingBalance = useRef(numberFromDa(party.balance));
+  const remaining = openingBalance.current;
   const credit = numberFromDa(party.credit);
   const [amount, setAmount] = useState(remaining > 0 ? remaining : 0);
   const [method, setMethod] = useState("Espèces");
@@ -2486,8 +2510,7 @@ function SettlementModal({ party, kind, originDocument, onClose, onSaved }: { pa
   const savedDocumentTitle = originDocument
     ? `${originDocument.type} ${originDocument.type === "Facture" ? "enregistrée" : "enregistré"}`
     : "";
-  const projectedBalance = Math.max(0, remaining - amount);
-  const projectedCredit = Math.max(0, credit + amount - remaining);
+  const projectedBalance = remaining > 0 ? Math.max(0, remaining - amount) : credit + amount;
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError("");
     try {
@@ -2500,7 +2523,7 @@ function SettlementModal({ party, kind, originDocument, onClose, onSaved }: { pa
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal-card compact-modal" role="dialog" aria-modal="true" aria-labelledby="settlement-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
     <div className="modal-header"><div><h2 id="settlement-title">{originDocument ? savedDocumentTitle : remaining > 0 ? "Régler" : "Enregistrer une avance"} {originDocument ? "" : party.name}</h2><p>{originDocument ? `${originDocument.number} · ${party.name} · régler maintenant ou plus tard` : `${kind === "client" ? "Encaissement client" : "Paiement fournisseur"} · solde ${party.balance} · crédit ${formatDa(credit)}`}</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></div>
     <div className="form-grid"><label className="field-label">Montant (DA)<input type="number" min="1" step="1" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value))} required /></label><label className="field-label">Date<input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} required /></label></div><label className="field-label">Mode<select value={method} onChange={(event) => setMethod(event.target.value)}><option>Espèces</option><option>Virement</option><option>Chèque</option><option>Carte</option></select></label><label className="field-label">Note (facultatif)<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>
-    <div className="settlement-balance-preview"><span><small>Ancien solde</small><strong>{formatDa(remaining)}</strong></span><span><small>Nouveau solde</small><strong>{formatDa(projectedBalance)}</strong></span><span><small>Crédit après paiement</small><strong>{formatDa(projectedCredit)}</strong></span></div>
+    <div className="settlement-balance-preview"><span><small>Ancien solde</small><strong>{formatDa(remaining)}</strong></span><span><small>Nouveau solde</small><strong>{formatDa(projectedBalance)}</strong></span></div>
     <p className="settlement-advance-note"><Banknote size={15} /> Un montant supérieur au solde devient automatiquement un crédit disponible pour ce tiers.</p>
     {error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>{originDocument ? "Plus tard" : "Annuler"}</button><button className="primary-button" disabled={saving}><Banknote size={16} />{saving ? "Enregistrement…" : kind === "client" ? "Encaisser maintenant" : "Payer maintenant"}</button></div>
   </form></div>;
